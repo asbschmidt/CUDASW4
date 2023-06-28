@@ -80,8 +80,27 @@ void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const seque
 
 */
 struct DBdataView{
-    DBdataView(const DBdata& dbData_, size_t first_, size_t last_) 
-        : firstSequence(first_), lastSequence_excl(last_), dbData(&dbData_){
+    DBdataView(const DBdata& parent) 
+        : firstSequence(0), 
+        lastSequence_excl(parent.numSequences()), 
+        parentChars(parent.chars()),
+        parentLengths(parent.lengths()),
+        parentOffsets(parent.offsets()),
+        parentHeaders(parent.headers()),
+        parentHeaderOffsets(parent.headerOffsets())
+    {
+
+    }
+
+    DBdataView(const DBdataView& parent, size_t first_, size_t last_) 
+        : firstSequence(first_), 
+        lastSequence_excl(last_), 
+        parentChars(parent.chars()),
+        parentLengths(parent.lengths()),
+        parentOffsets(parent.offsets()),
+        parentHeaders(parent.headers()),
+        parentHeaderOffsets(parent.headerOffsets())
+    {
 
     }
 
@@ -90,44 +109,48 @@ struct DBdataView{
     }
 
     size_t numChars() const noexcept{
-        return dbData->offsets()[lastSequence_excl] - dbData->offsets()[firstSequence];
+        return parentOffsets[lastSequence_excl] - parentOffsets[firstSequence];
     }
 
     const char* chars() const noexcept{
-        return dbData->chars();
+        return parentChars;
     }
 
     const size_t* lengths() const noexcept{
-        return dbData->lengths() + firstSequence;
+        return parentLengths + firstSequence;
     }
 
     const size_t* offsets() const noexcept{
-        return dbData->offsets() + firstSequence;
+        return parentOffsets + firstSequence;
     }
 
     const char* headers() const noexcept{
-        return dbData->headers();
+        return parentHeaders;
     }
 
     const size_t* headerOffsets() const noexcept{
-        return dbData->headerOffsets() + firstSequence;
+        return parentHeaderOffsets + firstSequence;
     }
     
 private:
     size_t firstSequence;
     size_t lastSequence_excl;
 
-    const DBdata* dbData;
+    const char* parentChars;
+    const size_t* parentLengths;
+    const size_t* parentOffsets;
+    const char* parentHeaders;
+    const size_t* parentHeaderOffsets;
 };
 
 
 void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const sequence_batch& batch);
 
 
-std::vector<DBdataView> partitionDBdata_by_numberOfSequences(const DBdata& dbData, size_t maxNumSequencesPerPartition);
+std::vector<DBdataView> partitionDBdata_by_numberOfSequences(const DBdataView& parent, size_t maxNumSequencesPerPartition);
 //partitions have the smallest number of chars that is at least numCharsPerPartition. (with the exception of last partition)
-std::vector<DBdataView> partitionDBdata_by_numberOfChars(const DBdata& dbData, size_t numCharsPerPartition);
+std::vector<DBdataView> partitionDBdata_by_numberOfChars(const DBdataView& parent, size_t numCharsPerPartition);
 
-void assertValidPartitioning(const std::vector<DBdataView>& views, const DBdata& dbData);
+void assertValidPartitioning(const std::vector<DBdataView>& views, const DBdataView& parent);
 
 #endif

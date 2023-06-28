@@ -87,43 +87,43 @@ void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const seque
 
 
 
-std::vector<DBdataView> partitionDBdata_by_numberOfSequences(const DBdata& dbData, size_t maxNumSequencesPerPartition){
+std::vector<DBdataView> partitionDBdata_by_numberOfSequences(const DBdataView& parent, size_t maxNumSequencesPerPartition){
 
-    const size_t numSequences = dbData.numSequences();
+    const size_t numSequences = parent.numSequences();
     std::vector<DBdataView> result;
 
     for(size_t i = 0; i < numSequences; i += maxNumSequencesPerPartition){
         const size_t numInPartition = std::min(maxNumSequencesPerPartition, numSequences - i);
-        result.emplace_back(dbData, i, i + numInPartition);
+        result.emplace_back(parent, i, i + numInPartition);
     }
 
     return result;
 }
 
 //partitions have the smallest number of chars such that is at least numCharsPerPartition. (with the exception of last partition)
-std::vector<DBdataView> partitionDBdata_by_numberOfChars(const DBdata& dbData, size_t numCharsPerPartition){
+std::vector<DBdataView> partitionDBdata_by_numberOfChars(const DBdataView& parent, size_t numCharsPerPartition){
 
-    const size_t numChars = dbData.numChars();
+    const size_t numChars = parent.numChars();
 
     std::vector<size_t> bucketLimits(1,0);
     size_t currentBegin = 0;
     while(currentBegin < numChars){
         const size_t searchBegin = currentBegin + numCharsPerPartition;
-        const auto it = std::upper_bound(dbData.offsets(), dbData.offsets() + dbData.numSequences()+1, searchBegin);
-        if(it == dbData.offsets() + dbData.numSequences()+1){
-            bucketLimits.push_back(dbData.numSequences());
+        const auto it = std::upper_bound(parent.offsets(), parent.offsets() + parent.numSequences()+1, searchBegin);
+        if(it == parent.offsets() + parent.numSequences()+1){
+            bucketLimits.push_back(parent.numSequences());
             currentBegin = numChars;
         }else{
-            const size_t dist = std::distance(dbData.offsets(), it);
+            const size_t dist = std::distance(parent.offsets(), it);
             bucketLimits.push_back(dist);
-            currentBegin = dbData.offsets()[dist];
+            currentBegin = parent.offsets()[dist];
         }
     }
 
     const size_t numPartitions = bucketLimits.size()-1;
     std::vector<DBdataView> result;
     for(int p = 0; p < numPartitions; p++){
-        result.emplace_back(dbData, bucketLimits[p], bucketLimits[p+1]);
+        result.emplace_back(parent, bucketLimits[p], bucketLimits[p+1]);
     }
 
     return result;
@@ -131,7 +131,7 @@ std::vector<DBdataView> partitionDBdata_by_numberOfChars(const DBdata& dbData, s
 
 
 
-void assertValidPartitioning(const std::vector<DBdataView>& views, const DBdata& dbData){
+void assertValidPartitioning(const std::vector<DBdataView>& views, const DBdataView& parent){
     const int numPartitions = views.size();
 
     std::vector<size_t> partitionOffsets(numPartitions+1, 0);
@@ -145,33 +145,33 @@ void assertValidPartitioning(const std::vector<DBdataView>& views, const DBdata&
     //     [](const auto& v){return v.numSequences();}
     // );
 
-    assert(dbData.numSequences() == totalNumSequencesInViews);
+    assert(parent.numSequences() == totalNumSequencesInViews);
 
     #pragma omp parallel for
     for(int p = 0; p < numPartitions; p++){
         const DBdataView& view = views[p];
 
         for(size_t i = 0; i < view.numSequences(); i++){
-            assert(view.lengths()[i] == dbData.lengths()[partitionOffsets[p] + i]);
-            assert(view.offsets()[i] == dbData.offsets()[partitionOffsets[p] + i]);
-            assert(view.headerOffsets()[i] == dbData.headerOffsets()[partitionOffsets[p] + i]);
+            assert(view.lengths()[i] == parent.lengths()[partitionOffsets[p] + i]);
+            assert(view.offsets()[i] == parent.offsets()[partitionOffsets[p] + i]);
+            assert(view.headerOffsets()[i] == parent.headerOffsets()[partitionOffsets[p] + i]);
 
             const char* const viewSeqEnd = view.chars() + view.offsets()[i] + view.lengths()[i];
-            const char* const dbSeqEnd =  dbData.chars() + dbData.offsets()[partitionOffsets[p] + i] + dbData.lengths()[i];
+            const char* const dbSeqEnd =  parent.chars() + parent.offsets()[partitionOffsets[p] + i] + parent.lengths()[i];
             auto mismatchSeq = std::mismatch(
                 view.chars() + view.offsets()[i],
                 viewSeqEnd,
-                dbData.chars() + dbData.offsets()[partitionOffsets[p] + i],
+                parent.chars() + parent.offsets()[partitionOffsets[p] + i],
                 dbSeqEnd
             );
             assert(mismatchSeq.first == viewSeqEnd || mismatchSeq.second == dbSeqEnd);
 
             const char* const viewHeaderEnd = view.headers() + view.headerOffsets()[i+1];
-            const char* const dbHeaderEnd =  dbData.headers() + dbData.headerOffsets()[partitionOffsets[p] + i+1];
+            const char* const dbHeaderEnd =  parent.headers() + parent.headerOffsets()[partitionOffsets[p] + i+1];
             auto mismatchHeader = std::mismatch(
                 view.headers() + view.headerOffsets()[i],
                 viewHeaderEnd,
-                dbData.headers() + dbData.headerOffsets()[partitionOffsets[p] + i],
+                parent.headers() + parent.headerOffsets()[partitionOffsets[p] + i],
                 dbHeaderEnd
             );
             assert(mismatchHeader.first == viewHeaderEnd || mismatchHeader.second == dbHeaderEnd);

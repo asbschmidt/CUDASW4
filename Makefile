@@ -3,7 +3,7 @@ DIALECT      = -std=c++14
 OPTIMIZATION = -O3
 WARNINGS     = -Xcompiler="-Wall -Wextra"
 # NVCC_FLAGS   = -arch=sm_61 -lineinfo --expt-relaxed-constexpr -rdc=true
-NVCC_FLAGS   = -arch=sm_70 -lineinfo --expt-relaxed-constexpr -rdc=true --extended-lambda -res-usage -Xcompiler="-fopenmp"
+NVCC_FLAGS   = -arch=sm_80 -lineinfo --expt-relaxed-constexpr -rdc=true --extended-lambda -res-usage -Xcompiler="-fopenmp"
 LDFLAGS      = -Xcompiler="-pthread -s"  $(NVCC_FLAGS)
 COMPILER     = nvcc
 ARTIFACT     = align

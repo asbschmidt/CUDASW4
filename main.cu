@@ -1742,7 +1742,7 @@ void NW_local_affine_Protein_many_pass_half2(
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
 template <int group_size, int numRegs> 
-__launch_bounds__(512)
+//__launch_bounds__(512)
 __global__
 void NW_local_affine_Protein_single_pass_half2(
     const char * devChars,
@@ -5048,6 +5048,8 @@ int main(int argc, char* argv[])
         int oldId;
         cudaGetDevice(&oldId);
         cudaSetDevice(deviceId); CUERR;
+
+        ws.deviceId = deviceId;
 
         cudaMalloc(&ws.devChars, charBytes); CUERR
         cudaMalloc(&ws.devOffsets, offsetBytes); CUERR
