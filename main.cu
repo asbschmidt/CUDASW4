@@ -4877,6 +4877,7 @@ struct GpuWorkingSet{
     cudaStream_t stream0;
     cudaStream_t stream1;
     cudaStream_t stream2;
+    cudaStream_t stream3;
     cudaEvent_t forkStreamEvent;
     int* h_numSelectedPerPartition = nullptr;
     //size_t* dev_sorted_indices = nullptr;
@@ -4888,7 +4889,7 @@ struct GpuWorkingSet{
 
 template <int group_size, int numRegs> 
 __global__
-void process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein(
+void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein(
     const int* d_overflow_number,
     const char * devChars,
     float * devAlignmentScores,
@@ -4937,15 +4938,16 @@ void processQueryOnGpu(
     constexpr auto boundaries = getLengthPartitionBoundaries();
     constexpr int numLengthPartitions = boundaries.size();
 
-    struct CopyNextBatchParams{
+    struct CopyParams{
+        int numBuffers = 3;
         //chars, lengths, and offsets
         const void* src[3];
         void* dst[3];
         size_t bytes[3];
     };
-    auto copyNextBatchToPinned = [](void* args){
-        const CopyNextBatchParams* params = (const CopyNextBatchParams*)args;
-        for(int i = 0; i < 3; i++){
+    auto copyBuffersToPinned = [](void* args){
+        const CopyParams* params = (const CopyParams*)args;
+        for(int i = 0; i < params->numBuffers; i++){
             std::memcpy(params->dst[i], params->src[i], params->bytes[i]);
         }
         delete params;
@@ -4966,18 +4968,110 @@ void processQueryOnGpu(
 
     // transfer for first batch
     if ((dbPartitions.size() > 1) || isFirstQuery) {
-        const auto& firstPartition = dbPartitions[0];
+        const auto& nextPartition = dbPartitions[0];
 
-        cudaMemcpyAsync(ws.devChars_2[0], firstPartition.chars() + firstPartition.offsets()[0], firstPartition.numChars(), cudaMemcpyHostToDevice, mainStream); CUERR
-        cudaMemcpyAsync(ws.devOffsets_2[0], firstPartition.offsets(), sizeof(size_t) * firstPartition.numSequences(), cudaMemcpyHostToDevice, mainStream); CUERR
-        cudaMemcpyAsync(ws.devLengths_2[0], firstPartition.lengths(), sizeof(size_t) * firstPartition.numSequences(), cudaMemcpyHostToDevice, mainStream); CUERR
-        //convert from offsets in dbPartition to offsets in ws.devChars_2
+        // CopyParams* copyParams = new CopyParams;
+        // copyParams->numBuffers = 3;
+        // copyParams->src[0] = (const void*)(nextPartition.chars() + nextPartition.offsets()[0]);
+        // copyParams->dst[0] = (void*)(ws.buf_host_Chars_2);
+        // copyParams->bytes[0] = nextPartition.numChars();
+
+        // copyParams->src[1] = (const void*)(nextPartition.offsets());
+        // copyParams->dst[1] = (void*)(ws.buf_host_Offsets_2);
+        // copyParams->bytes[1] = sizeof(size_t) * nextPartition.numSequences();
+
+        // copyParams->src[2] = (const void*)(nextPartition.lengths());
+        // copyParams->dst[2] = (void*)(ws.buf_host_Lengths_2);
+        // copyParams->bytes[2] = sizeof(size_t) * nextPartition.numSequences();
+
+        // cudaLaunchHostFunc(
+        //     mainStream, 
+        //     copyBuffersToPinned, 
+        //     copyParams
+        // ); CUERR
+        // cudaMemcpyAsync(
+        //     ws.devChars_2[0], 
+        //     ws.buf_host_Chars_2, 
+        //     nextPartition.numChars(), 
+        //     cudaMemcpyHostToDevice, 
+        //     mainStream); CUERR
+        // cudaMemcpyAsync(
+        //     ws.devOffsets_2[0], 
+        //     ws.buf_host_Offsets_2, 
+        //     sizeof(size_t) * nextPartition.numSequences(), 
+        //     cudaMemcpyHostToDevice, 
+        //     mainStream); CUERR
+        // cudaMemcpyAsync(
+        //     ws.devLengths_2[0], 
+        //     ws.buf_host_Lengths_2, 
+        //     sizeof(size_t) * nextPartition.numSequences(), 
+        //     cudaMemcpyHostToDevice, 
+        //     mainStream); CUERR
+
+        CopyParams* copyParams0 = new CopyParams;
+        copyParams0->numBuffers = 1;
+        copyParams0->src[0] = (const void*)(nextPartition.chars() + nextPartition.offsets()[0]);
+        copyParams0->dst[0] = (void*)(ws.buf_host_Chars_2);
+        copyParams0->bytes[0] = nextPartition.numChars();
+
+        cudaLaunchHostFunc(
+            mainStream, 
+            copyBuffersToPinned, 
+            copyParams0
+        ); CUERR
+
+        //transfer chars to gpu in different stream to overlap d2h transfer with copy to pinned of the other buffers
+        cudaEventRecord(ws.forkStreamEvent, mainStream);
+        cudaStreamWaitEvent(ws.stream3, ws.forkStreamEvent, 0);
+        cudaMemcpyAsync(
+            ws.devChars_2[0], 
+            ws.buf_host_Chars_2, 
+            nextPartition.numChars(), 
+            cudaMemcpyHostToDevice, 
+            ws.stream3); CUERR
+        cudaEventRecord(ws.forkStreamEvent, ws.stream3);
+
+        CopyParams* copyParams1 = new CopyParams;
+        copyParams1->numBuffers = 2;
+        copyParams1->src[0] = (const void*)(nextPartition.offsets());
+        copyParams1->dst[0] = (void*)(ws.buf_host_Offsets_2);
+        copyParams1->bytes[0] = sizeof(size_t) * nextPartition.numSequences();
+
+        copyParams1->src[1] = (const void*)(nextPartition.lengths());
+        copyParams1->dst[1] = (void*)(ws.buf_host_Lengths_2);
+        copyParams1->bytes[1] = sizeof(size_t) * nextPartition.numSequences();
+
+        cudaLaunchHostFunc(
+            mainStream, 
+            copyBuffersToPinned, 
+            copyParams1
+        ); CUERR      
+
+        cudaMemcpyAsync(
+            ws.devOffsets_2[0], 
+            ws.buf_host_Offsets_2, 
+            sizeof(size_t) * nextPartition.numSequences(), 
+            cudaMemcpyHostToDevice, 
+            mainStream); CUERR
+        cudaMemcpyAsync(
+            ws.devLengths_2[0], 
+            ws.buf_host_Lengths_2, 
+            sizeof(size_t) * nextPartition.numSequences(), 
+            cudaMemcpyHostToDevice, 
+            mainStream); CUERR
+
+        cudaStreamWaitEvent(mainStream, ws.forkStreamEvent, 0);
+
+        // cudaMemcpyAsync(ws.devChars_2[0], firstPartition.chars() + firstPartition.offsets()[0], firstPartition.numChars(), cudaMemcpyHostToDevice, mainStream); CUERR
+        // cudaMemcpyAsync(ws.devOffsets_2[0], firstPartition.offsets(), sizeof(size_t) * firstPartition.numSequences(), cudaMemcpyHostToDevice, mainStream); CUERR
+        // cudaMemcpyAsync(ws.devLengths_2[0], firstPartition.lengths(), sizeof(size_t) * firstPartition.numSequences(), cudaMemcpyHostToDevice, mainStream); CUERR
+        // //convert from offsets in dbPartition to offsets in ws.devChars_2
         thrust::for_each(
             thrust::cuda::par_nosync.on(mainStream),
             ws.devOffsets_2[0],
-            ws.devOffsets_2[0] + firstPartition.numSequences(),
+            ws.devOffsets_2[0] + nextPartition.numSequences(),
             [
-                diff = firstPartition.offsets()[0]
+                diff = nextPartition.offsets()[0]
             ] __device__ (size_t& dOffset){
                 dOffset -= diff;
             }
@@ -4986,7 +5080,7 @@ void processQueryOnGpu(
 
     std::cout << "Starting NW_local_affine_half2 for Query " << query_num << "\n";
     dp_cells = avg_length_2 * queryLength;
-    TIMERSTART_CUDA_STREAM(NW_local_affine_half2_query_Protein, mainStream)
+    //TIMERSTART_CUDA_STREAM(NW_local_affine_half2_query_Protein, mainStream)
     
     for (int batch=0; batch<int(dbPartitions.size()); batch++) {
         const auto& currentPartition = dbPartitions[batch];
@@ -5121,30 +5215,82 @@ void processQueryOnGpu(
                     #else
 
 
-                        CopyNextBatchParams* copyParams = new CopyNextBatchParams;
-                        copyParams->src[0] = (const void*)(nextPartition.chars() + nextPartition.offsets()[0]);
-                        copyParams->dst[0] = (void*)(ws.buf_host_Chars_2);
-                        copyParams->bytes[0] = nextPartition.numChars();
+                        // CopyParams* copyParams = new CopyParams;
+                        // copyParams->src[0] = (const void*)(nextPartition.chars() + nextPartition.offsets()[0]);
+                        // copyParams->dst[0] = (void*)(ws.buf_host_Chars_2);
+                        // copyParams->bytes[0] = nextPartition.numChars();
 
-                        copyParams->src[1] = (const void*)(nextPartition.offsets());
-                        copyParams->dst[1] = (void*)(ws.buf_host_Offsets_2);
-                        copyParams->bytes[1] = sizeof(size_t) * nextPartition.numSequences();
+                        // copyParams->src[1] = (const void*)(nextPartition.offsets());
+                        // copyParams->dst[1] = (void*)(ws.buf_host_Offsets_2);
+                        // copyParams->bytes[1] = sizeof(size_t) * nextPartition.numSequences();
 
-                        copyParams->src[2] = (const void*)(nextPartition.lengths());
-                        copyParams->dst[2] = (void*)(ws.buf_host_Lengths_2);
-                        copyParams->bytes[2] = sizeof(size_t) * nextPartition.numSequences();
+                        // copyParams->src[2] = (const void*)(nextPartition.lengths());
+                        // copyParams->dst[2] = (void*)(ws.buf_host_Lengths_2);
+                        // copyParams->bytes[2] = sizeof(size_t) * nextPartition.numSequences();
+
+                        // cudaLaunchHostFunc(
+                        //     mainStream, 
+                        //     copyBuffersToPinned, 
+                        //     copyParams
+                        // ); CUERR
+                        // cudaMemcpyAsync(
+                        //     ws.devChars_2[target], 
+                        //     ws.buf_host_Chars_2, 
+                        //     nextPartition.numChars(), 
+                        //     cudaMemcpyHostToDevice, 
+                        //     mainStream); CUERR
+                        // cudaMemcpyAsync(
+                        //     ws.devOffsets_2[target], 
+                        //     ws.buf_host_Offsets_2, 
+                        //     sizeof(size_t) * nextPartition.numSequences(), 
+                        //     cudaMemcpyHostToDevice, 
+                        //     mainStream); CUERR
+                        // cudaMemcpyAsync(
+                        //     ws.devLengths_2[target], 
+                        //     ws.buf_host_Lengths_2, 
+                        //     sizeof(size_t) * nextPartition.numSequences(), 
+                        //     cudaMemcpyHostToDevice, 
+                        //     mainStream); CUERR
+
+                        CopyParams* copyParams0 = new CopyParams;
+                        copyParams0->numBuffers = 1;
+                        copyParams0->src[0] = (const void*)(nextPartition.chars() + nextPartition.offsets()[0]);
+                        copyParams0->dst[0] = (void*)(ws.buf_host_Chars_2);
+                        copyParams0->bytes[0] = nextPartition.numChars();
 
                         cudaLaunchHostFunc(
                             mainStream, 
-                            copyNextBatchToPinned, 
-                            copyParams
+                            copyBuffersToPinned, 
+                            copyParams0
                         ); CUERR
+
+                        //transfer chars to gpu in different stream to overlap d2h transfer with copy to pinned of the other buffers
+                        cudaEventRecord(ws.forkStreamEvent, mainStream);
+                        cudaStreamWaitEvent(ws.stream3, ws.forkStreamEvent, 0);
                         cudaMemcpyAsync(
                             ws.devChars_2[target], 
                             ws.buf_host_Chars_2, 
                             nextPartition.numChars(), 
                             cudaMemcpyHostToDevice, 
-                            mainStream); CUERR
+                            ws.stream3); CUERR
+                        cudaEventRecord(ws.forkStreamEvent, ws.stream3);
+
+                        CopyParams* copyParams1 = new CopyParams;
+                        copyParams1->numBuffers = 2;
+                        copyParams1->src[0] = (const void*)(nextPartition.offsets());
+                        copyParams1->dst[0] = (void*)(ws.buf_host_Offsets_2);
+                        copyParams1->bytes[0] = sizeof(size_t) * nextPartition.numSequences();
+
+                        copyParams1->src[1] = (const void*)(nextPartition.lengths());
+                        copyParams1->dst[1] = (void*)(ws.buf_host_Lengths_2);
+                        copyParams1->bytes[1] = sizeof(size_t) * nextPartition.numSequences();
+
+                        cudaLaunchHostFunc(
+                            mainStream, 
+                            copyBuffersToPinned, 
+                            copyParams1
+                        ); CUERR                        
+
                         cudaMemcpyAsync(
                             ws.devOffsets_2[target], 
                             ws.buf_host_Offsets_2, 
@@ -5157,6 +5303,8 @@ void processQueryOnGpu(
                             sizeof(size_t) * nextPartition.numSequences(), 
                             cudaMemcpyHostToDevice, 
                             mainStream); CUERR
+
+                        cudaStreamWaitEvent(mainStream, ws.forkStreamEvent, 0);
 
                     #endif
 
@@ -5173,19 +5321,32 @@ void processQueryOnGpu(
                     );
                 }
 
+                launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32, 12><<<1,1,0, ws.stream1>>>(
+                    ws.d_overflow_number,
+                    ws.devChars_2[source], 
+                    &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), 
+                    (short2*)&(ws.devTempHcol2[(MAX_long_seq+16)*queryLength]), 
+                    (short2*)&(ws.devTempEcol2[(MAX_long_seq+16)*queryLength]), 
+                    ws.devOffsets_2[source] , 
+                    ws.devLengths_2[source], 
+                    ws.d_overflow_positions, 
+                    queryLength, gop, gex
+                ); CUERR
 
-                cudaMemcpyAsync(ws.h_overflow_number, ws.d_overflow_number, 1*sizeof(int), cudaMemcpyDeviceToHost, ws.stream1);  CUERR
-                cudaStreamSynchronize(ws.stream1);
-                //std::cout << h_overflow_number[0] << " overflow positions \n";
-                //cudaDeviceSynchronize(); CUERR
 
-                if (ws.h_overflow_number[0]) {
-                    //std::cout << h_overflow_number[0] << " overflow positions \n";
-                    NW_local_affine_read4_float_query_Protein<32, 12><<<ws.h_overflow_number[0], 32, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), (short2*)&(ws.devTempHcol2[(MAX_long_seq+16)*queryLength]), (short2*)&(ws.devTempEcol2[(MAX_long_seq+16)*queryLength]), ws.devOffsets_2[source] , ws.devLengths_2[source], ws.d_overflow_positions, queryLength, gop, gex); CUERR
-                }
+
+                // cudaMemcpyAsync(ws.h_overflow_number, ws.d_overflow_number, 1*sizeof(int), cudaMemcpyDeviceToHost, ws.stream1);  CUERR
+                // cudaStreamSynchronize(ws.stream1);
+                // //std::cout << h_overflow_number[0] << " overflow positions \n";
+                // //cudaDeviceSynchronize(); CUERR
+
+                // if (ws.h_overflow_number[0]) {
+                //     //std::cout << h_overflow_number[0] << " overflow positions \n";
+                //     NW_local_affine_read4_float_query_Protein<32, 12><<<ws.h_overflow_number[0], 32, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), (short2*)&(ws.devTempHcol2[(MAX_long_seq+16)*queryLength]), (short2*)&(ws.devTempEcol2[(MAX_long_seq+16)*queryLength]), ws.devOffsets_2[source] , ws.devLengths_2[source], ws.d_overflow_positions, queryLength, gop, gex); CUERR
+                // }
                 //cudaDeviceSynchronize();
             //    TIMERSTOP_CUDA(NW_local_affine_half2_query_Protein)
-                totalOverFlowNumber += ws.h_overflow_number[0];
+                //totalOverFlowNumber += ws.h_overflow_number[0];
 
                 //join the working streams back to query stream
                 cudaEventRecord(ws.forkStreamEvent, ws.stream0); CUERR;
@@ -5198,9 +5359,9 @@ void processQueryOnGpu(
         globalSequenceOffsetOfBatch += currentPartition.numSequences();
     }
 
-    TIMERSTOP_CUDA_STREAM(NW_local_affine_half2_query_Protein, mainStream)
+    //TIMERSTOP_CUDA_STREAM(NW_local_affine_half2_query_Protein, mainStream)
 
-    cudaStreamSynchronize(mainStream); CUERR;
+    //cudaStreamSynchronize(mainStream); CUERR;
 }
 
 
@@ -5513,6 +5674,7 @@ int main(int argc, char* argv[])
         cudaStreamCreate(&ws.stream0); CUERR
         cudaStreamCreate(&ws.stream1); CUERR
         cudaStreamCreate(&ws.stream2); CUERR
+        cudaStreamCreate(&ws.stream3); CUERR
 
         cudaEventCreate(&ws.forkStreamEvent, cudaEventDisableTiming); CUERR
 
@@ -5555,6 +5717,7 @@ int main(int argc, char* argv[])
         cudaStreamDestroy(ws.stream0); CUERR
         cudaStreamDestroy(ws.stream1); CUERR
         cudaStreamDestroy(ws.stream2); CUERR
+        cudaStreamDestroy(ws.stream3); CUERR
 
         cudaEventDestroy(ws.forkStreamEvent); CUERR
 
@@ -5603,6 +5766,14 @@ int main(int argc, char* argv[])
             //dbPartitionsForGpus[i].numSequences()
             numSequencesPerGpu[i]
         );
+
+        //spin up the host callback thread
+        auto noop = [](void*){};
+        cudaLaunchHostFunc(
+            cudaStreamLegacy, 
+            noop, 
+            nullptr
+        ); CUERR
     }
     
 
@@ -5620,6 +5791,18 @@ int main(int argc, char* argv[])
 
     }
 
+    cudaSetDevice(masterDeviceId);
+
+    int totalOverFlowNumber = 0;
+    thrust::device_vector<float> devAllAlignmentScoresFloat(numSequences_2_dbData);
+    thrust::device_vector<size_t> dev_sorted_indices(numSequences_2_dbData);
+
+    cudaEvent_t masterevent1;
+    cudaEventCreate(&masterevent1, cudaEventDisableTiming);
+    cudaStream_t masterStream1;
+    cudaStreamCreate(&masterStream1);
+
+
     cout << "Starting FULLSCAN_CUDA: \n";
     cudaSetDevice(masterDeviceId);
     TIMERSTART_CUDA(FULLSCAN_CUDA)
@@ -5627,45 +5810,106 @@ int main(int argc, char* argv[])
     for(int i = 0; i < numGpus; i++){
         cudaSetDevice(deviceIds[i]);
         auto& ws = workingSets[i];
-        cudaMemcpy(ws.devChars, chars, charBytes, cudaMemcpyHostToDevice); CUERR
-        cudaMemcpy(ws.devOffsets, offsets, offsetBytes, cudaMemcpyHostToDevice); CUERR
-        cudaMemcpy(ws.devLengths, lengths, offsetBytes, cudaMemcpyHostToDevice); CUERR
-        NW_convert_protein<<<numQueries, 128>>>(ws.devChars, ws.devOffsets); CUERR
+        cudaMemcpyAsync(ws.devChars, chars, charBytes, cudaMemcpyHostToDevice, ws.stream2); CUERR
+        cudaMemcpyAsync(ws.devOffsets, offsets, offsetBytes, cudaMemcpyHostToDevice, ws.stream2); CUERR
+        cudaMemcpyAsync(ws.devLengths, lengths, offsetBytes, cudaMemcpyHostToDevice, ws.stream2); CUERR
+        NW_convert_protein<<<numQueries, 128, 0, ws.stream2>>>(ws.devChars, ws.devOffsets); CUERR
     }
 
 
 
 	
 	
-    cudaSetDevice(masterDeviceId);
-
-    int totalOverFlowNumber = 0;
-    thrust::device_vector<float> devAllAlignmentScoresFloat(numSequences_2_dbData);
-    thrust::device_vector<size_t> dev_sorted_indices(numSequences_2_dbData);
 
 
 	for(int query_num = 0; query_num < numQueries; ++query_num) {
 
+        dp_cells = avg_length_2 * lengths[query_num];
+
+
+        cudaSetDevice(masterDeviceId);
+        TIMERSTART_CUDA_STREAM(NW_local_affine_half2_query_Protein, masterStream1)
+
+        cudaEventRecord(masterevent1, masterStream1); CUERR;
+
+        for(int i = 0; i < numGpus; i++){
+            cudaSetDevice(deviceIds[i]);
+
+            auto& ws = workingSets[i];
+            assert(ws.deviceId == deviceIds[i]);
+
+            cudaStreamWaitEvent(ws.stream2, masterevent1, 0); CUERR;
+
+            processQueryOnGpu(
+                ws,
+                subPartitionsForGpus[i],
+                lengthPartitionIdsForGpus[i],
+                &(ws.devChars[offsets[query_num]]),
+                lengths[query_num],
+                (query_num == 0),
+                query_num,
+                avg_length_2,
+                tempHEfactor,
+                MAX_long_seq,
+                select_datatype,
+                select_dpx,
+                ws.stream2
+            );
+
+            cudaMemcpyAsync(
+                devAllAlignmentScoresFloat.data().get() + numSequencesPerGpuPrefixSum[i],
+                ws.devAlignmentScoresFloat,
+                //sizeof(float) * dbPartitionsForGpus[i].numSequences(),
+                sizeof(float) * numSequencesPerGpu[i],
+                cudaMemcpyDeviceToDevice,
+                ws.stream2
+            );
+
+            cudaEventRecord(ws.forkStreamEvent, ws.stream2); CUERR;
+            cudaStreamWaitEvent(masterStream1, ws.forkStreamEvent, 0); CUERR;
+        }
+
+        cudaSetDevice(masterDeviceId);
+        TIMERSTOP_CUDA_STREAM(NW_local_affine_half2_query_Protein, masterStream1)
+
+        // std::vector<std::future<void>> futures;
+
         // for(int i = 0; i < numGpus; i++){
+
+
+        //     futures.emplace_back(std::async(std::launch::async, 
+        //         [&, i](){
+        //             cudaSetDevice(deviceIds[i]);
+
+        //             auto& ws = workingSets[i];
+        //             assert(ws.deviceId == deviceIds[i]);
+        //             processQueryOnGpu(
+        //                 ws,
+        //                 subPartitionsForGpus[i],
+        //                 lengthPartitionIdsForGpus[i],
+        //                 &(ws.devChars[offsets[query_num]]),
+        //                 lengths[query_num],
+        //                 (query_num == 0),
+        //                 query_num,
+        //                 avg_length_2,
+        //                 tempHEfactor,
+        //                 MAX_long_seq,
+        //                 select_datatype,
+        //                 select_dpx,
+        //                 ws.stream2
+        //             );
+        //         }
+        //     ));
+        // }
+
+        // for(int i = 0; i < numGpus; i++){
+        //     //must wait for future before issuing the memcpy. otherwise, not all alignment operations might have been submitted to ws.stream2 yet.
+        //     futures[i].get();
+
         //     cudaSetDevice(deviceIds[i]);
 
         //     auto& ws = workingSets[i];
         //     assert(ws.deviceId == deviceIds[i]);
-
-        //     processQueryOnGpu(
-        //         ws,
-        //         subPartitionsForGpus[i],
-        //         &(ws.devChars[offsets[query_num]]),
-        //         lengths[query_num],
-        //         (query_num == 0),
-        //         query_num,
-        //         avg_length_2,
-        //         tempHEfactor,
-        //         MAX_long_seq,
-        //         select_datatype,
-        //         select_dpx,
-        //         ws.stream2
-        //     );
 
         //     cudaMemcpyAsync(
         //         devAllAlignmentScoresFloat.data().get() + numSequencesPerGpuPrefixSum[i],
@@ -5677,57 +5921,6 @@ int main(int argc, char* argv[])
         //     );
         // }
 
-        std::vector<std::future<void>> futures;
-
-        for(int i = 0; i < numGpus; i++){
-
-
-            futures.emplace_back(std::async(std::launch::async, 
-                [&, i](){
-                    cudaSetDevice(deviceIds[i]);
-
-                    auto& ws = workingSets[i];
-                    assert(ws.deviceId == deviceIds[i]);
-                    processQueryOnGpu(
-                        ws,
-                        subPartitionsForGpus[i],
-                        lengthPartitionIdsForGpus[i],
-                        &(ws.devChars[offsets[query_num]]),
-                        lengths[query_num],
-                        (query_num == 0),
-                        query_num,
-                        avg_length_2,
-                        tempHEfactor,
-                        MAX_long_seq,
-                        select_datatype,
-                        select_dpx,
-                        ws.stream2
-                    );
-                }
-            ));
-        }
-
-
-
-        for(int i = 0; i < numGpus; i++){
-            //must wait for future before issuing the memcpy. otherwise, not all alignment operations might have been submitted to ws.stream2 yet.
-            futures[i].get();
-
-            cudaSetDevice(deviceIds[i]);
-
-            auto& ws = workingSets[i];
-            assert(ws.deviceId == deviceIds[i]);
-
-            cudaMemcpyAsync(
-                devAllAlignmentScoresFloat.data().get() + numSequencesPerGpuPrefixSum[i],
-                ws.devAlignmentScoresFloat,
-                //sizeof(float) * dbPartitionsForGpus[i].numSequences(),
-                sizeof(float) * numSequencesPerGpu[i],
-                cudaMemcpyDeviceToDevice,
-                ws.stream2
-            );
-        }
-
         for(int i = 0; i < numGpus; i++){
             auto& ws = workingSets[i];
             cudaSetDevice(deviceIds[i]);
@@ -5737,13 +5930,13 @@ int main(int argc, char* argv[])
         cudaSetDevice(masterDeviceId);
 
         thrust::sequence(
-            thrust::cuda::par_nosync.on(cudaStreamLegacy),
+            thrust::cuda::par_nosync.on(masterStream1),
             dev_sorted_indices.begin(), 
             dev_sorted_indices.end(),
             0
         );
         thrust::sort_by_key(
-            thrust::cuda::par_nosync.on(cudaStreamLegacy),
+            thrust::cuda::par_nosync.on(masterStream1),
             devAllAlignmentScoresFloat.begin(),
             devAllAlignmentScoresFloat.end(),
             dev_sorted_indices.begin(),
@@ -5755,11 +5948,14 @@ int main(int argc, char* argv[])
         //cudaMemcpy(&(sorted_indices[query_num*results_per_query]), dev_sorted_indices, results_per_query*sizeof(size_t), cudaMemcpyDeviceToHost);  CUERR
     }
     cudaSetDevice(masterDeviceId);
-    cudaStreamSynchronize(cudaStreamLegacy); CUERR
+    cudaStreamSynchronize(masterStream1); CUERR
     dp_cells = avg_length_2 * avg_length;
     TIMERSTOP_CUDA(FULLSCAN_CUDA)
 
     CUERR;
+
+    cudaEventDestroy(masterevent1);
+    cudaStreamDestroy(masterStream1);
 
 //cudaMemcpy(alignment_scores_float, ws.devAlignmentScoresFloat, numSequences_2_dbData*sizeof(float), cudaMemcpyDeviceToHost);  CUERR
 
