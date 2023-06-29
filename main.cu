@@ -4889,6 +4889,7 @@ struct GpuWorkingSet{
 void processQueryOnGpu(
     GpuWorkingSet& ws,
     const std::vector<DBdataView>& dbPartitions,
+    const std::vector<int>& lengthPartitionIds, // dbPartitions[i] belongs to the length partition lengthPartitionIds[i]
     const char* d_query,
     const int queryLength,
     bool isFirstQuery,
@@ -4900,12 +4901,19 @@ void processQueryOnGpu(
     int select_dpx,
     cudaStream_t mainStream
 ){
-    constexpr int numLengthPartitions = 15; // 11;
-    //const int l0 = 64, l1 = 128, l2 = 192, l3 = 256, l4 = 320, l5 = 384, l6 = 512, l7 = 640, l8 = 768, l9 = 1024, l10 = 5000, l11 = 50000;
-	//const int l0 = 64, l1 = 128, l2 = 192, l3 = 256, l4 = 320, l5 = 384, l6 = 448, l7 = 512, l8 = 640, l9 = 768, l10 = 1024, l11 = 5000, l12 = 50000;
-	//const int l0 = 64, l1 = 128, l2 = 192, l3 = 256, l4 = 320, l5 = 384, l6 = 448, l7 = 512, l8 = 640, l9 = 768, l10 = 896, l11 = 1024, l12 = 7000, l13 = 50000;
-	const int l0 = 64, l1 = 128, l2 = 192, l3 = 256, l4 = 320, l5 = 384, l6 = 448, l7 = 512, l8 = 576, l9 = 640, l10 = 768, l11 = 896, l12 = 1024, l13 = 7000, l14 = 50000;
-	constexpr int boundaries[numLengthPartitions]{l0,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14};
+    constexpr auto boundaries = getLengthPartitionBoundaries();
+    constexpr int numLengthPartitions = boundaries.size();
+
+    struct CopyParams{
+        const void* src;
+        void* dst;
+        size_t bytes;
+    };
+    auto doCopyH2H = [](void* args){
+        const CopyParams* params = (const CopyParams*)args;
+        std::memcpy(params->dst, params->src, params->bytes);
+        delete params;
+    };
 
     cudaSetDevice(ws.deviceId); CUERR;
 
@@ -4916,12 +4924,11 @@ void processQueryOnGpu(
 
     size_t globalSequenceOffsetOfBatch = 0;
 
-    cudaMemcpyToSymbolAsync(constantQuery4,ws.Fillchar,512*16, 0, cudaMemcpyDeviceToDevice, mainStream);
-    //cudaMemcpyToSymbol(cBLOSUM62_dev, &(BLOSUM62_1D_permutation[0]), 21*21*sizeof(char));
-    cudaMemcpyToSymbolAsync(constantQuery4, d_query, queryLength, 0, cudaMemcpyDeviceToDevice, mainStream); CUERR
-    // transfer for first batch
-    // cout << "copy first batch \n";
+    cudaMemcpyToSymbolAsync(constantQuery4,ws.Fillchar,512*16, 0, cudaMemcpyDeviceToDevice, mainStream); CUERR
 
+    cudaMemcpyToSymbolAsync(constantQuery4, d_query, queryLength, 0, cudaMemcpyDeviceToDevice, mainStream); CUERR
+
+    // transfer for first batch
     if ((dbPartitions.size() > 1) || isFirstQuery) {
         const auto& firstPartition = dbPartitions[0];
 
@@ -4947,6 +4954,19 @@ void processQueryOnGpu(
     
     for (int batch=0; batch<int(dbPartitions.size()); batch++) {
         const auto& currentPartition = dbPartitions[batch];
+        const int lengthPartitionId = lengthPartitionIds[batch];
+
+        std::fill(ws.h_numSelectedPerPartition, ws.h_numSelectedPerPartition + numLengthPartitions, 0);
+        ws.h_numSelectedPerPartition[lengthPartitionId] = currentPartition.numSequences();
+
+        //all sequences of the batch belong to the same length partition. use a single index array with counts from 0 to N-1
+        thrust::sequence(
+            thrust::cuda::par_nosync.on(mainStream),
+            &(ws.d_all_selectedPositions[lengthPartitionId*ws.max_batch_num_sequences]),
+            &(ws.d_all_selectedPositions[lengthPartitionId*ws.max_batch_num_sequences]) + currentPartition.numSequences(),
+            0
+        );
+
 
         assert(currentPartition.numSequences() <= ws.max_batch_num_sequences);
 
@@ -4957,62 +4977,13 @@ void processQueryOnGpu(
         cudaMemsetAsync(ws.devTempHcol2, 0, sizeof(half2)*(tempHEfactor*MAX_long_seq)*queryLength, mainStream);
         cudaMemsetAsync(ws.devTempEcol2, 0, sizeof(half2)*(tempHEfactor*MAX_long_seq)*queryLength, mainStream);
         cudaMemsetAsync(ws.d_overflow_number,0,sizeof(int), mainStream);
-        uint current_batch_size = currentPartition.numSequences();
+
+
 
         //cout << "Starting NW_local_affine_half2: \n";
         //TIMERSTART_CUDA(NW_local_affine_half2_query_Protein)
 
         if (!select_datatype) {  // HALF2
-
-            if ((dbPartitions.size() > 1) || isFirstQuery) {
-                thrust::fill(thrust::cuda::par_nosync.on(mainStream), ws.d_numSelectedPerPartition, ws.d_numSelectedPerPartition + numLengthPartitions, 0);
-                thrust::for_each(
-                    thrust::cuda::par_nosync.on(mainStream),
-                    thrust::make_counting_iterator<size_t>(0),
-                    thrust::make_counting_iterator<size_t>(current_batch_size),
-                    [
-                        numLengthPartitions = numLengthPartitions,
-                        //size = size,
-                        size = ws.max_batch_num_sequences,
-                        d_all_selectedPositions = ws.d_all_selectedPositions, 
-                        d_numSelectedPerPartition = ws.d_numSelectedPerPartition,
-                        d_lengths = ws.devLengths_2[source]
-                    ] __device__ (int index){
-                        const int length = d_lengths[index];
-
-                        //linear search to find the first fit partition
-                        for(int i = 0; i < numLengthPartitions; i++){
-                            if(length <= boundaries[i]){
-                                //update count for the selected partition,
-                                //and insert the array index into result array of partition
-                                const int pos = atomicAdd(d_numSelectedPerPartition + i, 1);
-                                d_all_selectedPositions[i * size + pos] = index;
-                                break;
-                            }
-                        }
-                    }
-                );
-
-                cudaMemcpyAsync(
-                    ws.h_numSelectedPerPartition, 
-                    ws.d_numSelectedPerPartition, 
-                    sizeof(int) * numLengthPartitions,
-                    cudaMemcpyDeviceToHost,
-                    mainStream
-                ); CUERR
-                cudaStreamSynchronize(mainStream); CUERR
-
-                thrust::sort(
-                    thrust::cuda::par_nosync.on(mainStream),
-                    &(ws.d_all_selectedPositions[13*ws.max_batch_num_sequences]),
-                    &(ws.d_all_selectedPositions[13*ws.max_batch_num_sequences + ws.h_numSelectedPerPartition[13]]),
-                    [
-                        d_lengths = ws.devLengths_2[source]
-                    ] __device__ (int indexL, int indexR){
-                        return d_lengths[indexL] < d_lengths[indexR];
-                    }
-                );
-            }
 
             cudaEventRecord(ws.forkStreamEvent, mainStream); CUERR;
             cudaStreamWaitEvent(ws.stream0, ws.forkStreamEvent, 0); CUERR;
@@ -5024,13 +4995,11 @@ void processQueryOnGpu(
                 //cout << "Starting NW_local_affine_half2: \n";
                 //TIMERSTART_CUDA(NW_local_affine_half2_query_Protein)
 
-                
-
                 const float gop = -11.0;
                 const float gex = -1.0;
                 if (ws.h_numSelectedPerPartition[14]){NW_local_affine_read4_float_query_Protein<32, 12><<<ws.h_numSelectedPerPartition[14], 32, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), (short2*)ws.devTempHcol2, (short2*)ws.devTempEcol2, ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[14*ws.max_batch_num_sequences]), queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 14\n"; cudaStreamSynchronize(ws.stream0); CUERR
-                if (ws.h_numSelectedPerPartition[0]){NW_local_affine_Protein_single_pass_half2<4, 16><<<(ws.h_numSelectedPerPartition[0]+255)/(2*8*4*4), 32*8*2, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], ws.d_all_selectedPositions, ws.h_numSelectedPerPartition[0], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[0]){NW_local_affine_Protein_single_pass_half2<4, 16><<<(ws.h_numSelectedPerPartition[0]+255)/(2*8*4*4), 32*8*2, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[0*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[0], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 0\n"; cudaStreamSynchronize(ws.stream0); CUERR
                 if (ws.h_numSelectedPerPartition[1]){NW_local_affine_Protein_single_pass_half2<8, 16><<<(ws.h_numSelectedPerPartition[1]+127)/(2*8*4*2), 32*8*2, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[1*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[1], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 1\n"; cudaStreamSynchronize(ws.stream0); 
@@ -5069,10 +5038,23 @@ void processQueryOnGpu(
 
                 if (batch < int(dbPartitions.size())-1)  {   // data transfer for next batch
                     const auto& nextPartition = dbPartitions[batch+1];
+
+                    //synchronize to avoid overwriting pinned buffer of target before it has been fully transferred
+                    cudaStreamSynchronize(mainStream); CUERR
+
                     std::copy(
                         nextPartition.chars() + nextPartition.offsets()[0],
                         nextPartition.chars() + nextPartition.offsets()[0] + nextPartition.numChars(),
                         ws.buf_host_Chars_2);
+                    // cudaLaunchHostFunc(
+                    //     mainStream, 
+                    //     doCopyH2H, 
+                    //     new CopyParams{
+                    //         (const void*)(nextPartition.chars() + nextPartition.offsets()[0]), 
+                    //         (void*)(ws.buf_host_Chars_2),
+                    //         nextPartition.numChars()
+                    //     }
+                    // ); CUERR
                     cudaMemcpyAsync(
                         ws.devChars_2[target], 
                         ws.buf_host_Chars_2, 
@@ -5323,19 +5305,17 @@ int main(int argc, char* argv[])
 
     std::vector<DBdataView> dbPartitionsByLengthPartitioning;
 
-    //for(int i = 0; i < numLengthPartitions; i++){
-
-    //reverse partitions such that long sequences are processed first
-    for(int i = numLengthPartitions-1; i >= 0; i--){
+    for(int i = 0; i < numLengthPartitions; i++){
         size_t begin = numSequencesPerLengthPartitionPrefixSum[i];
         size_t end = begin + dbMetaData.numSequencesPerLengthPartition[i];
         dbPartitionsByLengthPartitioning.emplace_back(dbData, begin, end);        
     }
 
     std::vector<std::vector<DBdataView>> subPartitionsForGpus(numGpus);
+    std::vector<std::vector<int>> lengthPartitionIdsForGpus(numGpus);
 
-    for(int i = 0; i < numLengthPartitions; i++){
-        const auto& lengthPartition = dbPartitionsByLengthPartitioning[i];
+    for(int lengthPartitionId = 0; lengthPartitionId < numLengthPartitions; lengthPartitionId++){
+        const auto& lengthPartition = dbPartitionsByLengthPartitioning[lengthPartitionId];
 
         // std::cout << "length partition " << i << "\n";
         // printPartition(lengthPartition);
@@ -5353,6 +5333,10 @@ int main(int argc, char* argv[])
             // printPartitions(partitionedBySeq);
 
             subPartitionsForGpus[gpu].insert(subPartitionsForGpus[gpu].end(), partitionedBySeq.begin(), partitionedBySeq.end());
+
+            for(size_t x = 0; x < partitionedBySeq.size(); x++){
+                lengthPartitionIdsForGpus[gpu].push_back(lengthPartitionId);
+            }
         }
     }
 
@@ -5629,6 +5613,7 @@ int main(int argc, char* argv[])
                     processQueryOnGpu(
                         ws,
                         subPartitionsForGpus[i],
+                        lengthPartitionIdsForGpus[i],
                         &(ws.devChars[offsets[query_num]]),
                         lengths[query_num],
                         (query_num == 0),
@@ -5648,7 +5633,7 @@ int main(int argc, char* argv[])
 
         for(int i = 0; i < numGpus; i++){
             //must wait for future before issuing the memcpy. otherwise, not all alignment operations might have been submitted to ws.stream2 yet.
-            futures[i].wait();
+            futures[i].get();
 
             cudaSetDevice(deviceIds[i]);
 
