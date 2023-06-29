@@ -20,9 +20,28 @@ struct DBdataIoConfig{
 };
 
 void loadDBdata(const std::string& inputPrefix, DBdata& result){
-    // std::ifstream in1(inputPrefix + DBdataIoConfig::metadatafilename());
-    // if(!in1) throw std::runtime_error("Cannot open file " + inputPrefix + DBdataIoConfig::metadatafilename());
-    // in1 >> result.nSequences;
+    std::ifstream metadatain(inputPrefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
+    if(!metadatain) throw std::runtime_error("Cannot open file " + inputPrefix + DBdataIoConfig::metadatafilename());
+
+    int numPartitions = 0;
+    metadatain.read((char*)&numPartitions, sizeof(int));
+
+    result.metaData.lengthBoundaries.resize(numPartitions);
+    result.metaData.numSequencesPerLengthPartition.resize(numPartitions);
+    metadatain.read((char*)result.metaData.lengthBoundaries.data(), sizeof(int) * numPartitions);
+    metadatain.read((char*)result.metaData.numSequencesPerLengthPartition.data(), sizeof(size_t) * numPartitions);
+
+    //
+    auto expectedBoundaries = getLengthPartitionBoundaries();
+    if(expectedBoundaries.size() != result.metaData.lengthBoundaries.size()){
+        throw std::runtime_error("Invalid partition info in metadata.");
+    }
+    for(int i = 0; i < numPartitions; i++){
+        if(expectedBoundaries[i] != result.metaData.lengthBoundaries[i]){
+            throw std::runtime_error("Invalid partition info in metadata.");
+        }
+    }
+
 
     //only allow read access. do not prefetch headers into ram
     MappedFile::Options headerOptions;
@@ -98,18 +117,17 @@ void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const seque
         std::cout << "numInPartition " << i << " (<= " << lengthBoundaries[i] << " ) : " << numSequencesPerPartition[i] << "\n";
     }
 
-    std::ofstream out1(outputPrefix + DBdataIoConfig::metadatafilename());
-    if(!out1) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::metadatafilename());
-    //num sequences
-    out1 << numSequences << "\n";
-    //num bytes of headers
-    out1 << batch.headers.size() << "\n";
-    //num bytes of sequences
-    out1 << batch.chars.size() << "\n";
+    //write partition data to metadata file
+    std::ofstream metadataout(outputPrefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
+    if(!metadataout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::metadatafilename());
 
+    metadataout.write((const char*)&numPartitions, sizeof(int));
     for(int i = 0; i < numPartitions; i++){
-        out1 << numSequencesPerPartition[i] << "\n";
+        const int limit = lengthBoundaries[i];
+        metadataout.write((const char*)&limit, sizeof(int));
     }
+    metadataout.write((const char*)numSequencesPerPartition.data(), sizeof(size_t) * numPartitions);
+
 
     //write db files with sequences sorted by length
 
@@ -174,13 +192,14 @@ std::vector<DBdataView> partitionDBdata_by_numberOfChars(const DBdataView& paren
     const size_t numChars = parent.numChars();
 
     std::vector<size_t> bucketLimits(1,0);
-    size_t currentBegin = 0;
-    while(currentBegin < numChars){
+    size_t currentBegin = parent.offsets()[0];
+    const size_t end = parent.offsets()[0] + numChars;
+    while(currentBegin < end){
         const size_t searchBegin = currentBegin + numCharsPerPartition;
         const auto it = std::upper_bound(parent.offsets(), parent.offsets() + parent.numSequences()+1, searchBegin);
         if(it == parent.offsets() + parent.numSequences()+1){
             bucketLimits.push_back(parent.numSequences());
-            currentBegin = numChars;
+            currentBegin = end;
         }else{
             const size_t dist = std::distance(parent.offsets(), it);
             bucketLimits.push_back(dist);

@@ -19,6 +19,7 @@
 #include "cuda_helpers.cuh"
 #include <omp.h>
 #include "dbdata.hpp"
+#include "length_partitions.hpp"
 
 constexpr int ALIGN = 4;
 
@@ -5201,6 +5202,9 @@ int main(int argc, char* argv[])
     //sequence_batch batch_2 = read_all_sequences_and_headers_from_file(argv[2]);
 	TIMERSTOP_CUDA(READ_DB)
 
+    const DBdata::MetaData& dbMetaData = dbData.getMetaData();
+
+
     cout << "Read Protein DB Files\n";
 
     const char*   chars_2_dbData       = dbData.chars(); //batch_2.chars.data();
@@ -5211,6 +5215,10 @@ int main(int argc, char* argv[])
     const int numSequences_2_dbData = dbData.numSequences(); // batch_2.offsets.size() - 1;
     cout << "Number of input sequences File 2:  " << numSequences_2_dbData << '\n';
     cout << "Number of input characters File 2: " << charBytes_2_dbData << '\n';
+
+    for(int i = 0; i < int(dbMetaData.lengthBoundaries.size()); i++){
+        std::cout << "<= " << dbMetaData.lengthBoundaries[i] << ": " << dbMetaData.numSequencesPerLengthPartition[i] << "\n";
+    }
 
     uint MAX_Num_Seq = 1000000;
 	uint MAX_long_seq = 100000; // MAX_Num_Seq/10;
@@ -5307,14 +5315,57 @@ int main(int argc, char* argv[])
     const int numGpus = deviceIds.size();
     assert(numGpus > 0);
 
-    //partition chars of whole DB amongst the gpus
-    std::vector<DBdataView> dbPartitionsForGpus = partitionDBdata_by_numberOfChars(dbData, dbData.numChars() / numGpus);
+    const int numLengthPartitions = dbMetaData.numSequencesPerLengthPartition.size();
+    std::vector<size_t> numSequencesPerLengthPartitionPrefixSum(numLengthPartitions, 0);
+    for(int i = 0; i < numLengthPartitions-1; i++){
+        numSequencesPerLengthPartitionPrefixSum[i+1] = numSequencesPerLengthPartitionPrefixSum[i] + dbMetaData.numSequencesPerLengthPartition[i];
+    }
+
+    std::vector<DBdataView> dbPartitionsByLengthPartitioning;
+
+    //for(int i = 0; i < numLengthPartitions; i++){
+
+    //reverse partitions such that long sequences are processed first
+    for(int i = numLengthPartitions-1; i >= 0; i--){
+        size_t begin = numSequencesPerLengthPartitionPrefixSum[i];
+        size_t end = begin + dbMetaData.numSequencesPerLengthPartition[i];
+        dbPartitionsByLengthPartitioning.emplace_back(dbData, begin, end);        
+    }
+
     std::vector<std::vector<DBdataView>> subPartitionsForGpus(numGpus);
 
-    for(size_t i = 0; i < dbPartitionsForGpus.size(); i++){
-        //partition the gpu partion into chunks of batch_size sequences
-        subPartitionsForGpus[i] = partitionDBdata_by_numberOfSequences(dbPartitionsForGpus[i], batch_size);
+    for(int i = 0; i < numLengthPartitions; i++){
+        const auto& lengthPartition = dbPartitionsByLengthPartitioning[i];
+
+        // std::cout << "length partition " << i << "\n";
+        // printPartition(lengthPartition);
+
+        const auto partitionedByGpu = partitionDBdata_by_numberOfChars(lengthPartition, lengthPartition.numChars() / numGpus);
+        // std::cout << "partitionedByGpu \n";
+        // printPartitions(partitionedByGpu);
+
+        assert(int(partitionedByGpu.size()) <= numGpus);
+
+        for(int gpu = 0; gpu < int(partitionedByGpu.size()); gpu++){
+            const auto partitionedBySeq = partitionDBdata_by_numberOfSequences(partitionedByGpu[gpu], batch_size);
+
+            // std::cout << "partitionedBySeq \n";
+            // printPartitions(partitionedBySeq);
+
+            subPartitionsForGpus[gpu].insert(subPartitionsForGpus[gpu].end(), partitionedBySeq.begin(), partitionedBySeq.end());
+        }
     }
+
+
+
+    //partition chars of whole DB amongst the gpus
+    // std::vector<DBdataView> dbPartitionsForGpus = partitionDBdata_by_numberOfChars(dbData, dbData.numChars() / numGpus);
+    // std::vector<std::vector<DBdataView>> subPartitionsForGpus(numGpus);
+
+    // for(size_t i = 0; i < dbPartitionsForGpus.size(); i++){
+    //     //partition the gpu partion into chunks of batch_size sequences
+    //     subPartitionsForGpus[i] = partitionDBdata_by_numberOfSequences(dbPartitionsForGpus[i], batch_size);
+    // }
 
     // std::cout << "Top level partioning:\n";
     // for(size_t i = 0; i < dbPartitionsForGpus.size(); i++){
@@ -5328,21 +5379,21 @@ int main(int argc, char* argv[])
     //     }
     // }
 
+    std::vector<size_t> numSequencesPerGpu(numGpus, 0);
     std::vector<size_t> numSequencesPerGpuPrefixSum(numGpus, 0);
-    for(size_t i = 0; i < dbPartitionsForGpus.size()-1; i++){
-        numSequencesPerGpuPrefixSum[i+1] = numSequencesPerGpuPrefixSum[i] + dbPartitionsForGpus[i].numSequences();
+    for(int i = 0; i < numGpus; i++){
+        for(const auto& p : subPartitionsForGpus[i]){
+            //printPartition(p);
+            numSequencesPerGpu[i] += p.numSequences();
+        }
+    }
+    for(int i = 0; i < numGpus-1; i++){
+        numSequencesPerGpuPrefixSum[i+1] = numSequencesPerGpuPrefixSum[i] + numSequencesPerGpu[i];
     }
 
+    std::cout << "numSequencesPerGpu[0] " << numSequencesPerGpu[0] << "\n";
+    std::cout << "subPartitionsForGpus[0] " << subPartitionsForGpus[0].size() << "\n";
 
-
-    
-
-    constexpr int numLengthPartitions = 15; // 11;
-    //const int l0 = 64, l1 = 128, l2 = 192, l3 = 256, l4 = 320, l5 = 384, l6 = 512, l7 = 640, l8 = 768, l9 = 1024, l10 = 5000, l11 = 50000;
-	//const int l0 = 64, l1 = 128, l2 = 192, l3 = 256, l4 = 320, l5 = 384, l6 = 448, l7 = 512, l8 = 640, l9 = 768, l10 = 1024, l11 = 5000, l12 = 50000;
-	//const int l0 = 64, l1 = 128, l2 = 192, l3 = 256, l4 = 320, l5 = 384, l6 = 448, l7 = 512, l8 = 640, l9 = 768, l10 = 896, l11 = 1024, l12 = 7000, l13 = 50000;
-	const int l0 = 64, l1 = 128, l2 = 192, l3 = 256, l4 = 320, l5 = 384, l6 = 448, l7 = 512, l8 = 576, l9 = 640, l10 = 768, l11 = 896, l12 = 1024, l13 = 7000, l14 = 50000;
-	constexpr int boundaries[numLengthPartitions]{l0,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14};
 
     float tempHEfactor;
     if (lengths[0] < 2000) tempHEfactor = 1.1; else tempHEfactor = 1.5;
@@ -5487,7 +5538,8 @@ int main(int argc, char* argv[])
             max_batch_char_bytes, 
             max_batch_offset_bytes,
             max_batch_num_sequences,
-            dbPartitionsForGpus[i].numSequences()
+            //dbPartitionsForGpus[i].numSequences()
+            numSequencesPerGpu[i]
         );
     }
     
@@ -5556,7 +5608,8 @@ int main(int argc, char* argv[])
             cudaMemcpyAsync(
                 devAllAlignmentScoresFloat.data().get() + numSequencesPerGpuPrefixSum[i],
                 ws.devAlignmentScoresFloat,
-                sizeof(float) * dbPartitionsForGpus[i].numSequences(),
+                //sizeof(float) * dbPartitionsForGpus[i].numSequences(),
+                sizeof(float) * numSequencesPerGpu[i],
                 cudaMemcpyDeviceToDevice,
                 ws.stream2
             );
@@ -5605,7 +5658,8 @@ int main(int argc, char* argv[])
         //     cudaMemcpyAsync(
         //         devAllAlignmentScoresFloat.data().get() + numSequencesPerGpuPrefixSum[i],
         //         ws.devAlignmentScoresFloat,
-        //         sizeof(float) * dbPartitionsForGpus[i].numSequences(),
+        //         //sizeof(float) * dbPartitionsForGpus[i].numSequences(),
+        //         sizeof(float) * numSequencesPerGpu[i],
         //         cudaMemcpyDeviceToDevice,
         //         ws.stream2
         //     );

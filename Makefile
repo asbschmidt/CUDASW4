@@ -1,10 +1,12 @@
 # settings
 DIALECT      = -std=c++17
+#OPTIMIZATION = -O0 -g
 OPTIMIZATION = -O3
 WARNINGS     = -Xcompiler="-Wall -Wextra"
 # NVCC_FLAGS   = -arch=sm_61 -lineinfo --expt-relaxed-constexpr -rdc=true
 NVCC_FLAGS   = -arch=sm_80 -lineinfo --expt-relaxed-constexpr -rdc=true --extended-lambda -Xcompiler="-fopenmp" -Xptxas "-v"
 LDFLAGS      = -Xcompiler="-pthread -s"  $(NVCC_FLAGS)
+#LDFLAGS      = -Xcompiler="-pthread"  $(NVCC_FLAGS)
 COMPILER     = nvcc
 ARTIFACT     = align
 

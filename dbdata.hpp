@@ -10,6 +10,11 @@
 struct DBdata{
     friend void loadDBdata(const std::string& inputPrefix, DBdata& result);
 
+    struct MetaData{
+        std::vector<int> lengthBoundaries;
+        std::vector<size_t> numSequencesPerLengthPartition;
+    };
+
     DBdata(const std::string& inputPrefix){
         loadDBdata(inputPrefix, *this);
     }
@@ -41,15 +46,21 @@ struct DBdata{
     const size_t* headerOffsets() const noexcept{
         return reinterpret_cast<const size_t*>(mappedFileHeaderOffsets->data());
     }
+
+    const MetaData& getMetaData() const noexcept{
+        return metaData;
+    }
     
 private:
     DBdata() = default;
+
 
     std::unique_ptr<MappedFile> mappedFileSequences;
     std::unique_ptr<MappedFile> mappedFileLengths;
     std::unique_ptr<MappedFile> mappedFileOffsets;
     std::unique_ptr<MappedFile> mappedFileHeaders;
     std::unique_ptr<MappedFile> mappedFileHeaderOffsets;
+    MetaData metaData;
 };
 
 
