@@ -5316,17 +5316,17 @@ int main(int argc, char* argv[])
         subPartitionsForGpus[i] = partitionDBdata_by_numberOfSequences(dbPartitionsForGpus[i], batch_size);
     }
 
-    std::cout << "Top level partioning:\n";
-    for(size_t i = 0; i < dbPartitionsForGpus.size(); i++){
-        std::cout << "Partition for gpu " << i << ":\n";
-        printPartition(dbPartitionsForGpus[i]);
-    }
-    for(size_t i = 0; i < dbPartitionsForGpus.size(); i++){
-        for(size_t k = 0; k < subPartitionsForGpus[i].size(); k++){
-            std::cout << "Subpartition " << k << " for gpu " << i << ":\n";
-            printPartition(subPartitionsForGpus[i][k]);
-        }
-    }
+    // std::cout << "Top level partioning:\n";
+    // for(size_t i = 0; i < dbPartitionsForGpus.size(); i++){
+    //     std::cout << "Partition for gpu " << i << ":\n";
+    //     printPartition(dbPartitionsForGpus[i]);
+    // }
+    // for(size_t i = 0; i < dbPartitionsForGpus.size(); i++){
+    //     for(size_t k = 0; k < subPartitionsForGpus[i].size(); k++){
+    //         std::cout << "Subpartition " << k << " for gpu " << i << ":\n";
+    //         printPartition(subPartitionsForGpus[i][k]);
+    //     }
+    // }
 
     std::vector<size_t> numSequencesPerGpuPrefixSum(numGpus, 0);
     for(size_t i = 0; i < dbPartitionsForGpus.size()-1; i++){
@@ -5532,75 +5532,26 @@ int main(int argc, char* argv[])
 
 	for(int query_num = 0; query_num < numQueries; ++query_num) {
 
-        // for(int i = 0; i < numGpus; i++){
-        //     cudaSetDevice(deviceIds[i]);
-
-        //     auto& ws = workingSets[i];
-        //     assert(ws.deviceId == deviceIds[i]);
-
-        //     processQueryOnGpu(
-        //         ws,
-        //         subPartitionsForGpus[i],
-        //         &(ws.devChars[offsets[query_num]]),
-        //         lengths[query_num],
-        //         (query_num == 0),
-        //         query_num,
-        //         avg_length_2,
-        //         tempHEfactor,
-        //         MAX_long_seq,
-        //         select_datatype,
-        //         select_dpx,
-        //         ws.stream2
-        //     );
-
-        //     cudaMemcpyAsync(
-        //         devAllAlignmentScoresFloat.data().get() + numSequencesPerGpuPrefixSum[i],
-        //         ws.devAlignmentScoresFloat,
-        //         sizeof(float) * dbPartitionsForGpus[i].numSequences(),
-        //         cudaMemcpyDeviceToDevice,
-        //         ws.stream2
-        //     );
-        // }
-
-        std::vector<std::future<void>> futures;
-
         for(int i = 0; i < numGpus; i++){
-
-
-            futures.emplace_back(std::async(std::launch::async, 
-                [&, i](){
-                    cudaSetDevice(deviceIds[i]);
-
-                    auto& ws = workingSets[i];
-                    assert(ws.deviceId == deviceIds[i]);
-                    processQueryOnGpu(
-                        ws,
-                        subPartitionsForGpus[i],
-                        &(ws.devChars[offsets[query_num]]),
-                        lengths[query_num],
-                        (query_num == 0),
-                        query_num,
-                        avg_length_2,
-                        tempHEfactor,
-                        MAX_long_seq,
-                        select_datatype,
-                        select_dpx,
-                        ws.stream2
-                    );
-                }
-            ));
-        }
-
-
-
-        for(int i = 0; i < numGpus; i++){
-            //must wait for future before issuing the memcpy. otherwise, not all alignment operations might have been submitted to ws.stream2 yet.
-            futures[i].wait();
-
             cudaSetDevice(deviceIds[i]);
 
             auto& ws = workingSets[i];
             assert(ws.deviceId == deviceIds[i]);
+
+            processQueryOnGpu(
+                ws,
+                subPartitionsForGpus[i],
+                &(ws.devChars[offsets[query_num]]),
+                lengths[query_num],
+                (query_num == 0),
+                query_num,
+                avg_length_2,
+                tempHEfactor,
+                MAX_long_seq,
+                select_datatype,
+                select_dpx,
+                ws.stream2
+            );
 
             cudaMemcpyAsync(
                 devAllAlignmentScoresFloat.data().get() + numSequencesPerGpuPrefixSum[i],
@@ -5610,6 +5561,55 @@ int main(int argc, char* argv[])
                 ws.stream2
             );
         }
+
+        // std::vector<std::future<void>> futures;
+
+        // for(int i = 0; i < numGpus; i++){
+
+
+        //     futures.emplace_back(std::async(std::launch::async, 
+        //         [&, i](){
+        //             cudaSetDevice(deviceIds[i]);
+
+        //             auto& ws = workingSets[i];
+        //             assert(ws.deviceId == deviceIds[i]);
+        //             processQueryOnGpu(
+        //                 ws,
+        //                 subPartitionsForGpus[i],
+        //                 &(ws.devChars[offsets[query_num]]),
+        //                 lengths[query_num],
+        //                 (query_num == 0),
+        //                 query_num,
+        //                 avg_length_2,
+        //                 tempHEfactor,
+        //                 MAX_long_seq,
+        //                 select_datatype,
+        //                 select_dpx,
+        //                 ws.stream2
+        //             );
+        //         }
+        //     ));
+        // }
+
+
+
+        // for(int i = 0; i < numGpus; i++){
+        //     //must wait for future before issuing the memcpy. otherwise, not all alignment operations might have been submitted to ws.stream2 yet.
+        //     futures[i].wait();
+
+        //     cudaSetDevice(deviceIds[i]);
+
+        //     auto& ws = workingSets[i];
+        //     assert(ws.deviceId == deviceIds[i]);
+
+        //     cudaMemcpyAsync(
+        //         devAllAlignmentScoresFloat.data().get() + numSequencesPerGpuPrefixSum[i],
+        //         ws.devAlignmentScoresFloat,
+        //         sizeof(float) * dbPartitionsForGpus[i].numSequences(),
+        //         cudaMemcpyDeviceToDevice,
+        //         ws.stream2
+        //     );
+        // }
 
         for(int i = 0; i < numGpus; i++){
             auto& ws = workingSets[i];

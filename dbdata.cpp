@@ -1,9 +1,13 @@
 #include "dbdata.hpp"
+#include "length_partitions.hpp"
 
 #include <type_traits>
 #include <string>
 #include <fstream>
 #include <algorithm>
+#include <numeric>
+
+#include <thrust/iterator/transform_iterator.h>
 
 struct DBdataIoConfig{
     static const std::string metadatafilename(){ return "metadata"; }
@@ -51,8 +55,48 @@ void writeTrivialVectorToFile(const std::vector<T>& vec, const std::string& file
     out.write((const char*)vec.data(), sizeof(T) * vec.size());
 }
 
+
 void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const sequence_batch& batch){
     const size_t numSequences = batch.lengths.size();
+
+    std::vector<size_t> indices(numSequences);
+    std::iota(indices.begin(), indices.end(), 0);
+
+    auto compareIndicesByLength = [&](const auto& l, const auto& r){
+        return batch.lengths[l] < batch.lengths[r];
+    };
+
+    std::sort(indices.begin(), indices.end(), compareIndicesByLength);
+
+    const auto sortedLengthsIterator = thrust::make_transform_iterator(
+        indices.begin(),
+        [&](auto i){ return batch.lengths[i]; }
+    );
+    const auto sortedLengths_endIterator = sortedLengthsIterator + numSequences;
+
+    auto lengthBoundaries = getLengthPartitionBoundaries();
+    const int numPartitions = lengthBoundaries.size();
+
+    std::vector<size_t> numSequencesPerPartition(numPartitions);
+
+    auto partitionBegin = sortedLengthsIterator;
+    for(int i = 0; i < numPartitions; i++){
+        //length k is in partition i if boundaries[i-1] < k <= boundaries[i]
+        int searchFor = lengthBoundaries[i];
+        if(searchFor < std::numeric_limits<int>::max()){
+            searchFor += 1;
+        }
+        auto partitionEnd = std::lower_bound(
+            partitionBegin, 
+            sortedLengths_endIterator, 
+            searchFor
+        );
+        numSequencesPerPartition[i] = std::distance(partitionBegin, partitionEnd);
+        partitionBegin = partitionEnd;
+    }
+    for(int i = 0; i < numPartitions; i++){
+        std::cout << "numInPartition " << i << " (<= " << lengthBoundaries[i] << " ) : " << numSequencesPerPartition[i] << "\n";
+    }
 
     std::ofstream out1(outputPrefix + DBdataIoConfig::metadatafilename());
     if(!out1) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::metadatafilename());
@@ -63,23 +107,47 @@ void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const seque
     //num bytes of sequences
     out1 << batch.chars.size() << "\n";
 
-    std::ofstream headersout(outputPrefix + DBdataIoConfig::headerfilename(), std::ios::binary);
-    if(!headersout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::headerfilename());
-
-    std::ofstream headersoffsetsout(outputPrefix + DBdataIoConfig::headeroffsetsfilename(), std::ios::binary);
-    if(!headersoffsetsout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::headeroffsetsfilename());
-
-    size_t currentHeaderOffset = 0;
-    headersoffsetsout.write((const char*)&currentHeaderOffset, sizeof(size_t));
-    for(size_t i = 0; i < numSequences; i++){
-        headersout.write((const char*)batch.headers[i].data(), batch.headers[i].size());
-        currentHeaderOffset += batch.headers[i].size();
-        headersoffsetsout.write((const char*)&currentHeaderOffset, sizeof(size_t));
+    for(int i = 0; i < numPartitions; i++){
+        out1 << numSequencesPerPartition[i] << "\n";
     }
 
-    writeTrivialVectorToFile(batch.chars, outputPrefix + DBdataIoConfig::sequencesfilename());
-    writeTrivialVectorToFile(batch.offsets, outputPrefix + DBdataIoConfig::sequenceoffsetsfilename());
-    writeTrivialVectorToFile(batch.lengths, outputPrefix + DBdataIoConfig::sequencelengthsfilename());
+    //write db files with sequences sorted by length
+
+    std::ofstream headersout(outputPrefix + DBdataIoConfig::headerfilename(), std::ios::binary);
+    if(!headersout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::headerfilename());
+    std::ofstream headersoffsetsout(outputPrefix + DBdataIoConfig::headeroffsetsfilename(), std::ios::binary);
+    if(!headersoffsetsout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::headeroffsetsfilename());
+    std::ofstream charsout(outputPrefix + DBdataIoConfig::sequencesfilename(), std::ios::binary);
+    if(!charsout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::sequencesfilename());
+    std::ofstream offsetsout(outputPrefix + DBdataIoConfig::sequenceoffsetsfilename(), std::ios::binary);
+    if(!offsetsout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::sequenceoffsetsfilename());
+    std::ofstream lengthsout(outputPrefix + DBdataIoConfig::sequencelengthsfilename(), std::ios::binary);
+    if(!lengthsout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::sequencelengthsfilename());
+
+    size_t currentHeaderOffset = 0;
+    size_t currentCharOffset = 0;
+    headersoffsetsout.write((const char*)&currentHeaderOffset, sizeof(size_t));
+    offsetsout.write((const char*)&currentCharOffset, sizeof(size_t));
+    for(size_t i = 0; i < numSequences; i++){
+        const size_t sortedIndex = indices[i];
+
+        const char* const header = batch.headers[sortedIndex].data();
+        const size_t headerlength = batch.headers[sortedIndex].size();
+
+        headersout.write(header, headerlength);
+        currentHeaderOffset += headerlength;
+        headersoffsetsout.write((const char*)&currentHeaderOffset, sizeof(size_t));
+
+        const size_t numChars = batch.offsets[sortedIndex+1] - batch.offsets[sortedIndex];
+        const size_t length = batch.lengths[sortedIndex];
+        const char* const sequence = batch.chars.data() + batch.offsets[sortedIndex];
+
+
+        charsout.write(sequence, numChars);
+        lengthsout.write((const char*)&length, sizeof(size_t));
+        currentCharOffset += numChars;
+        offsetsout.write((const char*)&currentCharOffset, sizeof(size_t));
+    }
 }
 
 
@@ -122,7 +190,7 @@ std::vector<DBdataView> partitionDBdata_by_numberOfChars(const DBdataView& paren
 
     const size_t numPartitions = bucketLimits.size()-1;
     std::vector<DBdataView> result;
-    for(int p = 0; p < numPartitions; p++){
+    for(size_t p = 0; p < numPartitions; p++){
         result.emplace_back(parent, bucketLimits[p], bucketLimits[p+1]);
     }
 
