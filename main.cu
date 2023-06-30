@@ -5859,8 +5859,8 @@ int main(int argc, char* argv[])
             thrust::greater<float>()
         );
 
-        cudaMemcpyAsync(&(alignment_scores_float[query_num*results_per_query]), devAllAlignmentScoresFloat.data().get(), results_per_query*sizeof(float), cudaMemcpyDeviceToHost, cudaStreamLegacy);  CUERR
-        cudaMemcpyAsync(&(sorted_indices[query_num*results_per_query]), dev_sorted_indices.data().get(), results_per_query*sizeof(size_t), cudaMemcpyDeviceToHost, cudaStreamLegacy);  CUERR
+        cudaMemcpyAsync(&(alignment_scores_float[query_num*results_per_query]), devAllAlignmentScoresFloat.data().get(), results_per_query*sizeof(float), cudaMemcpyDeviceToHost, masterStream1);  CUERR
+        cudaMemcpyAsync(&(sorted_indices[query_num*results_per_query]), dev_sorted_indices.data().get(), results_per_query*sizeof(size_t), cudaMemcpyDeviceToHost, masterStream1);  CUERR
         //cudaMemcpy(&(sorted_indices[query_num*results_per_query]), dev_sorted_indices, results_per_query*sizeof(size_t), cudaMemcpyDeviceToHost);  CUERR
     }
     cudaSetDevice(masterDeviceId);
