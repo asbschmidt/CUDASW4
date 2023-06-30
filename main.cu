@@ -5319,45 +5319,51 @@ int main(int argc, char* argv[])
 
 	cout << "Reading Database: \n";
 	TIMERSTART_CUDA(READ_DB)
-	DBdata dbData(argv[2]);
-    //sequence_batch batch_2 = read_all_sequences_and_headers_from_file(argv[2]);
+    DB fullDB = loadDB(argv[2]);
 	TIMERSTOP_CUDA(READ_DB)
 
-    const DBdata::MetaData& dbMetaData = dbData.getMetaData();
+    
 
 
     cout << "Read Protein DB Files\n";
-
-    const char*   chars_2_dbData       = dbData.chars(); //batch_2.chars.data();
-    const size_t* offsets_2_dbData     = dbData.offsets(); // batch_2.offsets.data();
-    const size_t* lengths_2_dbData      = dbData.lengths(); // batch_2.lengths.data();
-    const size_t  charBytes_2_dbData   = dbData.numChars(); // batch_2.chars.size();
-    const size_t  offsetBytes_2_dbData = (dbData.numSequences()+1)*sizeof(size_t); // batch_2.offsets.size() * sizeof(size_t);
-    const int numSequences_2_dbData = dbData.numSequences(); // batch_2.offsets.size() - 1;
-    cout << "Number of input sequences File 2:  " << numSequences_2_dbData << '\n';
-    cout << "Number of input characters File 2: " << charBytes_2_dbData << '\n';
-
-    for(int i = 0; i < int(dbMetaData.lengthBoundaries.size()); i++){
-        std::cout << "<= " << dbMetaData.lengthBoundaries[i] << ": " << dbMetaData.numSequencesPerLengthPartition[i] << "\n";
+    const int numDBChunks = fullDB.info.numChunks;
+    std::cout << "Number of DB chunks: " << numDBChunks << "\n";
+    for(int i = 0; i < numDBChunks; i++){
+        const DBdata& chunkData = fullDB.chunks[i];
+        const DBdata::MetaData& dbMetaData = chunkData.getMetaData();
+        std::cout << "DB chunk " << i << ": " << chunkData.numSequences() << " sequences, " << chunkData.numChars() << " characters\n";
+        for(int i = 0; i < int(dbMetaData.lengthBoundaries.size()); i++){
+            std::cout << "<= " << dbMetaData.lengthBoundaries[i] << ": " << dbMetaData.numSequencesPerLengthPartition[i] << "\n";
+        }
     }
+
+    size_t totalNumberOfSequencesInDB = 0;
+    size_t maximumNumberOfSequencesInDBChunk = 0;
+    for(int i = 0; i < numDBChunks; i++){
+        const DBdata& chunkData = fullDB.chunks[i];
+        totalNumberOfSequencesInDB += chunkData.numSequences();
+        maximumNumberOfSequencesInDBChunk = std::max(maximumNumberOfSequencesInDBChunk, chunkData.numSequences());
+    }
+
+
 
     uint MAX_Num_Seq = 1000000;
 	uint MAX_long_seq = 100000; // MAX_Num_Seq/10;
 	uint batch_size = 200000;
-    if (numSequences_2_dbData <= MAX_Num_Seq) {
-        batch_size = numSequences_2_dbData;
-	 	MAX_long_seq = MAX_Num_Seq/10;
-	}
+    if (maximumNumberOfSequencesInDBChunk <= MAX_Num_Seq) {
+        batch_size = maximumNumberOfSequencesInDBChunk;
+	 	MAX_long_seq = MAX_Num_Seq/10;	}
 	else {
 	 	batch_size = MAX_Num_Seq;
 	}
 
     const uint results_per_query = 100;
-    float* alignment_scores_float = nullptr;
-    alignment_scores_float = (float *) malloc(sizeof(float)*results_per_query*numQueries);
-	size_t* sorted_indices = nullptr;
-	sorted_indices = (size_t *) malloc(sizeof(size_t)*results_per_query*numQueries);
-	//sorted_indices = (size_t *) malloc(sizeof(size_t)*batch_size);
+
+    std::vector<float> alignment_scores_float(results_per_query * numQueries);
+    std::vector<size_t> sorted_indices(results_per_query * numQueries);
+    std::vector<int> resultDbChunkIndices(results_per_query * numQueries);
+    //maximumNumberOfSequencesInDBChunk
+
 
 
    //cout << "Read lengths: \n";
@@ -5372,22 +5378,26 @@ int main(int argc, char* argv[])
         if (lengths[i] < min_length) min_length = lengths[i];
         avg_length += lengths[i];
     }
-    for (int i=0; i<numSequences_2_dbData; i++) {
-        if (lengths_2_dbData[i] > max_length_2) max_length_2 = lengths_2_dbData[i];
-        if (lengths_2_dbData[i] < min_length_2) min_length_2 = lengths_2_dbData[i];
-        avg_length_2 += lengths_2_dbData[i];
+
+    for(int i = 0; i < numDBChunks; i++){
+        const DBdata& chunkData = fullDB.chunks[i];
+        size_t numSeq = chunkData.numSequences();
+
+        for (size_t i=0; i < numSeq; i++) {
+            if (chunkData.lengths()[i] > max_length_2) max_length_2 = chunkData.lengths()[i];
+            if (chunkData.lengths()[i] < min_length_2) min_length_2 = chunkData.lengths()[i];
+            avg_length_2 += chunkData.lengths()[i];
+        }
     }
-    //for (int i=0; i<batch_size; i++) {
-    //for (int i=0; i<numSequences_2_dbData; i++) {
-    //    dp_cells += lengths[0] * lengths_2_dbData[i];
-    //}
+
+
+
+
     cout << "Max Length 1: " << max_length << ", Max Length 2: " << max_length_2 <<"\n";
     cout << "Min Length 1: " << min_length << ", Min Length 2: " << min_length_2 <<"\n";
-    cout << "Avg Length 1: " << avg_length/numQueries << ", Avg Length 2: " << avg_length_2/numSequences_2_dbData <<"\n";
+    cout << "Avg Length 1: " << avg_length/numQueries << ", Avg Length 2: " << avg_length_2/totalNumberOfSequencesInDB <<"\n";
     cout << "Batch Size: " << batch_size <<"\n";
-	//cout << "batch_char_bytes: " << batch_char_bytes << " num_batches: " << num_batches << " batch_offset_bytes: " << batch_offset_bytes << " last_batch_size: " << last_batch_size << "\n";
-    //int avg_length_DB = int(avg_length_2/numSequences_2_dbData);
-    //cout << "Size 10000: " << offsets[10000] << "\n";
+
 
 
     for(int i = 0; i < 0; ++i) {
@@ -5417,12 +5427,6 @@ int main(int argc, char* argv[])
             printPartition(view);
         }
     };
-    // //std::vector<DBdataView> dbPartitions = partitionDBdata_by_numberOfSequences(dbData, batch_size);
-    // std::vector<DBdataView> dbPartitions = partitionDBdata_by_numberOfChars(dbData, 500'000'000);
-    
-    // assert(dbPartitions.size() > 0);
-    // assertValidPartitioning(dbPartitions, dbData);
-    // //printPartitions(dbPartitions);
 
     std::vector<int> deviceIds;
     {
@@ -5436,22 +5440,72 @@ int main(int argc, char* argv[])
     const int numGpus = deviceIds.size();
     assert(numGpus > 0);
 
-    const int numLengthPartitions = dbMetaData.numSequencesPerLengthPartition.size();
-    std::vector<size_t> numSequencesPerLengthPartitionPrefixSum(numLengthPartitions, 0);
-    for(int i = 0; i < numLengthPartitions-1; i++){
-        numSequencesPerLengthPartitionPrefixSum[i+1] = numSequencesPerLengthPartitionPrefixSum[i] + dbMetaData.numSequencesPerLengthPartition[i];
+    const int numLengthPartitions = getLengthPartitionBoundaries().size();
+
+    //partition chars of whole DB amongst the gpus
+    std::vector<std::vector<size_t>> numSequencesPerLengthPartitionPrefixSum_perDBchunk(numDBChunks)
+    std::vector<std::vector<DBdataView>> dbPartitionsByLengthPartitioning_perDBchunk(numDBChunks);
+    std::vector<std::vector<DBdataView>> dbPartitionsForGpus_perDBchunk(numDBChunks); = partitionDBdata_by_numberOfChars(dbData, dbData.numChars() / numGpus);
+    std::vector<std::vector<std::vector<DBdataView>>> subPartitionsForGpus_perDBchunk(numDBChunks);(numGpus);
+    std::vector<std::vector<size_t>> numSequencesPerGpu_perDBchunk(numDBChunks);(numGpus, 0);
+    std::vector<std::vector<size_t>> numSequencesPerGpuPrefixSum_perDBchunk(numDBChunks);(numGpus, 0);
+
+    for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
+        const auto& dbChunk = fullDB.chunks[chunkId];
+
+        auto& numSequencesPerLengthPartitionPrefixSum = numSequencesPerLengthPartitionPrefixSum_perDBchunk[chunkId];
+        auto& dbPartitionsByLengthPartitioning = dbPartitionsByLengthPartitioning_perDBchunk[chunkId];
+        auto& dbPartitionsForGpus = dbPartitionsForGpus_perDBchunk[chunkId];
+        auto& subPartitionsForGpus = subPartitionsForGpus_perDBchunk[chunkId];
+        auto& numSequencesPerGpu = numSequencesPerGpu_perDBchunk[chunkId];
+        auto& numSequencesPerGpuPrefixSum = numSequencesPerGpuPrefixSum_perDBchunk[chunkId];
+
+        numSequencesPerLengthPartitionPrefixSum.resize(numLengthPartitions, 0);
+        for(int i = 0; i < numLengthPartitions-1; i++){
+            numSequencesPerLengthPartitionPrefixSum[i+1] = numSequencesPerLengthPartitionPrefixSum[i] + dbChunk.getMetaData().numSequencesPerLengthPartition[i];
+        }
+
+        for(int i = 0; i < numLengthPartitions; i++){
+            size_t begin = numSequencesPerLengthPartitionPrefixSum[i];
+            size_t end = begin + dbMetaData.numSequencesPerLengthPartition[i];
+            dbPartitionsByLengthPartitioning.emplace_back(dbData, begin, end);        
+        }
+
+        dbPartitionsForGpus
+
+            // for(size_t i = 0; i < dbPartitionsForGpus.size(); i++){
+    //     //partition the gpu partion into chunks of batch_size sequences
+    //     subPartitionsForGpus[i] = partitionDBdata_by_numberOfSequences(dbPartitionsForGpus[i], batch_size);
+    // }
     }
 
-    std::vector<DBdataView> dbPartitionsByLengthPartitioning;
-
-    for(int i = 0; i < numLengthPartitions; i++){
-        size_t begin = numSequencesPerLengthPartitionPrefixSum[i];
-        size_t end = begin + dbMetaData.numSequencesPerLengthPartition[i];
-        dbPartitionsByLengthPartitioning.emplace_back(dbData, begin, end);        
+    for(int i = 0; i < numGpus; i++){
+        for(const auto& p : subPartitionsForGpus[i]){
+            //printPartition(p);
+            numSequencesPerGpu[i] += p.numSequences();
+        }
+    }
+    for(int i = 0; i < numGpus-1; i++){
+        numSequencesPerGpuPrefixSum[i+1] = numSequencesPerGpuPrefixSum[i] + numSequencesPerGpu[i];
     }
 
-    std::vector<std::vector<DBdataView>> subPartitionsForGpus(numGpus);
-    std::vector<std::vector<int>> lengthPartitionIdsForGpus(numGpus);
+    // for(const auto& dbData : fullDB.chunks){
+    //     const int numLengthPartitions = dbData.getMetaData().numSequencesPerLengthPartition.size();
+    //     std::vector<size_t> numSequencesPerLengthPartitionPrefixSum(numLengthPartitions, 0);
+    //     for(int i = 0; i < numLengthPartitions-1; i++){
+    //         numSequencesPerLengthPartitionPrefixSum[i+1] = numSequencesPerLengthPartitionPrefixSum[i] + dbData.getMetaData().numSequencesPerLengthPartition[i];
+    //     }
+
+    //     for(int i = 0; i < numLengthPartitions; i++){
+    //         size_t begin = numSequencesPerLengthPartitionPrefixSum[i];
+    //         size_t end = begin + dbMetaData.numSequencesPerLengthPartition[i];
+    //         dbPartitionsByLengthPartitioning.emplace_back(dbData, begin, end);        
+    //     }
+    // }
+
+
+
+    
 
     for(int lengthPartitionId = 0; lengthPartitionId < numLengthPartitions; lengthPartitionId++){
         const auto& lengthPartition = dbPartitionsByLengthPartitioning[lengthPartitionId];
@@ -5487,9 +5541,7 @@ int main(int argc, char* argv[])
 
 
 
-    //partition chars of whole DB amongst the gpus
-    // std::vector<DBdataView> dbPartitionsForGpus = partitionDBdata_by_numberOfChars(dbData, dbData.numChars() / numGpus);
-    // std::vector<std::vector<DBdataView>> subPartitionsForGpus(numGpus);
+
 
     // for(size_t i = 0; i < dbPartitionsForGpus.size(); i++){
     //     //partition the gpu partion into chunks of batch_size sequences
@@ -5700,15 +5752,13 @@ int main(int argc, char* argv[])
         char BLOSUM62_1D_permutation[21*21];
         perumte_columns_BLOSUM(BLOSUM62_1D,21,permutation,BLOSUM62_1D_permutation);
         cudaMemcpyToSymbol(cBLOSUM62_dev, &(BLOSUM62_1D_permutation[0]), 21*21*sizeof(char));
-        //NW_convert_protein<<<numSequences_2_dbData, 128>>>(ws.devChars_2, ws.devOffsets_2); CUERR
-
     }
 
     cudaSetDevice(masterDeviceId);
 
     int totalOverFlowNumber = 0;
-    thrust::device_vector<float> devAllAlignmentScoresFloat(numSequences_2_dbData);
-    thrust::device_vector<size_t> dev_sorted_indices(numSequences_2_dbData);
+    thrust::device_vector<float> devAllAlignmentScoresFloat(totalNumberOfSequencesInDB);
+    thrust::device_vector<size_t> dev_sorted_indices(totalNumberOfSequencesInDB);
 
     cudaEvent_t masterevent1;
     cudaEventCreate(&masterevent1, cudaEventDisableTiming);
@@ -5873,52 +5923,6 @@ int main(int argc, char* argv[])
     cudaEventDestroy(masterevent1);
     cudaStreamDestroy(masterStream1);
 
-//cudaMemcpy(alignment_scores_float, ws.devAlignmentScoresFloat, numSequences_2_dbData*sizeof(float), cudaMemcpyDeviceToHost);  CUERR
-
-
-//    for (int i=0; i<1; i++) {
-//        cout << "Read length for Queries " << i << ": ";
-//        for (int j=0; j<1; j++) cout << " " << lengths[i*max_batch_num_sequences+j];
-//        cout << "\n";
-
-//        cout << "Read length for Database Batch " << i << ": ";
-//        for (int j=0; j<128; j++) cout << " " << lengths_2_dbData[i*max_batch_num_sequences+j];
-//        cout << "\n";
-
-//        cout << "GPU scores: " << i << ": \n";
-//        copy(alignment_scores_float + i*max_batch_num_sequences, alignment_scores_float + i*max_batch_num_sequences + 128, std::ostream_iterator<float>(cout, " "));
-//		cout << "\n";
-
-//		cout << "GPU indices: " << i << ": \n";
-//        copy(sorted_indices + i*max_batch_num_sequences, sorted_indices + i*max_batch_num_sequences + 128, std::ostream_iterator<size_t>(cout, " "));
-//        cout << "\n";
-//    }
-//	std::cout << h_overflow_number[0] << " overflow positions \n";
-
-//	cout << "Query length: " << lengths[0] << " : ";
-//	cout << batch.headers[0] << '\n';
-//	cout << "Top ranked sequences (GPU) \n";
-//	for(int i = 0; i < 10; ++i) {
-	//		cout << "Rank: "<< i+1 <<", Score: " << alignment_scores_float[i] <<", Length: " << lengths_2_dbData[sorted_indices[i]] << " : ";
-	//		cout << batch_2.headers[sorted_indices[i]] << '\n';
-	//}
-
-    //cout << "Calculating CPU scores for correctness check: \n";
-    //int difference = 0;
-    //int score_CPU;
-    //TIMERSTART(CPU_scores)
-    //#pragma omp parallel for reduction(+:difference)
-	//for (int seq = 0; seq < numSequences_2_dbData; seq++) {
-    //        int score_CPU = affine_local_DP_host_protein(chars+offsets[0], chars_2_dbData+offsets_2_dbData[seq], lengths[0], lengths_2_dbData[seq], -4, -1, BLOSUM62);
-    //        difference += abs(score_CPU-alignment_scores_float[seq]);
-    //        if (seq%10000 == 0) cout << ".";
-    //        if (score_CPU != alignment_scores_float[seq]) cout << "Difference: DB-Seq Nr.: " << seq << " GPU: " << alignment_scores_float[seq] << " CPU: " << score_CPU << " length: " << lengths_2_dbData[seq] << "\n"; // MM32);
-    //}
-    //cout << "\n";
-    //TIMERSTOP(CPU_scores)
-    //cout << "\n";
-    //cout << "CPU-GPU score difference: " << difference;
-    //cout << "\n";
 
     for (int i=0; i<numQueries; i++) {
 	    std::cout << totalOverFlowNumber << " total overflow positions \n";
@@ -5928,7 +5932,7 @@ int main(int argc, char* argv[])
 		for(int j = 0; j < 10; ++j) {
 			    const char* headerBegin = dbData.headers() + dbData.headerOffsets()[sorted_indices[i*results_per_query+j]];
 	            const char* headerEnd = dbData.headers() + dbData.headerOffsets()[sorted_indices[i*results_per_query+j]+1];
-				cout << "Result: "<< j <<", Length: " << lengths_2_dbData[sorted_indices[i*results_per_query+j]] << " Score: " << alignment_scores_float[i*results_per_query+j] << " : ";
+				cout << "Result: "<< j <<", Length: " << dbData.lengths()[sorted_indices[i*results_per_query+j]] << " Score: " << alignment_scores_float[i*results_per_query+j] << " : ";
 				//cout << batch_2.headers[sorted_indices[i]] << '\n';
 			    std::copy(headerBegin, headerEnd,std::ostream_iterator<char>{cout});
 				cout << "\n";

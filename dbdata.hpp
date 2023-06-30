@@ -7,6 +7,20 @@
 #include <memory>
 #include <fstream>
 
+struct DBdataIoConfig{
+    static const std::string metadatafilename(){ return "metadata"; }
+    static const std::string headerfilename(){ return "headers"; }
+    static const std::string headeroffsetsfilename(){ return "headeroffsets"; }
+    static const std::string sequencesfilename(){ return "chars"; }
+    static const std::string sequenceoffsetsfilename(){ return "offsets"; }
+    static const std::string sequencelengthsfilename(){ return "lengths"; }
+};
+
+
+struct DBGlobalInfo{
+    int numChunks;
+};
+
 struct DBdata{
     friend void loadDBdata(const std::string& inputPrefix, DBdata& result);
 
@@ -63,8 +77,16 @@ private:
     MetaData metaData;
 };
 
+struct DB{
+    DBGlobalInfo info;
+    std::vector<DBdata> chunks;
+};
 
 void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const sequence_batch& batch);
+void writeGlobalDbInfo(const std::string& outputPrefix, const DBGlobalInfo& info);
+void readGlobalDbInfo(const std::string& prefix, DBGlobalInfo& info);
+
+DB loadDB(const std::string& prefix);
 
 
 

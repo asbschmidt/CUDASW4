@@ -9,15 +9,6 @@
 
 #include <thrust/iterator/transform_iterator.h>
 
-struct DBdataIoConfig{
-    static const std::string metadatafilename(){ return "metadata"; }
-    static const std::string headerfilename(){ return "headers"; }
-    static const std::string headeroffsetsfilename(){ return "headeroffsets"; }
-    static const std::string sequencesfilename(){ return "chars"; }
-    static const std::string sequenceoffsetsfilename(){ return "offsets"; }
-    static const std::string sequencelengthsfilename(){ return "lengths"; }
-
-};
 
 void loadDBdata(const std::string& inputPrefix, DBdata& result){
     std::ifstream metadatain(inputPrefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
@@ -167,6 +158,42 @@ void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const seque
         offsetsout.write((const char*)&currentCharOffset, sizeof(size_t));
     }
 }
+
+
+
+
+void writeGlobalDbInfo(const std::string& outputPrefix, const DBGlobalInfo& info){
+    //write info data to metadata file
+    std::ofstream metadataout(outputPrefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
+    if(!metadataout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::metadatafilename());
+
+    metadataout.write((const char*)&info.numChunks, sizeof(int));
+}
+
+void readGlobalDbInfo(const std::string& prefix, DBGlobalInfo& info){
+    //write info data to metadata file
+    std::ifstream metadatain(prefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
+    if(!metadatain) throw std::runtime_error("Cannot open file " + prefix + DBdataIoConfig::metadatafilename());
+
+    metadatain.read((char*)&info.numChunks, sizeof(int));
+}
+
+
+DB loadDB(const std::string& prefix){
+
+    DB result;
+    readGlobalDbInfo(prefix, result.info);
+
+    for(int i = 0; i < result.info.numChunks; i++){
+        const std::string chunkPrefix = prefix + std::to_string(i);
+        result.chunks.emplace_back(chunkPrefix);
+    }
+
+    return result;
+}
+
+
+
 
 
 
