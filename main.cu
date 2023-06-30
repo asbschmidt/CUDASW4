@@ -5284,6 +5284,18 @@ int main(int argc, char* argv[])
         return 0;
     }
 
+    std::vector<int> deviceIds;
+    {
+        int num = 0;
+        cudaGetDeviceCount(&num); CUERR
+        for(int i = 0; i < num; i++){
+            std::cout << "Using device " << i << "\n";
+            deviceIds.push_back(i);
+        }
+    }
+    const int numGpus = deviceIds.size();
+    assert(numGpus > 0);
+
 
     int select_datatype; // 0 = 2x16-bit, 1 = 32-bit
     if (argc>=4) select_datatype = std::stoi(argv[3]); else select_datatype = 0; // default = 16-bit
@@ -5357,13 +5369,6 @@ int main(int argc, char* argv[])
 	 	batch_size = MAX_Num_Seq;
 	}
 
-    const uint results_per_query = 100;
-
-    std::vector<float> alignment_scores_float(results_per_query * numQueries);
-    std::vector<size_t> sorted_indices(results_per_query * numQueries);
-    std::vector<int> resultDbChunkIndices(results_per_query * numQueries);
-    //maximumNumberOfSequencesInDBChunk
-
 
 
    //cout << "Read lengths: \n";
@@ -5428,17 +5433,7 @@ int main(int argc, char* argv[])
         }
     };
 
-    std::vector<int> deviceIds;
-    {
-        int num = 0;
-        cudaGetDeviceCount(&num); CUERR
-        for(int i = 0; i < num; i++){
-            std::cout << "Using device " << i << "\n";
-            deviceIds.push_back(i);
-        }
-    }
-    const int numGpus = deviceIds.size();
-    assert(numGpus > 0);
+   
 
     const int numLengthPartitions = getLengthPartitionBoundaries().size();
 
@@ -5446,6 +5441,7 @@ int main(int argc, char* argv[])
     std::vector<std::vector<size_t>> numSequencesPerLengthPartitionPrefixSum_perDBchunk(numDBChunks);
     std::vector<std::vector<DBdataView>> dbPartitionsByLengthPartitioning_perDBchunk(numDBChunks);
     std::vector<std::vector<std::vector<DBdataView>>> subPartitionsForGpus_perDBchunk(numDBChunks);
+    std::vector<std::vector<std::vector<int>>> lengthPartitionIdsForGpus_perDBchunk(numDBChunks);
     std::vector<std::vector<size_t>> numSequencesPerGpu_perDBchunk(numDBChunks);
     std::vector<std::vector<size_t>> numSequencesPerGpuPrefixSum_perDBchunk(numDBChunks);
 
@@ -5454,12 +5450,13 @@ int main(int argc, char* argv[])
 
         auto& numSequencesPerLengthPartitionPrefixSum = numSequencesPerLengthPartitionPrefixSum_perDBchunk[chunkId];
         auto& dbPartitionsByLengthPartitioning = dbPartitionsByLengthPartitioning_perDBchunk[chunkId];
-        //auto& dbPartitionsForGpus = dbPartitionsForGpus_perDBchunk[chunkId];
         auto& subPartitionsForGpus = subPartitionsForGpus_perDBchunk[chunkId];
+        auto& lengthPartitionIdsForGpus = lengthPartitionIdsForGpus_perDBchunk[chunkId];
         auto& numSequencesPerGpu = numSequencesPerGpu_perDBchunk[chunkId];
         auto& numSequencesPerGpuPrefixSum = numSequencesPerGpuPrefixSum_perDBchunk[chunkId];
 
         subPartitionsForGpus.resize(numGpus);
+        lengthPartitionIdsForGpus.resize(numGpus);
         numSequencesPerGpu.resize(numGpus, 0);
         numSequencesPerGpuPrefixSum.resize(numGpus, 0);
 
@@ -5508,6 +5505,20 @@ int main(int argc, char* argv[])
         }
         for(int i = 0; i < numGpus-1; i++){
             numSequencesPerGpuPrefixSum[i+1] = numSequencesPerGpuPrefixSum[i] + numSequencesPerGpu[i];
+        }
+    }
+
+    std::vector<std::vector<size_t>> numSequencesPerGpu_total(numGpus, 0);
+    std::vector<std::vector<size_t>> numSequencesPerGpuPrefixSum_total(numGpus, 0);
+
+    for(int i = 0; i < numGpus; i++){
+        size_t num = 0;
+        for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
+            num += numSequencesPerGpu_perDBchunk[chunkId][i];
+        }
+        numSequencesPerGpu_total[i] = num;
+        if(i < numGpus - 1){
+            numSequencesPerGpuPrefixSum_total[i+1] = numSequencesPerGpuPrefixSum_total[i] + num;
         }
     }
 
@@ -5644,6 +5655,11 @@ int main(int argc, char* argv[])
         cudaSetDevice(oldId);
     };
 
+    const uint results_per_query = 100;
+    std::vector<float> alignment_scores_float(numQueries *numDBChunks * results_per_query);
+    std::vector<size_t> sorted_indices(numQueries *numDBChunks * results_per_query);
+    std::vector<int> resultDbChunkIndices(numQueries *numDBChunks * results_per_query);
+
     //set up gpus
 
     const int masterDeviceId = deviceIds[0];
@@ -5663,19 +5679,29 @@ int main(int argc, char* argv[])
     for(int i = 0; i < numGpus; i++){
         cudaSetDevice(deviceIds[i]);
 
-        const size_t max_batch_char_bytes = std::max_element(subPartitionsForGpus[i].begin(), subPartitionsForGpus[i].end(),
-            [](const auto& l, const auto& r){ return l.numChars() < r.numChars(); }
-        )->numChars();
+        size_t max_batch_char_bytes = 0;
+        size_t max_batch_num_sequences = 0;
 
-        const size_t max_batch_num_sequences = std::max_element(subPartitionsForGpus[i].begin(), subPartitionsForGpus[i].end(),
-            [](const auto& l, const auto& r){ return l.numSequences() < r.numSequences(); }
-        )->numSequences();
+        for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
+            const size_t max_batch_char_bytes_chunk = std::max_element(subPartitionsForGpus[chunkId][i].begin(), subPartitionsForGpus[chunkId][i].end(),
+                [](const auto& l, const auto& r){ return l.numChars() < r.numChars(); }
+            )->numChars();
+
+            max_batch_char_bytes = std::max(max_batch_char_bytes, max_batch_char_bytes_chunk);
+
+            const size_t max_batch_num_sequences_chunk = std::max_element(subPartitionsForGpus[chunkId][i].begin(), subPartitionsForGpus[chunkId][i].end(),
+                [](const auto& l, const auto& r){ return l.numSequences() < r.numSequences(); }
+            )->numSequences();
+
+            max_batch_num_sequences = std::max(max_batch_num_sequences, max_batch_num_sequences_chunk)
+        }
 
         const size_t max_batch_offset_bytes = sizeof(size_t) * max_batch_num_sequences;
 
         std::cout << "max_batch_char_bytes " << max_batch_char_bytes << "\n";
         std::cout << "max_batch_num_sequences " << max_batch_num_sequences << "\n";
         std::cout << "max_batch_offset_bytes " << max_batch_offset_bytes << "\n";
+
         
         createGpuWorkingSet(
             deviceIds[i], 
@@ -5684,7 +5710,7 @@ int main(int argc, char* argv[])
             max_batch_offset_bytes,
             max_batch_num_sequences,
             //dbPartitionsForGpus[i].numSequences()
-            numSequencesPerGpu[i]
+            numSequencesPerGpu_total[i]
         );
 
         //spin up the host callback thread
@@ -5747,126 +5773,93 @@ int main(int argc, char* argv[])
         const bool useExtraThreadForBatchTransfer = numGpus > 1;
 
 
-        cudaSetDevice(masterDeviceId);
-        TIMERSTART_CUDA_STREAM(NW_local_affine_half2_query_Protein, masterStream1)
+        for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
+            cudaSetDevice(masterDeviceId);
+            TIMERSTART_CUDA_STREAM(NW_local_affine_half2_query_Protein, masterStream1)
 
-        cudaEventRecord(masterevent1, masterStream1); CUERR;
 
-        for(int i = 0; i < numGpus; i++){
-            cudaSetDevice(deviceIds[i]);
+            cudaEventRecord(masterevent1, masterStream1); CUERR;
 
-            auto& ws = workingSets[i];
-            assert(ws.deviceId == deviceIds[i]);
+            for(int i = 0; i < numGpus; i++){
+                cudaSetDevice(deviceIds[i]);
 
-            cudaStreamWaitEvent(ws.stream2, masterevent1, 0); CUERR;
+                auto& ws = workingSets[i];
+                assert(ws.deviceId == deviceIds[i]);
 
-            processQueryOnGpu(
-                ws,
-                subPartitionsForGpus[i],
-                lengthPartitionIdsForGpus[i],
-                &(ws.devChars[offsets[query_num]]),
-                lengths[query_num],
-                (query_num == 0),
-                query_num,
-                avg_length_2,
-                tempHEfactor,
-                MAX_long_seq,
-                select_datatype,
-                select_dpx,
-                useExtraThreadForBatchTransfer,
-                ws.stream2
+                cudaStreamWaitEvent(ws.stream2, masterevent1, 0); CUERR;
+
+                processQueryOnGpu(
+                    ws,
+                    subPartitionsForGpus_perDBchunk[chunkId][i],
+                    lengthPartitionIdsForGpus[chunkId][i],
+                    &(ws.devChars[offsets[query_num]]),
+                    lengths[query_num],
+                    (query_num == 0),
+                    query_num,
+                    avg_length_2,
+                    tempHEfactor,
+                    MAX_long_seq,
+                    select_datatype,
+                    select_dpx,
+                    useExtraThreadForBatchTransfer,
+                    ws.stream2
+                );
+
+                cudaMemcpyAsync(
+                    devAllAlignmentScoresFloat.data().get() + numSequencesPerGpuPrefixSum[i],
+                    ws.devAlignmentScoresFloat,
+                    //sizeof(float) * dbPartitionsForGpus[i].numSequences(),
+                    sizeof(float) * numSequencesPerGpu[i],
+                    cudaMemcpyDeviceToDevice,
+                    ws.stream2
+                );
+
+                cudaEventRecord(ws.forkStreamEvent, ws.stream2); CUERR;
+                cudaStreamWaitEvent(masterStream1, ws.forkStreamEvent, 0); CUERR;
+            }
+
+            cudaSetDevice(masterDeviceId);
+            TIMERSTOP_CUDA_STREAM(NW_local_affine_half2_query_Protein, masterStream1)
+
+            cudaSetDevice(masterDeviceId);
+
+            thrust::sequence(
+                thrust::cuda::par_nosync.on(masterStream1),
+                dev_sorted_indices.begin(), 
+                dev_sorted_indices.end(),
+                0
+            );
+            thrust::sort_by_key(
+                thrust::cuda::par_nosync.on(masterStream1),
+                devAllAlignmentScoresFloat.begin(),
+                devAllAlignmentScoresFloat.end(),
+                dev_sorted_indices.begin(),
+                thrust::greater<float>()
+            );
+
+            std::fill(
+                &resultDbChunkIndices[query_num*numDBChunks*results_per_query + chunkId * results_per_query],
+                &resultDbChunkIndices[query_num*numDBChunks*results_per_query + chunkId * results_per_query] + results_per_query,
+                chunkId
             );
 
             cudaMemcpyAsync(
-                devAllAlignmentScoresFloat.data().get() + numSequencesPerGpuPrefixSum[i],
-                ws.devAlignmentScoresFloat,
-                //sizeof(float) * dbPartitionsForGpus[i].numSequences(),
-                sizeof(float) * numSequencesPerGpu[i],
-                cudaMemcpyDeviceToDevice,
-                ws.stream2
-            );
+                &(alignment_scores_float[query_num*numDBChunks*results_per_query + chunkId * results_per_query]), 
+                devAllAlignmentScoresFloat.data().get(), 
+                results_per_query*sizeof(float), 
+                cudaMemcpyDeviceToHost, 
+                masterStream1
+            );  CUERR
+            cudaMemcpyAsync(
+                &(sorted_indices[query_num*numDBChunks*results_per_query + chunkId * results_per_query]), 
+                dev_sorted_indices.data().get(), 
+                results_per_query*sizeof(size_t), 
+                cudaMemcpyDeviceToHost, 
+                masterStream1
+            );  CUERR
 
-            cudaEventRecord(ws.forkStreamEvent, ws.stream2); CUERR;
-            cudaStreamWaitEvent(masterStream1, ws.forkStreamEvent, 0); CUERR;
         }
 
-        cudaSetDevice(masterDeviceId);
-        TIMERSTOP_CUDA_STREAM(NW_local_affine_half2_query_Protein, masterStream1)
-
-        // std::vector<std::future<void>> futures;
-
-        // for(int i = 0; i < numGpus; i++){
-
-
-        //     futures.emplace_back(std::async(std::launch::async, 
-        //         [&, i](){
-        //             cudaSetDevice(deviceIds[i]);
-
-        //             auto& ws = workingSets[i];
-        //             assert(ws.deviceId == deviceIds[i]);
-        //             processQueryOnGpu(
-        //                 ws,
-        //                 subPartitionsForGpus[i],
-        //                 lengthPartitionIdsForGpus[i],
-        //                 &(ws.devChars[offsets[query_num]]),
-        //                 lengths[query_num],
-        //                 (query_num == 0),
-        //                 query_num,
-        //                 avg_length_2,
-        //                 tempHEfactor,
-        //                 MAX_long_seq,
-        //                 select_datatype,
-        //                 select_dpx,
-        //                 ws.stream2
-        //             );
-        //         }
-        //     ));
-        // }
-
-        // for(int i = 0; i < numGpus; i++){
-        //     //must wait for future before issuing the memcpy. otherwise, not all alignment operations might have been submitted to ws.stream2 yet.
-        //     futures[i].get();
-
-        //     cudaSetDevice(deviceIds[i]);
-
-        //     auto& ws = workingSets[i];
-        //     assert(ws.deviceId == deviceIds[i]);
-
-        //     cudaMemcpyAsync(
-        //         devAllAlignmentScoresFloat.data().get() + numSequencesPerGpuPrefixSum[i],
-        //         ws.devAlignmentScoresFloat,
-        //         //sizeof(float) * dbPartitionsForGpus[i].numSequences(),
-        //         sizeof(float) * numSequencesPerGpu[i],
-        //         cudaMemcpyDeviceToDevice,
-        //         ws.stream2
-        //     );
-        // }
-
-        for(int i = 0; i < numGpus; i++){
-            auto& ws = workingSets[i];
-            cudaSetDevice(deviceIds[i]);
-            cudaStreamSynchronize(ws.stream2);
-        }
-
-        cudaSetDevice(masterDeviceId);
-
-        thrust::sequence(
-            thrust::cuda::par_nosync.on(masterStream1),
-            dev_sorted_indices.begin(), 
-            dev_sorted_indices.end(),
-            0
-        );
-        thrust::sort_by_key(
-            thrust::cuda::par_nosync.on(masterStream1),
-            devAllAlignmentScoresFloat.begin(),
-            devAllAlignmentScoresFloat.end(),
-            dev_sorted_indices.begin(),
-            thrust::greater<float>()
-        );
-
-        cudaMemcpyAsync(&(alignment_scores_float[query_num*results_per_query]), devAllAlignmentScoresFloat.data().get(), results_per_query*sizeof(float), cudaMemcpyDeviceToHost, masterStream1);  CUERR
-        cudaMemcpyAsync(&(sorted_indices[query_num*results_per_query]), dev_sorted_indices.data().get(), results_per_query*sizeof(size_t), cudaMemcpyDeviceToHost, masterStream1);  CUERR
-        //cudaMemcpy(&(sorted_indices[query_num*results_per_query]), dev_sorted_indices, results_per_query*sizeof(size_t), cudaMemcpyDeviceToHost);  CUERR
     }
     cudaSetDevice(masterDeviceId);
     cudaStreamSynchronize(masterStream1); CUERR
@@ -5878,6 +5871,31 @@ int main(int argc, char* argv[])
     cudaEventDestroy(masterevent1);
     cudaStreamDestroy(masterStream1);
 
+    //sort the chunk results per query to find overall top results
+    std::vector<float> final_alignment_scores_float(numQueries * results_per_query);
+    std::vector<size_t> final_sorted_indices(numQueries * results_per_query);
+    std::vector<int> final_resultDbChunkIndices(numQueries * results_per_query);
+
+    for (int query_num=0; query_num < numQueries; query_num++) {
+        float* scores =  &alignment_scores_float[query_num * numDBChunks * results_per_query];
+        size_t* indices =  &sorted_indices[query_num * numDBChunks * results_per_query];
+        int* chunkIds =  &resultDbChunkIndices[query_num * numDBChunks * results_per_query];
+
+        std::vector<int> permutation(results_per_query * numDBChunks);
+        std::iota(permutation.begin(), permutation.end(), 0);
+        std::sort(permutation.begin(), permutation.end(),
+            [&](const auto& l, const auto& r){
+                scores[l] > scores[r];
+            }
+        );
+
+        for(int i = 0; i < results_per_query; i++){
+            final_alignment_scores_float[i] = scores[permutation[i]];
+            final_sorted_indices[i] = indices[permutation[i]];
+            final_resultDbChunkIndices[i] = chunkIds[permutation[i]];
+        }        
+    }
+
 
     for (int i=0; i<numQueries; i++) {
 	    std::cout << totalOverFlowNumber << " total overflow positions \n";
@@ -5886,7 +5904,9 @@ int main(int argc, char* argv[])
 
 		for(int j = 0; j < 10; ++j) {
             const int arrayIndex = i*results_per_query+j;
-            const int dbChunkIndex = resultDbChunkIndices[i*results_per_query+j];
+            const size_t sortedIndex = sorted_indices[arrayIndex];
+            
+            const int dbChunkIndex = final_resultDbChunkIndices[arrayIndex];
             const auto& chunkData = fullDB.chunks[dbChunkIndex];
 
             const char* headerBegin = chunkData.headers() + chunkData.headerOffsets()[sorted_indices[i*results_per_query+j]];
