@@ -21,6 +21,7 @@
 #include <omp.h>
 #include "dbdata.hpp"
 #include "length_partitions.hpp"
+#include "util.cuh"
 
 constexpr int ALIGN = 4;
 
@@ -5119,12 +5120,21 @@ void processQueryOnGpu(
         ws.h_numSelectedPerPartition[lengthPartitionId] = currentPartition.numSequences();
 
         //all sequences of the batch belong to the same length partition. use a single index array with counts from 0 to N-1
+
+        auto d_all_selectedPositions = &(ws.d_all_selectedPositions[0*ws.max_batch_num_sequences]);
         thrust::sequence(
             thrust::cuda::par_nosync.on(ws.dblBufferStreams[source]),
-            &(ws.d_all_selectedPositions[lengthPartitionId*ws.max_batch_num_sequences]),
-            &(ws.d_all_selectedPositions[lengthPartitionId*ws.max_batch_num_sequences]) + currentPartition.numSequences(),
+            d_all_selectedPositions,
+            d_all_selectedPositions + currentPartition.numSequences(),
             0
         );
+
+        // thrust::sequence(
+        //     thrust::cuda::par_nosync.on(ws.dblBufferStreams[source]),
+        //     &(ws.d_all_selectedPositions[lengthPartitionId*ws.max_batch_num_sequences]),
+        //     &(ws.d_all_selectedPositions[lengthPartitionId*ws.max_batch_num_sequences]) + currentPartition.numSequences(),
+        //     0
+        // );
 
 
         assert(currentPartition.numSequences() <= ws.max_batch_num_sequences);
@@ -5153,43 +5163,43 @@ void processQueryOnGpu(
 
                 const float gop = -11.0;
                 const float gex = -1.0;
-                if (ws.h_numSelectedPerPartition[14]){NW_local_affine_read4_float_query_Protein<32, 12><<<ws.h_numSelectedPerPartition[14], 32, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), (short2*)ws.devTempHcol2, (short2*)ws.devTempEcol2, ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[14*ws.max_batch_num_sequences]), queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[14]){NW_local_affine_read4_float_query_Protein<32, 12><<<ws.h_numSelectedPerPartition[14], 32, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), (short2*)ws.devTempHcol2, (short2*)ws.devTempEcol2, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 14\n"; cudaStreamSynchronize(ws.stream0); CUERR
-                if (ws.h_numSelectedPerPartition[0]){NW_local_affine_Protein_single_pass_half2<4, 16><<<(ws.h_numSelectedPerPartition[0]+255)/(2*8*4*4), 32*8*2, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[0*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[0], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[0]){NW_local_affine_Protein_single_pass_half2<4, 16><<<(ws.h_numSelectedPerPartition[0]+255)/(2*8*4*4), 32*8*2, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[0], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 0\n"; cudaStreamSynchronize(ws.stream0); CUERR
-                if (ws.h_numSelectedPerPartition[1]){NW_local_affine_Protein_single_pass_half2<8, 16><<<(ws.h_numSelectedPerPartition[1]+127)/(2*8*4*2), 32*8*2, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[1*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[1], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[1]){NW_local_affine_Protein_single_pass_half2<8, 16><<<(ws.h_numSelectedPerPartition[1]+127)/(2*8*4*2), 32*8*2, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[1], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 1\n"; cudaStreamSynchronize(ws.stream0); 
-                if (ws.h_numSelectedPerPartition[2]){NW_local_affine_Protein_single_pass_half2<8, 24><<<(ws.h_numSelectedPerPartition[2]+63)/(2*8*4), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[2*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[2], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[2]){NW_local_affine_Protein_single_pass_half2<8, 24><<<(ws.h_numSelectedPerPartition[2]+63)/(2*8*4), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[2], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 2\n"; cudaStreamSynchronize(ws.stream0); 
-                if (ws.h_numSelectedPerPartition[3]){NW_local_affine_Protein_single_pass_half2<16, 16><<<(ws.h_numSelectedPerPartition[3]+31)/(2*8*2), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[3*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[3], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[3]){NW_local_affine_Protein_single_pass_half2<16, 16><<<(ws.h_numSelectedPerPartition[3]+31)/(2*8*2), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[3], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 3\n"; cudaStreamSynchronize(ws.stream0); 
-                if (ws.h_numSelectedPerPartition[4]){NW_local_affine_Protein_single_pass_half2<16, 20><<<(ws.h_numSelectedPerPartition[4]+31)/(2*8*2), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[4*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[4], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[4]){NW_local_affine_Protein_single_pass_half2<16, 20><<<(ws.h_numSelectedPerPartition[4]+31)/(2*8*2), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[4], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 4\n"; cudaStreamSynchronize(ws.stream0); 
-                if (ws.h_numSelectedPerPartition[5]){NW_local_affine_Protein_single_pass_half2<16, 24><<<(ws.h_numSelectedPerPartition[5]+31)/(2*8*2), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[5*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[5], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[5]){NW_local_affine_Protein_single_pass_half2<16, 24><<<(ws.h_numSelectedPerPartition[5]+31)/(2*8*2), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[5], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 5\n"; cudaStreamSynchronize(ws.stream0); 
-                if (ws.h_numSelectedPerPartition[6]){NW_local_affine_Protein_single_pass_half2<16, 28><<<(ws.h_numSelectedPerPartition[6]+31)/(2*8*2), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[6*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[6], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[6]){NW_local_affine_Protein_single_pass_half2<16, 28><<<(ws.h_numSelectedPerPartition[6]+31)/(2*8*2), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[6], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 6\n"; cudaStreamSynchronize(ws.stream1); 
-                if (ws.h_numSelectedPerPartition[7]){NW_local_affine_Protein_single_pass_half2<32, 16><<<(ws.h_numSelectedPerPartition[7]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[7*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[7], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[7]){NW_local_affine_Protein_single_pass_half2<32, 16><<<(ws.h_numSelectedPerPartition[7]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[7], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 7\n"; cudaStreamSynchronize(ws.stream1); 
-                if (ws.h_numSelectedPerPartition[8]){NW_local_affine_Protein_single_pass_half2<32, 18><<<(ws.h_numSelectedPerPartition[8]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[8*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[8], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[8]){NW_local_affine_Protein_single_pass_half2<32, 18><<<(ws.h_numSelectedPerPartition[8]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[8], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 8\n"; cudaStreamSynchronize(ws.stream1); 
-                if (ws.h_numSelectedPerPartition[9]){NW_local_affine_Protein_single_pass_half2<32, 20><<<(ws.h_numSelectedPerPartition[9]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[9*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[9], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[9]){NW_local_affine_Protein_single_pass_half2<32, 20><<<(ws.h_numSelectedPerPartition[9]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[9], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 9\n"; cudaStreamSynchronize(ws.stream1); 
-                if (ws.h_numSelectedPerPartition[10]){NW_local_affine_Protein_single_pass_half2<32, 24><<<(ws.h_numSelectedPerPartition[10]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[10*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[10], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[10]){NW_local_affine_Protein_single_pass_half2<32, 24><<<(ws.h_numSelectedPerPartition[10]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[10], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 10\n"; cudaStreamSynchronize(ws.stream1); 
-                if (ws.h_numSelectedPerPartition[11]){NW_local_affine_Protein_single_pass_half2<32, 28><<<(ws.h_numSelectedPerPartition[11]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[11*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[11], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[11]){NW_local_affine_Protein_single_pass_half2<32, 28><<<(ws.h_numSelectedPerPartition[11]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[11], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 11\n"; cudaStreamSynchronize(ws.stream1); 
-                if (ws.h_numSelectedPerPartition[12]){NW_local_affine_Protein_single_pass_half2<32, 32><<<(ws.h_numSelectedPerPartition[12]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], &(ws.d_all_selectedPositions[12*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[12], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[12]){NW_local_affine_Protein_single_pass_half2<32, 32><<<(ws.h_numSelectedPerPartition[12]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[12], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 if (ws.h_numSelectedPerPartition[13] + ws.h_numSelectedPerPartition[14] <= MAX_long_seq) {
-                    if (ws.h_numSelectedPerPartition[13]) NW_local_affine_Protein_many_pass_half2<32, 12><<<(ws.h_numSelectedPerPartition[13]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), &(ws.devTempHcol2[ws.h_numSelectedPerPartition[14]*queryLength]), &(ws.devTempEcol2[ws.h_numSelectedPerPartition[14]*queryLength]), ws.devOffsets_2[source], ws.devLengths_2[source], &(ws.d_all_selectedPositions[13*ws.max_batch_num_sequences]), ws.h_numSelectedPerPartition[13], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR
+                    if (ws.h_numSelectedPerPartition[13]) NW_local_affine_Protein_many_pass_half2<32, 12><<<(ws.h_numSelectedPerPartition[13]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), &(ws.devTempHcol2[ws.h_numSelectedPerPartition[14]*queryLength]), &(ws.devTempEcol2[ws.h_numSelectedPerPartition[14]*queryLength]), ws.devOffsets_2[source], ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[13], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR
                 } else {
                     uint Num_Seq_per_call = MAX_long_seq - ws.h_numSelectedPerPartition[14];
                     //std::cout << " Batch: " << batch << " Num_Seq_per_call: " << Num_Seq_per_call<< " Iterations: " << ws.h_numSelectedPerPartition[9]/Num_Seq_per_call << "\n";
                     for (int i=0; i<ws.h_numSelectedPerPartition[13]/Num_Seq_per_call; i++)
-                        NW_local_affine_Protein_many_pass_half2<32, 12><<<(Num_Seq_per_call+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), &(ws.devTempHcol2[ws.h_numSelectedPerPartition[14]*queryLength]), &(ws.devTempEcol2[ws.h_numSelectedPerPartition[14]*queryLength]), ws.devOffsets_2[source], ws.devLengths_2[source], &(ws.d_all_selectedPositions[13*ws.max_batch_num_sequences+i*Num_Seq_per_call]), Num_Seq_per_call, ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR
+                        NW_local_affine_Protein_many_pass_half2<32, 12><<<(Num_Seq_per_call+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), &(ws.devTempHcol2[ws.h_numSelectedPerPartition[14]*queryLength]), &(ws.devTempEcol2[ws.h_numSelectedPerPartition[14]*queryLength]), ws.devOffsets_2[source], ws.devLengths_2[source], d_all_selectedPositions+i*Num_Seq_per_call, Num_Seq_per_call, ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR
                     uint Remaining_Seq = ws.h_numSelectedPerPartition[13]%Num_Seq_per_call;
                     if (Remaining_Seq)
-                        NW_local_affine_Protein_many_pass_half2<32, 12><<<(Remaining_Seq+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), &(ws.devTempHcol2[ws.h_numSelectedPerPartition[14]*queryLength]), &(ws.devTempEcol2[ws.h_numSelectedPerPartition[14]*queryLength]), ws.devOffsets_2[source], ws.devLengths_2[source], &(ws.d_all_selectedPositions[13*ws.max_batch_num_sequences+(ws.h_numSelectedPerPartition[13]/Num_Seq_per_call)*Num_Seq_per_call]), Remaining_Seq, ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR
+                        NW_local_affine_Protein_many_pass_half2<32, 12><<<(Remaining_Seq+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), &(ws.devTempHcol2[ws.h_numSelectedPerPartition[14]*queryLength]), &(ws.devTempEcol2[ws.h_numSelectedPerPartition[14]*queryLength]), ws.devOffsets_2[source], ws.devLengths_2[source], d_all_selectedPositions+(ws.h_numSelectedPerPartition[13]/Num_Seq_per_call)*Num_Seq_per_call, Remaining_Seq, ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR
                 }
 
                 if (batch < int(dbPartitions.size())-1)  {   // data transfer for next batch
@@ -5296,6 +5306,23 @@ int main(int argc, char* argv[])
     }
     const int numGpus = deviceIds.size();
     assert(numGpus > 0);
+
+    const int masterDeviceId = deviceIds[0];
+
+    for(int i = 0; i < numGpus; i++){
+        cudaSetDevice(deviceIds[i]); CUERR
+        init_cuda_context(); CUERR
+        cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);CUERR
+        cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeFourByte); CUERR
+
+        cudaMemPool_t mempool;
+        cudaDeviceGetDefaultMemPool(&mempool, deviceIds[i]); CUERR
+        uint64_t threshold = UINT64_MAX;
+        cudaMemPoolSetAttribute(mempool, cudaMemPoolAttrReleaseThreshold, &threshold);CUERR
+    }
+    cudaSetDevice(masterDeviceId); CUERR
+
+
 
 
     int select_datatype; // 0 = 2x16-bit, 1 = 32-bit
@@ -5657,20 +5684,15 @@ int main(int argc, char* argv[])
     };
 
     const uint results_per_query = 100;
-    std::vector<float> alignment_scores_float(numQueries *numDBChunks * results_per_query);
-    std::vector<size_t> sorted_indices(numQueries *numDBChunks * results_per_query);
-    std::vector<int> resultDbChunkIndices(numQueries *numDBChunks * results_per_query);
+    // std::vector<float> alignment_scores_float(numQueries *numDBChunks * results_per_query);
+    // std::vector<size_t> sorted_indices(numQueries *numDBChunks * results_per_query);
+    // std::vector<int> resultDbChunkIndices(numQueries *numDBChunks * results_per_query);
+    pinned_vector<float> alignment_scores_float(numQueries *numDBChunks * results_per_query);
+    pinned_vector<size_t> sorted_indices(numQueries *numDBChunks * results_per_query);
+    pinned_vector<int> resultDbChunkIndices(numQueries *numDBChunks * results_per_query);
 
     //set up gpus
 
-    const int masterDeviceId = deviceIds[0];
-
-    for(int i = 0; i < numGpus; i++){
-        cudaSetDevice(deviceIds[i]);
-        init_cuda_context();
-        cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);
-        cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeFourByte); CUERR
-    }
 
     std::vector<GpuWorkingSet> workingSets(numGpus);
 
@@ -5838,7 +5860,7 @@ int main(int argc, char* argv[])
                 0
             );
             thrust::sort_by_key(
-                thrust::cuda::par_nosync.on(masterStream1),
+                thrust::cuda::par_nosync(thrust_async_allocator<char>(masterStream1)).on(masterStream1),
                 devAllAlignmentScoresFloat.begin(),
                 devAllAlignmentScoresFloat.end(),
                 dev_sorted_indices.begin(),
