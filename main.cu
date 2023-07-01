@@ -261,7 +261,7 @@ void test(char* chars, size_t* offsets, size_t nseq)
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int group_size, int numRegs> __global__
+template <int group_size, int numRegs, class PositionsIterator> __global__
 void NW_local_affine_many_pass_s16_DPX(
     const char * devChars,
     float * devAlignmentScores,
@@ -941,7 +941,7 @@ void NW_local_affine_many_pass_s16_DPX(
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int group_size, int numRegs> __global__
+template <int group_size, int numRegs, class PositionsIterator> __global__
 void NW_local_affine_Protein_many_pass_half2(
     const char * devChars,
     float * devAlignmentScores,
@@ -949,7 +949,7 @@ void NW_local_affine_Protein_many_pass_half2(
     __half2 * devTempEcol2,
     const size_t* devOffsets,
     size_t* devLengths,
-    const size_t* d_positions_of_selected_lengths,
+    PositionsIterator d_positions_of_selected_lengths,
     const int numSelected,
 	size_t* d_overflow_positions,
 	int *d_overflow_number,
@@ -1746,7 +1746,7 @@ void NW_local_affine_Protein_many_pass_half2(
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int group_size, int numRegs> 
+template <int group_size, int numRegs, class PositionsIterator> 
 __launch_bounds__(512)
 __global__
 void NW_local_affine_Protein_single_pass_half2(
@@ -1754,7 +1754,7 @@ void NW_local_affine_Protein_single_pass_half2(
     float * devAlignmentScores,
     const size_t* devOffsets,
     const size_t* devLengths,
-    const size_t* d_positions_of_selected_lengths,
+    PositionsIterator d_positions_of_selected_lengths,
     const int numSelected,
 	size_t* d_overflow_positions,
 	int *d_overflow_number,
@@ -1790,16 +1790,29 @@ void NW_local_affine_Protein_single_pass_half2(
 
     //if ((blid == 2) && (!thid)) printf("Values in Block: %d, in Thread: %d, numSelected: %d, check_last: %d, check_last2 = %d\n", blid, thid, numSelected, check_last, check_last2);
 
-    const int length_S0 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)]];
-    const int base_S0 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)]]-devOffsets[0];
+    const size_t alignmentId_checklast_0 = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)];
+    const size_t alignmentId_checklast_1 = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)+1];
+    const size_t alignmentId_0 = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*(thid/group_size)];
+    const size_t alignmentId_1 = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*(thid/group_size)+1];
+
+    //if we can assume that d_positions_of_selected_lengths is the sequence 0...N, we do not need it at all
+    // const size_t alignmentId_checklast_0 = 2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size);
+    // const size_t alignmentId_checklast_1 = 2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)+1;
+    // const size_t alignmentId_0 = 2*(blockDim.x/group_size)*blid+2*(thid/group_size);
+    // const size_t alignmentId_1 = 2*(blockDim.x/group_size)*blid+2*(thid/group_size)+1;
+
+ 
+
+    const int length_S0 = devLengths[alignmentId_checklast_0];
+    const int base_S0 = devOffsets[alignmentId_checklast_0]-devOffsets[0];
 
     //if ((blid == 2) && (!thid)) printf("Values in Block: %d, in Thread: %d, length_S0: %d, base_S0: %d\n", blid, thid, length_S0, base_S0);
 
 	int length_S1 = length_S0;
 	int base_S1 = base_S0;
 	if ((blid < gridDim.x-1) || (!check_last2) || ((thid%check_last) < check_last-group_size) || ((thid%check_last) >= check_last)) {
-		length_S1 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)+1]];
-	    base_S1 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)+1]]-devOffsets[0];
+		length_S1 = devLengths[alignmentId_checklast_1];
+	    base_S1 = devOffsets[alignmentId_checklast_1]-devOffsets[0];
 	}
 
 	//if (blid == gridDim.x-1)
@@ -2130,15 +2143,13 @@ void NW_local_affine_Protein_single_pass_half2(
   // if (thid % group_size == thread_result)
     //  printf("Result in Block: %d, in Thread: %d, Register: %d, Value: %f, #passes: %d\n", blid, thid, (length-1)%numRegs, penalty_here_array[(length-1)%numRegs], passes);
    if (!group_id) {
-      //devAlignmentScores[d_positions_of_selected_lengths[2*blid]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-      //if (blid < gridDim.x-1) devAlignmentScores[d_positions_of_selected_lengths[2*blid+1]] =  maximum.y;
-      //else if (!check_last) devAlignmentScores[d_positions_of_selected_lengths[2*blid+1]] =  maximum.y;
+
       if (blid < gridDim.x-1) {
-          devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*(thid/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-          devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*(thid/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+          devAlignmentScores[alignmentId_0] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+          devAlignmentScores[alignmentId_1] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
       } else {
-          devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-          if (!check_last2 || (thid%check_last) < check_last-group_size) devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+          devAlignmentScores[alignmentId_checklast_0] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+          if (!check_last2 || (thid%check_last) < check_last-group_size) devAlignmentScores[alignmentId_checklast_1] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
       }
 
       float2 temp_temp = __half22float2(maximum);
@@ -2149,11 +2160,11 @@ void NW_local_affine_Protein_single_pass_half2(
 		  half max_half2 = __float2half_rn(MAX_ACC_HALF2);
 		  if (maximum.y >= max_half2) {
 			  int pos_overflow = atomicAdd(d_overflow_number,1);
-			  int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)];
+			  int pos = d_overflow_positions[pos_overflow] = alignmentId_checklast_0;
 		  }
 		  if (maximum.x >= max_half2) {
 			  int pos_overflow = atomicAdd(d_overflow_number,1);
-			  int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)+1];
+			  int pos = d_overflow_positions[pos_overflow] = alignmentId_checklast_1;
 		  }
 	  }
   }
@@ -3114,7 +3125,7 @@ void NW_local_affine_single_pass_s32_DPX(
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int group_size, int numRegs> __global__
+template <int group_size, int numRegs, class PositionsIterator> __global__
 void NW_local_affine_read4_float_query_Protein(
     const char * devChars,
     float * devAlignmentScores,
@@ -3122,7 +3133,7 @@ void NW_local_affine_read4_float_query_Protein(
     short2 * devTempEcol2,
     const size_t* devOffsets,
     const size_t* devLengths,
-    const size_t* d_positions_of_selected_lengths,
+    PositionsIterator d_positions_of_selected_lengths,
     const int length_2,
     const float gap_open,
     const float gap_extend
@@ -5128,6 +5139,8 @@ void processQueryOnGpu(
             d_all_selectedPositions + currentPartition.numSequences(),
             0
         );
+
+       // auto d_all_selectedPositions = thrust::make_counting_iterator<size_t>(0);
 
         // thrust::sequence(
         //     thrust::cuda::par_nosync.on(ws.dblBufferStreams[source]),
