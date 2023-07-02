@@ -1059,9 +1059,9 @@ void NW_local_affine_Protein_many_pass_half2(
     __half2 * devTempEcol = (half2*)(&devTempEcol2[base_3]);
 
     auto checkHEindex = [&](auto x){
-        assert(x >= 0); //positive index
-        assert(2*(blockDim.x/group_size)*blid * length_2 <= base_3 + x);
-        assert(base_3+x < 2*(blockDim.x/group_size)*(blid+1) * length_2);
+        // assert(x >= 0); //positive index
+        // assert(2*(blockDim.x/group_size)*blid * length_2 <= base_3 + x);
+        // assert(base_3+x < 2*(blockDim.x/group_size)*(blid+1) * length_2);
     };
 
 	auto convert_AA_alphabetical = [&](const auto& AA) {
@@ -3192,6 +3192,12 @@ void NW_local_affine_read4_float_query_Protein(
     float maximum = 0;
     const float ZERO = 0;
 
+    auto checkHEindex = [&](auto x){
+        // assert(x >= 0); //positive index
+        // assert(blid*length_2 <= base_3 + x);
+        // assert(base_3+x < (blid+1)*length_2);
+    };
+
     //if (test_length>0 && ((length < min_length) || (length > max_length))) return;
 
     //printf("Base_2: %d, %d, %d\n", base_2, blid, thid);
@@ -3602,6 +3608,7 @@ void NW_local_affine_read4_float_query_Protein(
             set_H_E_temp_out_y();
 
             if ((counter+8)%16 == 0 && counter > 8) {
+                checkHEindex(offset_out);
                 devTempHcol[offset_out]=H_temp_out;
                 devTempEcol[offset_out]=E_temp_out;
                 offset_out += group_size;
@@ -3665,6 +3672,7 @@ void NW_local_affine_read4_float_query_Protein(
         //    if (thid>=from_thread_id) printf("Thid: %d, Values: %f, %f, offset_out - from_thread_id: %d\n", thid, temp_temp.x, temp_temp.y, offset_out - from_thread_id);
         //}
         if (thid>=from_thread_id) {
+            checkHEindex(offset_out-from_thread_id);
             devTempHcol[offset_out-from_thread_id]=H_temp_out;
             devTempEcol[offset_out-from_thread_id]=E_temp_out;
         }
@@ -3689,6 +3697,7 @@ void NW_local_affine_read4_float_query_Protein(
             offset = group_id + group_size;
             offset_out = group_id;
             offset_in = group_id;
+            checkHEindex(offset_in);
             H_temp_in = devTempHcol[offset_in];
             E_temp_in = devTempEcol[offset_in];
             offset_in += group_size;
@@ -3767,6 +3776,7 @@ void NW_local_affine_read4_float_query_Protein(
                 set_H_E_temp_out_y();
 
                 if ((counter+8)%16 == 0 && counter > 8) {
+                    checkHEindex(offset_out);
                     devTempHcol[offset_out]=H_temp_out;
                     devTempEcol[offset_out]=E_temp_out;
                     offset_out += group_size;
@@ -3782,6 +3792,7 @@ void NW_local_affine_read4_float_query_Protein(
                 }
                 shuffle_H_E_temp_in();
                 if (counter%16 == 0) {
+                    checkHEindex(offset_in);
                     H_temp_in = devTempHcol[offset_in];
                     E_temp_in = devTempEcol[offset_in];
                     offset_in += group_size;
@@ -3843,6 +3854,7 @@ void NW_local_affine_read4_float_query_Protein(
             int from_thread_id = 32 - ((final_out+1)/2);
 
             if (thid>=from_thread_id) {
+                checkHEindex(offset_out-from_thread_id);
                 devTempHcol[offset_out-from_thread_id]=H_temp_out;
                 devTempEcol[offset_out-from_thread_id]=E_temp_out;
             }
@@ -3860,6 +3872,7 @@ void NW_local_affine_read4_float_query_Protein(
         offset = group_id + group_size;
         //offset_in = group_id + passes*(32*numRegs/2)*blid;
         offset_in = group_id;
+        checkHEindex(offset_in);
         H_temp_in = devTempHcol[offset_in];
         E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
@@ -3942,6 +3955,7 @@ void NW_local_affine_read4_float_query_Protein(
                 }
                 shuffle_H_E_temp_in();
                 if (counter%16 == 0) {
+                    checkHEindex(offset_in);
                     H_temp_in = devTempHcol[offset_in];
                     E_temp_in = devTempEcol[offset_in];
                     offset_in += group_size;
@@ -4933,31 +4947,49 @@ template <int group_size, int numRegs>
 __global__
 void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein(
     const int* d_overflow_number,
+    short2* d_temp,
+    size_t maxTempBytes,
     const char * devChars,
     float * devAlignmentScores,
-    short2 * devTempHcol2,
-    short2 * devTempEcol2,
     const size_t* devOffsets,
     const size_t* devLengths,
     const size_t* d_positions_of_selected_lengths,
-    const int length_2,
+    const int queryLength,
     const float gap_open,
     const float gap_extend
 ){
     const int numOverflow = *d_overflow_number;
     if(numOverflow > 0){
-        NW_local_affine_read4_float_query_Protein<group_size, numRegs><<<numOverflow, 32>>>(
-            devChars, 
-            devAlignmentScores, 
-            devTempHcol2, 
-            devTempEcol2, 
-            devOffsets, 
-            devLengths, 
-            d_positions_of_selected_lengths, 
-            length_2, 
-            gap_open, 
-            gap_extend
-        );
+        const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * queryLength;
+        const size_t maxSubjectsPerIteration = std::min(size_t(numOverflow), maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
+
+        short2* d_tempHcol2 = d_temp;
+        short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+
+        const int numIters =  SDIV(numOverflow, maxSubjectsPerIteration);
+        for(int iter = 0; iter < numIters; iter++){
+            const size_t begin = iter * maxSubjectsPerIteration;
+            const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numOverflow;
+            const size_t num = end - begin;
+
+            cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, 0);
+
+            // cudaMemsetAsync(d_tempHcol2, 0, tempBytesPerSubjectPerBuffer * num, 0);
+            // cudaMemsetAsync(d_tempEcol2, 0, tempBytesPerSubjectPerBuffer * num, 0);
+
+            NW_local_affine_read4_float_query_Protein<32, 12><<<num, 32>>>(
+                devChars, 
+                devAlignmentScores,
+                d_tempHcol2, 
+                d_tempEcol2, 
+                devOffsets, 
+                devLengths, 
+                d_positions_of_selected_lengths + begin, 
+                queryLength, 
+                gap_open, 
+                gap_extend
+            );
+        }
     }
 }
 
@@ -5210,9 +5242,9 @@ void processQueryOnGpu(
                 const float gop = -11.0;
                 const float gex = -1.0;
                 if (ws.h_numSelectedPerPartition[14]){
-                    constexpr size_t maxTempBytes = 16 * 1024 * 1024;
+                    constexpr size_t maxTempBytes = 512 * 1024 * 1024;
                     const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
-                    const size_t maxSubjectsPerIteration = maxTempBytes / (tempBytesPerSubjectPerBuffer * 2);
+                    const size_t maxSubjectsPerIteration = std::min(size_t(ws.h_numSelectedPerPartition[14]), maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
                     // std::cout << "tempBytesPerSubjectPerBuffer " << tempBytesPerSubjectPerBuffer << "\n";
                     // std::cout << "maxSubjectsPerIteration " << maxSubjectsPerIteration << "\n";
@@ -5232,8 +5264,10 @@ void processQueryOnGpu(
                         // std::cout << "end " << end << "\n";
                         // std::cout << "num " << num << "\n";
 
-                        cudaMemsetAsync(d_tempHcol2, 0, tempBytesPerSubjectPerBuffer * num, ws.stream0); CUERR;
-                        cudaMemsetAsync(d_tempEcol2, 0, tempBytesPerSubjectPerBuffer * num, ws.stream0); CUERR;
+                        cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, ws.stream0); CUERR;
+
+                        // cudaMemsetAsync(d_tempHcol2, 0, tempBytesPerSubjectPerBuffer * num, ws.stream0); CUERR;
+                        // cudaMemsetAsync(d_tempEcol2, 0, tempBytesPerSubjectPerBuffer * num, ws.stream0); CUERR;
 
                         //thrust::fill(thrust::cuda::par_nosync.on(ws.stream0), d_temp, d_temp + (maxTempBytes / sizeof(short2)), make_short2(-30000, -30000));
 
@@ -5372,38 +5406,29 @@ void processQueryOnGpu(
                 // }
 
                 if (ws.h_numSelectedPerPartition[13]){
-                    constexpr size_t targetMaxTempBytes = 16ull * 1024ull * 1024ull;
+                    constexpr size_t maxTempBytes = 512ull * 1024ull * 1024ull;
                     constexpr int blocksize = 32 * 8;
                     constexpr int groupsize = 32;
                     constexpr int groupsPerBlock = blocksize / groupsize;
                     constexpr int alignmentsPerGroup = 2;
                     constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
-
-                    //const size_t tempBytesPerSubjectPerBuffer = sizeof(__half2) * SDIV(queryLength,32) * 32;
-                    //const size_t maxNumBlocks = SDIV(targetMaxTempBytes, (alignmentsPerBlock * tempBytesPerSubjectPerBuffer * 2));
                     
                     const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * alignmentsPerBlock * queryLength;
 
-                    const size_t targetMaxNumBlocks = SDIV(targetMaxTempBytes, (tempBytesPerBlockPerBuffer * 2));
-                    const size_t maxSubjectsPerIteration = std::min(targetMaxNumBlocks * alignmentsPerBlock, size_t(ws.h_numSelectedPerPartition[13]));
+                    const size_t maxNumBlocks = maxTempBytes / (tempBytesPerBlockPerBuffer * 2);
+                    const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(ws.h_numSelectedPerPartition[13]));
 
                     const size_t numBlocksPerIteration = SDIV(maxSubjectsPerIteration, alignmentsPerBlock);
                     const size_t requiredTempBytes = tempBytesPerBlockPerBuffer * 2 * numBlocksPerIteration;
 
-                    // std::cout << "targetMaxNumBlocks: " << targetMaxNumBlocks << ", maxSubjectsPerIteration: " << maxSubjectsPerIteration 
+                    // std::cout << "queryLength " << queryLength << ", tempBytesPerBlockPerBuffer " << tempBytesPerBlockPerBuffer << "\n";
+                    // std::cout << "maxNumBlocks: " << maxNumBlocks << ", maxSubjectsPerIteration: " << maxSubjectsPerIteration 
                     //     << ", numBlocksPerIteration: " << numBlocksPerIteration << ", requiredTempBytes: " << requiredTempBytes 
                     //     << ", ws.h_numSelectedPerPartition[13]: " << ws.h_numSelectedPerPartition[13] << "\n";
                     // std::cout << "globalSequenceOffsetOfBatch " << globalSequenceOffsetOfBatch << "\n";
 
-                    //const size_t tempBytesPerSubjectPerBuffer = sizeof(__half2) * SDIV(queryLength,32) * 32;
-                    // const size_t tempBytesPerSubjectPerBuffer = sizeof(__half2) * SDIV(3*queryLength,128) * 128;
-                    // const size_t maxSubjectsPerIteration = maxTempBytes / (tempBytesPerSubjectPerBuffer * 2);
-
-                    // std::cout << "tempBytesPerSubjectPerBuffer " << tempBytesPerSubjectPerBuffer << "\n";
-                    // std::cout << "maxSubjectsPerIteration " << maxSubjectsPerIteration << "\n";
-
                     __half2* d_temp;
-                    cudaMallocAsync(&d_temp, requiredTempBytes, ws.stream1); CUERR;
+                    cudaMallocAsync(&d_temp, maxTempBytes, ws.stream1); CUERR;
                     __half2* d_tempHcol2 = d_temp;
                     __half2* d_tempEcol2 = (__half2*)(((char*)d_tempHcol2) + requiredTempBytes / 2);
 
@@ -5415,14 +5440,7 @@ void processQueryOnGpu(
                         const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : ws.h_numSelectedPerPartition[13];
                         const size_t num = end - begin;                      
 
-                        // std::cout << "begin " << begin << "\n";
-                        // std::cout << "end " << end << "\n";
-                        // std::cout << "num " << num << "\n";
-
                         cudaMemsetAsync(d_temp, 0, requiredTempBytes, ws.stream1); CUERR;
-
-                        //std::cout << "NW_local_affine_Protein_many_pass_half2<" << groupsize << ", 12><<<" << SDIV(num, alignmentsPerBlock) << "," << blocksize << ">>>"
-                        //    << "(" << (void*)(d_all_selectedPositions + begin) << ", " << num << ")\n";
 
                         NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.stream1>>>(
                             ws.devChars_2[source], 
@@ -5440,7 +5458,6 @@ void processQueryOnGpu(
                             gop, 
                             gex
                         ); CUERR
-                        //cudaStreamSynchronize(ws.stream1);
                     }
 
                     cudaFreeAsync(d_temp, ws.stream1);
@@ -5591,17 +5608,25 @@ void processQueryOnGpu(
                     copyBatchToDevice(nextPartition, target);
                 }
 
-                launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32, 12><<<1,1,0, ws.stream1>>>(
-                    ws.d_overflow_number,
-                    ws.devChars_2[source], 
-                    &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), 
-                    (short2*)&(ws.devTempHcol2[(MAX_long_seq+16)*queryLength]), 
-                    (short2*)&(ws.devTempEcol2[(MAX_long_seq+16)*queryLength]), 
-                    ws.devOffsets_2[source] , 
-                    ws.devLengths_2[source], 
-                    ws.d_overflow_positions, 
-                    queryLength, gop, gex
-                ); CUERR
+                {
+                    constexpr size_t maxTempBytes = 512ull * 1024ull * 1024ull;
+                    short2* d_temp;
+                    cudaMallocAsync(&d_temp, maxTempBytes, ws.stream0);
+
+                    launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32, 12><<<1,1,0, ws.stream1>>>(
+                        ws.d_overflow_number,
+                        d_temp, 
+                        maxTempBytes,
+                        ws.devChars_2[source], 
+                        &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), 
+                        ws.devOffsets_2[source] , 
+                        ws.devLengths_2[source], 
+                        ws.d_overflow_positions, 
+                        queryLength, gop, gex
+                    ); CUERR
+
+                    cudaFreeAsync(d_temp, ws.stream1); CUERR;
+                }
 
 
 
