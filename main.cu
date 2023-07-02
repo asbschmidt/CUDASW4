@@ -3418,52 +3418,173 @@ void NW_local_affine_read4_float_query_Protein(
 
     if (passes == 1) {
         // Single pass
-    //    for (int k = 5; k < lane_2+group_size-length_2%4; k+=4) {
-    //    for (int k = 5; k < lane_2+thread_result+1-thread_result%4; k+=4) {
-    init_penalties_local(0);
-    init_local_score_profile_BLOSUM62(0);
+        //    for (int k = 5; k < lane_2+group_size-length_2%4; k+=4) {
+        //    for (int k = 5; k < lane_2+thread_result+1-thread_result%4; k+=4) {
+        init_penalties_local(0);
+        init_local_score_profile_BLOSUM62(0);
 
-    initial_calc32_local_affine_float(0);
-    shuffle_query(new_query_letter4.y);
-    shuffle_affine_penalty(0, NEGINFINITY);
+        initial_calc32_local_affine_float(0);
+        shuffle_query(new_query_letter4.y);
+        shuffle_affine_penalty(0, NEGINFINITY);
 
-    if (length_2+thread_result >=2) {
+        if (length_2+thread_result >=2) {
+            //shuffle_max();
+            calc32_local_affine_float();
+            shuffle_query(new_query_letter4.z);
+            shuffle_affine_penalty(0, NEGINFINITY);
+        }
+
+        if (length_2+thread_result >=3) {
+            //shuffle_max();
+            calc32_local_affine_float();
+            shuffle_query(new_query_letter4.w);
+            shuffle_affine_penalty(0, NEGINFINITY);
+            shuffle_new_query();
+            counter++;
+
+        }
+        if (length_2+thread_result >=4) {
+        //for (k = 5; k < lane_2+thread_result-2; k+=4) {
+        for (k = 4; k <= length_2+(thread_result-3); k+=4) {
+                //shuffle_max();
+                calc32_local_affine_float();
+
+                shuffle_query(new_query_letter4.x);
+                shuffle_affine_penalty(0,NEGINFINITY);
+
+                //shuffle_max();
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.y);
+                shuffle_affine_penalty(0,NEGINFINITY);
+
+                //shuffle_max();
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.z);
+                shuffle_affine_penalty(0,NEGINFINITY);
+
+                //shuffle_max();
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.w);
+                shuffle_affine_penalty(0,NEGINFINITY);
+                shuffle_new_query();
+                if (counter%group_size == 0) {
+                    new_query_letter4 = constantQuery4[offset];
+                    offset += group_size;
+                }
+                counter++;
+            }
+
+        //if (counter2-(length_2+thread_result) > 0) {
+        if ((k-1)-(length_2+thread_result) > 0) {
+                //shuffle_max();
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.x);
+                shuffle_affine_penalty(0,NEGINFINITY);
+                k++;
+            }
+
+            //if (counter2-(length_2+thread_result) > 0) {
+            if ((k-1)-(length_2+thread_result) > 0) {
+                //shuffle_max();
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.y);
+                shuffle_affine_penalty(0,NEGINFINITY);
+                k++;
+            }
+
+            //if (counter2-(length_2+thread_result) > 0) {
+            if ((k-1)-(length_2+thread_result) > 0) {
+                //shuffle_max();
+                calc32_local_affine_float();
+                //shuffle_query(new_query_letter4.z);
+                //shuffle_affine_penalty(0,NEGINFINITY);
+            }
+
+        //    if (blid == 0) {
+        //        if (thid % group_size == thread_result)
+        //            printf("Result in Thread: %d, Register: %d, Value: %f, #passes: %d\n", thid, (length-1)%numRegs, penalty_here_array[(length-1)%numRegs], passes);
+        //    }
+        }
+    }
+    else {
+
+        //if (blid == 12455) {
+        //    if (thid == 0)
+        //    printf("Block: %d, Thread: %d, Query-length: %d, Database length: %d, passes: %d, thread_result: %d\n", blid, thid, length_2, length, passes, thread_result);
+        //}
+
+        // first pass (of multiple passes)
+        init_penalties_local(0);
+        init_local_score_profile_BLOSUM62(0);
+        initial_calc32_local_affine_float(0);
+        shuffle_query(new_query_letter4.y);
+        shuffle_affine_penalty(0, NEGINFINITY);
+
         //shuffle_max();
         calc32_local_affine_float();
         shuffle_query(new_query_letter4.z);
         shuffle_affine_penalty(0, NEGINFINITY);
-    }
 
-    if (length_2+thread_result >=3) {
         //shuffle_max();
         calc32_local_affine_float();
         shuffle_query(new_query_letter4.w);
         shuffle_affine_penalty(0, NEGINFINITY);
         shuffle_new_query();
         counter++;
+        for (k = 4; k <= 28; k+=4) {
+            calc32_local_affine_float();
+            shuffle_query(new_query_letter4.x);
+            shuffle_affine_penalty(0,NEGINFINITY);
 
-    }
-    if (length_2+thread_result >=4) {
-    //for (k = 5; k < lane_2+thread_result-2; k+=4) {
-    for (k = 4; k <= length_2+(thread_result-3); k+=4) {
+            calc32_local_affine_float();
+            shuffle_query(new_query_letter4.y);
+            shuffle_affine_penalty(0,NEGINFINITY);
+
+            calc32_local_affine_float();
+            shuffle_query(new_query_letter4.z);
+            shuffle_affine_penalty(0,NEGINFINITY);
+
+            calc32_local_affine_float();
+            shuffle_query(new_query_letter4.w);
+            shuffle_affine_penalty(0,NEGINFINITY);
+            shuffle_new_query();
+            counter++;
+        }
+        //for (k = 4; k <= length_2+28; k+=4) {
+        for (k = 32; k <= length_2+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_float();
-
+            set_H_E_temp_out_x();
             shuffle_query(new_query_letter4.x);
             shuffle_affine_penalty(0,NEGINFINITY);
 
             //shuffle_max();
             calc32_local_affine_float();
+
+            set_H_E_temp_out_y();
+            shuffle_H_E_temp_out();
             shuffle_query(new_query_letter4.y);
             shuffle_affine_penalty(0,NEGINFINITY);
 
             //shuffle_max();
             calc32_local_affine_float();
+
+            set_H_E_temp_out_x();
             shuffle_query(new_query_letter4.z);
             shuffle_affine_penalty(0,NEGINFINITY);
 
             //shuffle_max();
             calc32_local_affine_float();
+
+            set_H_E_temp_out_y();
+
+            if ((counter+8)%16 == 0 && counter > 8) {
+                devTempHcol[offset_out]=H_temp_out;
+                devTempEcol[offset_out]=E_temp_out;
+                offset_out += group_size;
+
+            }
+            shuffle_H_E_temp_out();
             shuffle_query(new_query_letter4.w);
             shuffle_affine_penalty(0,NEGINFINITY);
             shuffle_new_query();
@@ -3473,489 +3594,368 @@ void NW_local_affine_read4_float_query_Protein(
             }
             counter++;
         }
-
-       //if (counter2-(length_2+thread_result) > 0) {
-       if ((k-1)-(length_2+thread_result) > 0) {
+        if (length_2 % 4 == 0) {
+            temp = __shfl_up_sync(0xFFFFFFFF, *((int*)(&H_temp_out)), 1, 32);
+            H_temp_out = *((short2*)(&temp));
+            temp = __shfl_up_sync(0xFFFFFFFF, *((int*)(&E_temp_out)), 1, 32);
+            E_temp_out = *((short2*)(&temp));
+        }
+        if (length_2 % 4 == 1) {
             //shuffle_max();
             calc32_local_affine_float();
+            set_H_E_temp_out_x();
+            set_H_E_temp_out_y();
+        }
+        if (length_2 % 4 == 2) {
+            //shuffle_max();
+            calc32_local_affine_float();
+            set_H_E_temp_out_x();
             shuffle_query(new_query_letter4.x);
             shuffle_affine_penalty(0,NEGINFINITY);
-            k++;
-        }
-
-        //if (counter2-(length_2+thread_result) > 0) {
-        if ((k-1)-(length_2+thread_result) > 0) {
             //shuffle_max();
             calc32_local_affine_float();
+            set_H_E_temp_out_y();
+        }
+        if (length_2 % 4 == 3) {
+            //shuffle_max();
+            calc32_local_affine_float();
+            set_H_E_temp_out_x();
+            shuffle_query(new_query_letter4.x);
+            shuffle_affine_penalty(0,NEGINFINITY);
+            //shuffle_max();
+            calc32_local_affine_float();
+            set_H_E_temp_out_y();
+            shuffle_H_E_temp_out();
             shuffle_query(new_query_letter4.y);
             shuffle_affine_penalty(0,NEGINFINITY);
-            k++;
-        }
-
-        //if (counter2-(length_2+thread_result) > 0) {
-        if ((k-1)-(length_2+thread_result) > 0) {
             //shuffle_max();
             calc32_local_affine_float();
-            //shuffle_query(new_query_letter4.z);
-            //shuffle_affine_penalty(0,NEGINFINITY);
+            set_H_E_temp_out_x();
+            set_H_E_temp_out_y();
+        }
+        int final_out = length_2 % 64;
+        int from_thread_id = 32 - ((final_out+1)/2);
+
+        //if (blid == 0) {
+        //    float2 temp_temp = __half22float2(H_temp_out);
+        //    if (thid == 0) printf("Counter: %d, k = %d, length_2 = %d, length_2+group_size = %d, from_thread_id = %d\n", counter,k,lane_2-1, length_2+group_size, from_thread_id);
+        //    if (thid>=from_thread_id) printf("Thid: %d, Values: %f, %f, offset_out - from_thread_id: %d\n", thid, temp_temp.x, temp_temp.y, offset_out - from_thread_id);
+        //}
+        if (thid>=from_thread_id) {
+            devTempHcol[offset_out-from_thread_id]=H_temp_out;
+            devTempEcol[offset_out-from_thread_id]=E_temp_out;
         }
 
-    //    if (blid == 0) {
-    //        if (thid % group_size == thread_result)
-    //            printf("Result in Thread: %d, Register: %d, Value: %f, #passes: %d\n", thid, (length-1)%numRegs, penalty_here_array[(length-1)%numRegs], passes);
-    //    }
-    }
-    }
-    else {
+        //    if (32-thid <= (counter+8)%(group_size/2))
+        //         devTempHcol[offset_out-(thid-(32-((counter+8)%(group_size/2))))]=H_temp_out;
+            //if (blid == 0) {
+        //        float2 temp_temp = __half22float2(devTempHcol[thid]);
+            //    printf("Thid: %d, Values: %f, %f\n", thid, temp_temp.x, temp_temp.y);
+            //    printf("Thid: %d, Values: %f, %f\n", thid, H_temp_out.x, H_temp_out.y);
+            //}
+        // Middle passes
+        //float2 penalty_left2;
 
-    //if (blid == 12455) {
-    //    if (thid == 0)
-    //    printf("Block: %d, Thread: %d, Query-length: %d, Database length: %d, passes: %d, thread_result: %d\n", blid, thid, length_2, length, passes, thread_result);
-    //}
+        for (int pass = 1; pass < passes-1; pass++) {
+            //maximum = __shfl_sync(0xFFFFFFFF, maximum, 31, 32);
+            counter = 1;
+            query_letter = 20;
+            new_query_letter4 = constantQuery4[thid%group_size];
+            if (!thid) query_letter = new_query_letter4.x;
 
-    // first pass (of multiple passes)
-    init_penalties_local(0);
-    init_local_score_profile_BLOSUM62(0);
-    initial_calc32_local_affine_float(0);
-    shuffle_query(new_query_letter4.y);
-    shuffle_affine_penalty(0, NEGINFINITY);
+            offset = group_id + group_size;
+            offset_out = group_id;
+            offset_in = group_id;
+            H_temp_in = devTempHcol[offset_in];
+            E_temp_in = devTempEcol[offset_in];
+            offset_in += group_size;
 
-    //shuffle_max();
-    calc32_local_affine_float();
-    shuffle_query(new_query_letter4.z);
-    shuffle_affine_penalty(0, NEGINFINITY);
+            init_penalties_local(gap_open+(pass*32*numRegs-1)*gap_extend);  // CONTINUE HERE!!!!
+            init_local_score_profile_BLOSUM62(pass*(32*numRegs));
 
-    //shuffle_max();
-    calc32_local_affine_float();
-    shuffle_query(new_query_letter4.w);
-    shuffle_affine_penalty(0, NEGINFINITY);
-    shuffle_new_query();
-    counter++;
-    for (k = 4; k <= 28; k+=4) {
-        calc32_local_affine_float();
-        shuffle_query(new_query_letter4.x);
-        shuffle_affine_penalty(0,NEGINFINITY);
+            if (!group_id) {
+                penalty_left = H_temp_in.x; // penalty_left2.x;
+                E = E_temp_in.x; // E_2.x;
+            }
+            initial_calc32_local_affine_float(1);
 
-        calc32_local_affine_float();
-        shuffle_query(new_query_letter4.y);
-        shuffle_affine_penalty(0,NEGINFINITY);
-
-        calc32_local_affine_float();
-        shuffle_query(new_query_letter4.z);
-        shuffle_affine_penalty(0,NEGINFINITY);
-
-        calc32_local_affine_float();
-        shuffle_query(new_query_letter4.w);
-        shuffle_affine_penalty(0,NEGINFINITY);
-        shuffle_new_query();
-        counter++;
-    }
-    //for (k = 4; k <= length_2+28; k+=4) {
-    for (k = 32; k <= length_2+28; k+=4) {
-        //shuffle_max();
-        calc32_local_affine_float();
-        set_H_E_temp_out_x();
-        shuffle_query(new_query_letter4.x);
-        shuffle_affine_penalty(0,NEGINFINITY);
-
-        //shuffle_max();
-        calc32_local_affine_float();
-
-        set_H_E_temp_out_y();
-        shuffle_H_E_temp_out();
-        shuffle_query(new_query_letter4.y);
-        shuffle_affine_penalty(0,NEGINFINITY);
-
-        //shuffle_max();
-        calc32_local_affine_float();
-
-        set_H_E_temp_out_x();
-        shuffle_query(new_query_letter4.z);
-        shuffle_affine_penalty(0,NEGINFINITY);
-
-        //shuffle_max();
-        calc32_local_affine_float();
-
-        set_H_E_temp_out_y();
-
-        if ((counter+8)%16 == 0 && counter > 8) {
-            devTempHcol[offset_out]=H_temp_out;
-            devTempEcol[offset_out]=E_temp_out;
-            offset_out += group_size;
-
-        }
-        shuffle_H_E_temp_out();
-        shuffle_query(new_query_letter4.w);
-        shuffle_affine_penalty(0,NEGINFINITY);
-        shuffle_new_query();
-        if (counter%group_size == 0) {
-            new_query_letter4 = constantQuery4[offset];
-            offset += group_size;
-        }
-        counter++;
-    }
-    if (length_2 % 4 == 0) {
-        temp = __shfl_up_sync(0xFFFFFFFF, *((int*)(&H_temp_out)), 1, 32);
-        H_temp_out = *((short2*)(&temp));
-        temp = __shfl_up_sync(0xFFFFFFFF, *((int*)(&E_temp_out)), 1, 32);
-        E_temp_out = *((short2*)(&temp));
-    }
-    if (length_2 % 4 == 1) {
-        //shuffle_max();
-        calc32_local_affine_float();
-        set_H_E_temp_out_x();
-        set_H_E_temp_out_y();
-    }
-    if (length_2 % 4 == 2) {
-        //shuffle_max();
-        calc32_local_affine_float();
-        set_H_E_temp_out_x();
-        shuffle_query(new_query_letter4.x);
-        shuffle_affine_penalty(0,NEGINFINITY);
-        //shuffle_max();
-        calc32_local_affine_float();
-        set_H_E_temp_out_y();
-    }
-    if (length_2 % 4 == 3) {
-        //shuffle_max();
-        calc32_local_affine_float();
-        set_H_E_temp_out_x();
-        shuffle_query(new_query_letter4.x);
-        shuffle_affine_penalty(0,NEGINFINITY);
-        //shuffle_max();
-        calc32_local_affine_float();
-        set_H_E_temp_out_y();
-        shuffle_H_E_temp_out();
-        shuffle_query(new_query_letter4.y);
-        shuffle_affine_penalty(0,NEGINFINITY);
-        //shuffle_max();
-        calc32_local_affine_float();
-        set_H_E_temp_out_x();
-        set_H_E_temp_out_y();
-    }
-    int final_out = length_2 % 64;
-    int from_thread_id = 32 - ((final_out+1)/2);
-
-    //if (blid == 0) {
-    //    float2 temp_temp = __half22float2(H_temp_out);
-    //    if (thid == 0) printf("Counter: %d, k = %d, length_2 = %d, length_2+group_size = %d, from_thread_id = %d\n", counter,k,lane_2-1, length_2+group_size, from_thread_id);
-    //    if (thid>=from_thread_id) printf("Thid: %d, Values: %f, %f, offset_out - from_thread_id: %d\n", thid, temp_temp.x, temp_temp.y, offset_out - from_thread_id);
-    //}
-    if (thid>=from_thread_id) {
-        devTempHcol[offset_out-from_thread_id]=H_temp_out;
-        devTempEcol[offset_out-from_thread_id]=E_temp_out;
-    }
-
-//    if (32-thid <= (counter+8)%(group_size/2))
-//         devTempHcol[offset_out-(thid-(32-((counter+8)%(group_size/2))))]=H_temp_out;
-    //if (blid == 0) {
-//        float2 temp_temp = __half22float2(devTempHcol[thid]);
-    //    printf("Thid: %d, Values: %f, %f\n", thid, temp_temp.x, temp_temp.y);
-    //    printf("Thid: %d, Values: %f, %f\n", thid, H_temp_out.x, H_temp_out.y);
-    //}
-   // Middle passes
-   //float2 penalty_left2;
-
-   for (int pass = 1; pass < passes-1; pass++) {
-        //maximum = __shfl_sync(0xFFFFFFFF, maximum, 31, 32);
-        counter = 1;
-        query_letter = 20;
-        new_query_letter4 = constantQuery4[thid%group_size];
-        if (!thid) query_letter = new_query_letter4.x;
-
-        offset = group_id + group_size;
-        offset_out = group_id;
-        offset_in = group_id;
-        H_temp_in = devTempHcol[offset_in];
-        E_temp_in = devTempEcol[offset_in];
-        offset_in += group_size;
-
-       init_penalties_local(gap_open+(pass*32*numRegs-1)*gap_extend);  // CONTINUE HERE!!!!
-       init_local_score_profile_BLOSUM62(pass*(32*numRegs));
-
-       if (!group_id) {
-           penalty_left = H_temp_in.x; // penalty_left2.x;
-           E = E_temp_in.x; // E_2.x;
-       }
-       initial_calc32_local_affine_float(1);
-
-       shuffle_query(new_query_letter4.y);
-       shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
-       shuffle_H_E_temp_in();
-       //shuffle_max();
-       calc32_local_affine_float();
-
-       shuffle_query(new_query_letter4.z);
-       shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
-       //shuffle_max();
-       calc32_local_affine_float();
-
-       shuffle_query(new_query_letter4.w);
-       shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
-       shuffle_new_query();
-       counter++;
-       shuffle_H_E_temp_in();
-
-       for (k = 4; k <= 28; k+=4) {
-              calc32_local_affine_float();
-              shuffle_query(new_query_letter4.x);
-              shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
-
-              calc32_local_affine_float();
-              shuffle_query(new_query_letter4.y);
-              shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
-              shuffle_H_E_temp_in();
-
-              calc32_local_affine_float();
-              shuffle_query(new_query_letter4.z);
-              shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
-
-              calc32_local_affine_float();
-              shuffle_query(new_query_letter4.w);
-              shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
-              shuffle_new_query();
-              shuffle_H_E_temp_in();
-              counter++;
-          }
-    //   for (k = 5; k < length_2+group_size-2; k+=4) {
-    for (k = 32; k <= length_2+28; k+=4) {
-           //shuffle_max();
-           calc32_local_affine_float();
-           set_H_E_temp_out_x();
-           shuffle_query(new_query_letter4.x);
-           shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
-
-           //shuffle_max();
-           calc32_local_affine_float();
-           set_H_E_temp_out_y();
-           shuffle_H_E_temp_out();
-           shuffle_query(new_query_letter4.y);
-           shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
-           shuffle_H_E_temp_in();
-
-           //shuffle_max();
-           calc32_local_affine_float();
-           set_H_E_temp_out_x();
-           shuffle_query(new_query_letter4.z);
-           shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
-
-           //shuffle_max();
-           calc32_local_affine_float();
-           set_H_E_temp_out_y();
-
-           if ((counter+8)%16 == 0 && counter > 8) {
-               devTempHcol[offset_out]=H_temp_out;
-               devTempEcol[offset_out]=E_temp_out;
-               offset_out += group_size;
-           }
-           shuffle_H_E_temp_out();
-           shuffle_query(new_query_letter4.w);
-           //shuffle_affine_penalty(penalty_left2.y,E_2.y);
-           shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
-           shuffle_new_query();
-           if (counter%group_size == 0) {
-               new_query_letter4 = constantQuery4[offset];
-               offset += group_size;
-           }
-           shuffle_H_E_temp_in();
-           if (counter%16 == 0) {
-               H_temp_in = devTempHcol[offset_in];
-               E_temp_in = devTempEcol[offset_in];
-               offset_in += group_size;
-           }
-           counter++;
-       }
-       if (length_2 % 4 == 0) {
-           temp = __shfl_up_sync(0xFFFFFFFF, *((int*)(&H_temp_out)), 1, 32);
-           H_temp_out = *((short2*)(&temp));
-           temp = __shfl_up_sync(0xFFFFFFFF, *((int*)(&E_temp_out)), 1, 32);
-           E_temp_out = *((short2*)(&temp));
-       }
-       if (length_2 % 4 == 1) {
-           //shuffle_max();
-           calc32_local_affine_float();
-           set_H_E_temp_out_x();
-           set_H_E_temp_out_y();
-       }
-       if (length_2 % 4 == 2) {
-           //shuffle_max();
-          // if (blid == 12455 && pass == (passes-2)) {
-        //       if (thid == 31) printf("Before calc32, pass: %d, Counter2: %d\n", pass, counter2);
-            //   if (thid == 31) {
-            //       printf("Thread: %d, Maximum: %f\n", thid, maximum);
-            //       for (int i=0; i<numRegs; i++) printf("Reg: %i: %f\n", thid, penalty_here_array[i]);
-            //       printf("pen_left: %f, E: %f\n", penalty_left, E);
-
-            //   }
-           //}
-           calc32_local_affine_float();
-           set_H_E_temp_out_x();
-           shuffle_query(new_query_letter4.x);
-           shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
-           //shuffle_max();
-           calc32_local_affine_float();
-
-           set_H_E_temp_out_y();
-
-       }
-       if (length_2 % 4 == 3) {
-           //shuffle_max();
-           calc32_local_affine_float();
-           set_H_E_temp_out_x();
-           shuffle_query(new_query_letter4.x);
-           shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
-           //shuffle_max();
-           calc32_local_affine_float();
-           set_H_E_temp_out_y();
-           shuffle_H_E_temp_out();
-           shuffle_query(new_query_letter4.y);
-           shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
-           //shuffle_H_E_temp_in();
-           //shuffle_max();
-           calc32_local_affine_float();
-           set_H_E_temp_out_x();
-           set_H_E_temp_out_y();
-       }
-       int final_out = length_2 % 64;
-       int from_thread_id = 32 - ((final_out+1)/2);
-
-       if (thid>=from_thread_id) {
-           devTempHcol[offset_out-from_thread_id]=H_temp_out;
-           devTempEcol[offset_out-from_thread_id]=E_temp_out;
-       }
-   }
-   // Final pass
-   //if (passes > 1) {
-
-       //maximum = __shfl_sync(0xFFFFFFFF, maximum, 31, 32);
-       counter = 1;
-       //counter2 = 1;
-       query_letter = 20;
-       new_query_letter4 = constantQuery4[thid%group_size];
-       if (thid % group_size== 0) query_letter = new_query_letter4.x;
-
-       offset = group_id + group_size;
-       //offset_in = group_id + passes*(32*numRegs/2)*blid;
-       offset_in = group_id;
-       H_temp_in = devTempHcol[offset_in];
-       E_temp_in = devTempEcol[offset_in];
-       offset_in += group_size;
-
-       init_penalties_local(gap_open+((passes-1)*32*numRegs-1)*gap_extend);  // CONTINUE HERE!!!!
-       init_local_score_profile_BLOSUM62((passes-1)*(32*numRegs));
-      // if (thid % group_size == 0) {
-    //       penalty_left2 = __half22float2(H_temp_in);
-    //       penalty_left = penalty_left2.x;
-     //  }
-       //copy_H_E_temp_in();
-       if (!group_id) {
-           penalty_left = H_temp_in.x; //penalty_left2.x;
-           E = E_temp_in.x; //E_2.x;
-       }
-
-       initial_calc32_local_affine_float(1);
-
-       shuffle_query(new_query_letter4.y);
-       //shuffle_affine_penalty(penalty_left2.y,E_2.y);
-       shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
-       shuffle_H_E_temp_in();
-
-       if (length_2+thread_result >=2) {
-           //shuffle_max();
-           calc32_local_affine_float();
-           shuffle_query(new_query_letter4.z);
-           shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
-        }
-
-       if (length_2+thread_result >=3) {
+            shuffle_query(new_query_letter4.y);
+            shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
+            shuffle_H_E_temp_in();
             //shuffle_max();
             calc32_local_affine_float();
+
+            shuffle_query(new_query_letter4.z);
+            shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
+            //shuffle_max();
+            calc32_local_affine_float();
+
             shuffle_query(new_query_letter4.w);
             shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
             shuffle_new_query();
             counter++;
             shuffle_H_E_temp_in();
+
+            for (k = 4; k <= 28; k+=4) {
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.x);
+                shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
+
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.y);
+                shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
+                shuffle_H_E_temp_in();
+
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.z);
+                shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
+
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.w);
+                shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
+                shuffle_new_query();
+                shuffle_H_E_temp_in();
+                counter++;
+            }
+            //   for (k = 5; k < length_2+group_size-2; k+=4) {
+            for (k = 32; k <= length_2+28; k+=4) {
+                //shuffle_max();
+                calc32_local_affine_float();
+                set_H_E_temp_out_x();
+                shuffle_query(new_query_letter4.x);
+                shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
+
+                //shuffle_max();
+                calc32_local_affine_float();
+                set_H_E_temp_out_y();
+                shuffle_H_E_temp_out();
+                shuffle_query(new_query_letter4.y);
+                shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
+                shuffle_H_E_temp_in();
+
+                //shuffle_max();
+                calc32_local_affine_float();
+                set_H_E_temp_out_x();
+                shuffle_query(new_query_letter4.z);
+                shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
+
+                //shuffle_max();
+                calc32_local_affine_float();
+                set_H_E_temp_out_y();
+
+                if ((counter+8)%16 == 0 && counter > 8) {
+                    devTempHcol[offset_out]=H_temp_out;
+                    devTempEcol[offset_out]=E_temp_out;
+                    offset_out += group_size;
+                }
+                shuffle_H_E_temp_out();
+                shuffle_query(new_query_letter4.w);
+                //shuffle_affine_penalty(penalty_left2.y,E_2.y);
+                shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
+                shuffle_new_query();
+                if (counter%group_size == 0) {
+                    new_query_letter4 = constantQuery4[offset];
+                    offset += group_size;
+                }
+                shuffle_H_E_temp_in();
+                if (counter%16 == 0) {
+                    H_temp_in = devTempHcol[offset_in];
+                    E_temp_in = devTempEcol[offset_in];
+                    offset_in += group_size;
+                }
+                counter++;
+            }
+            if (length_2 % 4 == 0) {
+                temp = __shfl_up_sync(0xFFFFFFFF, *((int*)(&H_temp_out)), 1, 32);
+                H_temp_out = *((short2*)(&temp));
+                temp = __shfl_up_sync(0xFFFFFFFF, *((int*)(&E_temp_out)), 1, 32);
+                E_temp_out = *((short2*)(&temp));
+            }
+            if (length_2 % 4 == 1) {
+                //shuffle_max();
+                calc32_local_affine_float();
+                set_H_E_temp_out_x();
+                set_H_E_temp_out_y();
+            }
+            if (length_2 % 4 == 2) {
+                //shuffle_max();
+                // if (blid == 12455 && pass == (passes-2)) {
+                //       if (thid == 31) printf("Before calc32, pass: %d, Counter2: %d\n", pass, counter2);
+                    //   if (thid == 31) {
+                    //       printf("Thread: %d, Maximum: %f\n", thid, maximum);
+                    //       for (int i=0; i<numRegs; i++) printf("Reg: %i: %f\n", thid, penalty_here_array[i]);
+                    //       printf("pen_left: %f, E: %f\n", penalty_left, E);
+
+                    //   }
+                //}
+                calc32_local_affine_float();
+                set_H_E_temp_out_x();
+                shuffle_query(new_query_letter4.x);
+                shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
+                //shuffle_max();
+                calc32_local_affine_float();
+
+                set_H_E_temp_out_y();
+
+            }
+            if (length_2 % 4 == 3) {
+                //shuffle_max();
+                calc32_local_affine_float();
+                set_H_E_temp_out_x();
+                shuffle_query(new_query_letter4.x);
+                shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
+                //shuffle_max();
+                calc32_local_affine_float();
+                set_H_E_temp_out_y();
+                shuffle_H_E_temp_out();
+                shuffle_query(new_query_letter4.y);
+                shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
+                //shuffle_H_E_temp_in();
+                //shuffle_max();
+                calc32_local_affine_float();
+                set_H_E_temp_out_x();
+                set_H_E_temp_out_y();
+            }
+            int final_out = length_2 % 64;
+            int from_thread_id = 32 - ((final_out+1)/2);
+
+            if (thid>=from_thread_id) {
+                devTempHcol[offset_out-from_thread_id]=H_temp_out;
+                devTempEcol[offset_out-from_thread_id]=E_temp_out;
+            }
         }
-       if (length_2+thread_result >=4) {
-       for (k = 4; k <= length_2+(thread_result-3); k+=4) {
-       //for (k = 5; k < lane_2+thread_result-2; k+=4) {
-           //shuffle_max();
-           calc32_local_affine_float();
-           shuffle_query(new_query_letter4.x);
-           shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
+        // Final pass
+        //if (passes > 1) {
 
-           //shuffle_max();
-           //if (blid == 12455) {
-            //   if (thid == 0) printf("After shuffle, Counter2: %d\n", counter2);
-            //   printf("Thread: %d, Maximum: %f\n", thid, maximum);
-           //}
+        //maximum = __shfl_sync(0xFFFFFFFF, maximum, 31, 32);
+        counter = 1;
+        //counter2 = 1;
+        query_letter = 20;
+        new_query_letter4 = constantQuery4[thid%group_size];
+        if (thid % group_size== 0) query_letter = new_query_letter4.x;
 
-           calc32_local_affine_float();
+        offset = group_id + group_size;
+        //offset_in = group_id + passes*(32*numRegs/2)*blid;
+        offset_in = group_id;
+        H_temp_in = devTempHcol[offset_in];
+        E_temp_in = devTempEcol[offset_in];
+        offset_in += group_size;
 
-           shuffle_query(new_query_letter4.y);
-           shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
-           shuffle_H_E_temp_in();
-           //shuffle_max();
-           calc32_local_affine_float();
+        init_penalties_local(gap_open+((passes-1)*32*numRegs-1)*gap_extend);  // CONTINUE HERE!!!!
+        init_local_score_profile_BLOSUM62((passes-1)*(32*numRegs));
+        // if (thid % group_size == 0) {
+        //       penalty_left2 = __half22float2(H_temp_in);
+        //       penalty_left = penalty_left2.x;
+        //  }
+        //copy_H_E_temp_in();
+        if (!group_id) {
+            penalty_left = H_temp_in.x; //penalty_left2.x;
+            E = E_temp_in.x; //E_2.x;
+        }
 
-           shuffle_query(new_query_letter4.z);
-           shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
-           //shuffle_max();
-           //if (blid == 520971 && thid == 0 && counter2==258) {
-            //   printf("Before 4th calc32, Counter2: %d\n", counter2);
-            //   printf("Thread: %d, Maximum: %f\n", thid, maximum);
-            //   for (int i=0; i<numRegs; i++) printf("Reg: %i: %f\n", thid, penalty_here_array[i]);
-            //   printf("pen_left: %f, E: %f\n", penalty_left, E);
-           //}
+        initial_calc32_local_affine_float(1);
 
-           calc32_local_affine_float();
-           shuffle_query(new_query_letter4.w);
-           shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
-           shuffle_new_query();
+        shuffle_query(new_query_letter4.y);
+        //shuffle_affine_penalty(penalty_left2.y,E_2.y);
+        shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
+        shuffle_H_E_temp_in();
 
-           if (counter%group_size == 0) {
-               new_query_letter4 = constantQuery4[offset];
-               offset += group_size;
-           }
-           shuffle_H_E_temp_in();
-           if (counter%16 == 0) {
-               H_temp_in = devTempHcol[offset_in];
-               E_temp_in = devTempEcol[offset_in];
-               offset_in += group_size;
-           }
-           counter++;
-       }
+        if (length_2+thread_result >=2) {
+            //shuffle_max();
+            calc32_local_affine_float();
+            shuffle_query(new_query_letter4.z);
+            shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
+            }
 
-      //if (counter2-(length_2+thread_result) > 0) {
-      if ((k-1)-(length_2+thread_result) > 0) {
-           //shuffle_max();
-           calc32_local_affine_float();
-           shuffle_query(new_query_letter4.x);
-           shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
-           k++;
-       }
+        if (length_2+thread_result >=3) {
+                //shuffle_max();
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.w);
+                shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
+                shuffle_new_query();
+                counter++;
+                shuffle_H_E_temp_in();
+            }
+        if (length_2+thread_result >=4) {
+            for (k = 4; k <= length_2+(thread_result-3); k+=4) {
+            //for (k = 5; k < lane_2+thread_result-2; k+=4) {
+                //shuffle_max();
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.x);
+                shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
 
-       //if (counter2-(length_2+thread_result) > 0) {
-       if ((k-1)-(length_2+thread_result) > 0) {
-           //shuffle_max();
-           calc32_local_affine_float();
-           shuffle_query(new_query_letter4.y);
-           shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
-           shuffle_H_E_temp_in();
-           k++;
-       }
+                //shuffle_max();
+                //if (blid == 12455) {
+                    //   if (thid == 0) printf("After shuffle, Counter2: %d\n", counter2);
+                    //   printf("Thread: %d, Maximum: %f\n", thid, maximum);
+                //}
 
-      //if (counter2-(length_2+thread_result) > 0) {
-      if ((k-1)-(length_2+thread_result) > 0) {
-           //shuffle_max();
-           calc32_local_affine_float();
-           //shuffle_query(new_query_letter4.z);
-           //shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
-       }
+                calc32_local_affine_float();
 
-   }
-   //max_all_reduce();
-   }
+                shuffle_query(new_query_letter4.y);
+                shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
+                shuffle_H_E_temp_in();
+                //shuffle_max();
+                calc32_local_affine_float();
+
+                shuffle_query(new_query_letter4.z);
+                shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
+                //shuffle_max();
+                //if (blid == 520971 && thid == 0 && counter2==258) {
+                    //   printf("Before 4th calc32, Counter2: %d\n", counter2);
+                    //   printf("Thread: %d, Maximum: %f\n", thid, maximum);
+                    //   for (int i=0; i<numRegs; i++) printf("Reg: %i: %f\n", thid, penalty_here_array[i]);
+                    //   printf("pen_left: %f, E: %f\n", penalty_left, E);
+                //}
+
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.w);
+                shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
+                shuffle_new_query();
+
+                if (counter%group_size == 0) {
+                    new_query_letter4 = constantQuery4[offset];
+                    offset += group_size;
+                }
+                shuffle_H_E_temp_in();
+                if (counter%16 == 0) {
+                    H_temp_in = devTempHcol[offset_in];
+                    E_temp_in = devTempEcol[offset_in];
+                    offset_in += group_size;
+                }
+                counter++;
+            }
+
+            //if (counter2-(length_2+thread_result) > 0) {
+            if ((k-1)-(length_2+thread_result) > 0) {
+                //shuffle_max();
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.x);
+                shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
+                k++;
+            }
+
+            //if (counter2-(length_2+thread_result) > 0) {
+            if ((k-1)-(length_2+thread_result) > 0) {
+                //shuffle_max();
+                calc32_local_affine_float();
+                shuffle_query(new_query_letter4.y);
+                shuffle_affine_penalty(H_temp_in.y,E_temp_in.y);
+                shuffle_H_E_temp_in();
+                k++;
+            }
+
+            //if (counter2-(length_2+thread_result) > 0) {
+            if ((k-1)-(length_2+thread_result) > 0) {
+                //shuffle_max();
+                calc32_local_affine_float();
+                //shuffle_query(new_query_letter4.z);
+                //shuffle_affine_penalty(H_temp_in.x,E_temp_in.x);
+            }
+
+        }
+        //max_all_reduce();
+    }
       // if (blid == 0) {
     //       if (thid % group_size == thread_result)
     //           printf("Result in Thread: %d, Register: %d, Value: %f, #passes: %d\n", thid, (length-1)%numRegs, penalty_here_array[(length-1)%numRegs], passes);
@@ -5129,6 +5129,9 @@ void processQueryOnGpu(
 
         std::fill(ws.h_numSelectedPerPartition, ws.h_numSelectedPerPartition + numLengthPartitions, 0);
         ws.h_numSelectedPerPartition[lengthPartitionId] = currentPartition.numSequences();
+        // if(lengthPartitionId == 13){
+        //     ws.h_numSelectedPerPartition[lengthPartitionId] = currentPartition.numSequences();
+        // }
 
         //all sequences of the batch belong to the same length partition. use a single index array with counts from 0 to N-1
 
@@ -5176,11 +5179,58 @@ void processQueryOnGpu(
 
                 const float gop = -11.0;
                 const float gex = -1.0;
-                if (ws.h_numSelectedPerPartition[14]){NW_local_affine_read4_float_query_Protein<32, 12><<<ws.h_numSelectedPerPartition[14], 32, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), (short2*)ws.devTempHcol2, (short2*)ws.devTempEcol2, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[14]){
+                    constexpr size_t maxTempBytes = 16 * 1024 * 1024;
+                    const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
+                    const size_t maxSubjectsPerIteration = maxTempBytes / (tempBytesPerSubjectPerBuffer * 2);
+
+                    // std::cout << "tempBytesPerSubjectPerBuffer " << tempBytesPerSubjectPerBuffer << "\n";
+                    // std::cout << "maxSubjectsPerIteration " << maxSubjectsPerIteration << "\n";
+
+                    short2* d_temp;
+                    cudaMallocAsync(&d_temp, maxTempBytes, ws.stream0);
+                    short2* d_tempHcol2 = d_temp;
+                    short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+
+                    const int numIters =  SDIV(ws.h_numSelectedPerPartition[14], maxSubjectsPerIteration);
+                    for(int iter = 0; iter < numIters; iter++){
+                        const size_t begin = iter * maxSubjectsPerIteration;
+                        const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : ws.h_numSelectedPerPartition[14];
+                        const size_t num = end - begin;
+
+                        // std::cout << "begin " << begin << "\n";
+                        // std::cout << "end " << end << "\n";
+                        // std::cout << "num " << num << "\n";
+
+                        //works without memset
+                        // cudaMemsetAsync(d_tempHcol2, 0, tempBytesPerSubjectPerBuffer * num, ws.stream0); CUERR;
+                        // cudaMemsetAsync(d_tempEcol2, 0, tempBytesPerSubjectPerBuffer * num, ws.stream0); CUERR;
+
+                        //thrust::fill(thrust::cuda::par_nosync.on(ws.stream0), d_temp, d_temp + (maxTempBytes / sizeof(short2)), make_short2(-30000, -30000));
+
+
+                        NW_local_affine_read4_float_query_Protein<32, 12><<<num, 32, 0, ws.stream0>>>(
+                            ws.devChars_2[source], 
+                            &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]) + begin, 
+                            d_tempHcol2, 
+                            d_tempEcol2, 
+                            ws.devOffsets_2[source], 
+                            ws.devLengths_2[source], 
+                            d_all_selectedPositions + begin, 
+                            queryLength, 
+                            gop, 
+                            gex
+                        ); CUERR 
+                    }
+
+                    cudaFreeAsync(d_temp, ws.stream0);
+                }
+                //if (ws.h_numSelectedPerPartition[14]){NW_local_affine_read4_float_query_Protein<32, 12><<<ws.h_numSelectedPerPartition[14], 32, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), (short2*)ws.devTempHcol2, (short2*)ws.devTempEcol2, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, queryLength, gop, gex); CUERR }
+
                 //std::cout << "waiting for 14\n"; cudaStreamSynchronize(ws.stream0); CUERR
-                if (ws.h_numSelectedPerPartition[0]){NW_local_affine_Protein_single_pass_half2<4, 16><<<(ws.h_numSelectedPerPartition[0]+255)/(2*8*4*4), 32*8*2, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[0], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[0]){NW_local_affine_Protein_single_pass_half2<4, 16><<<(ws.h_numSelectedPerPartition[0]+255)/(2*8*4*4)*2, 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[0], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 0\n"; cudaStreamSynchronize(ws.stream0); CUERR
-                if (ws.h_numSelectedPerPartition[1]){NW_local_affine_Protein_single_pass_half2<8, 16><<<(ws.h_numSelectedPerPartition[1]+127)/(2*8*4*2), 32*8*2, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[1], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[1]){NW_local_affine_Protein_single_pass_half2<8, 16><<<(ws.h_numSelectedPerPartition[1]+127)/(2*8*4*2)*2, 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[1], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 1\n"; cudaStreamSynchronize(ws.stream0); 
                 if (ws.h_numSelectedPerPartition[2]){NW_local_affine_Protein_single_pass_half2<8, 24><<<(ws.h_numSelectedPerPartition[2]+63)/(2*8*4), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[2], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 2\n"; cudaStreamSynchronize(ws.stream0); 
@@ -5214,6 +5264,55 @@ void processQueryOnGpu(
                     if (Remaining_Seq)
                         NW_local_affine_Protein_many_pass_half2<32, 12><<<(Remaining_Seq+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), &(ws.devTempHcol2[ws.h_numSelectedPerPartition[14]*queryLength]), &(ws.devTempEcol2[ws.h_numSelectedPerPartition[14]*queryLength]), ws.devOffsets_2[source], ws.devLengths_2[source], d_all_selectedPositions+(ws.h_numSelectedPerPartition[13]/Num_Seq_per_call)*Num_Seq_per_call, Remaining_Seq, ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR
                 }
+
+                // if (ws.h_numSelectedPerPartition[13]){
+                //     constexpr size_t maxTempBytes = 16 * 1024 * 1024;
+                //     //const size_t tempBytesPerSubjectPerBuffer = sizeof(__half2) * SDIV(queryLength,32) * 32;
+                //     const size_t tempBytesPerSubjectPerBuffer = sizeof(__half2) * SDIV(3*queryLength,128) * 128;
+                //     const size_t maxSubjectsPerIteration = maxTempBytes / (tempBytesPerSubjectPerBuffer * 2);
+
+                //     // std::cout << "tempBytesPerSubjectPerBuffer " << tempBytesPerSubjectPerBuffer << "\n";
+                //     // std::cout << "maxSubjectsPerIteration " << maxSubjectsPerIteration << "\n";
+
+                //     __half2* d_temp;
+                //     cudaMallocAsync(&d_temp, maxTempBytes, ws.stream1);
+                //     __half2* d_tempHcol2 = d_temp;
+                //     __half2* d_tempEcol2 = (__half2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+
+                //     const int numIters =  SDIV(ws.h_numSelectedPerPartition[13], maxSubjectsPerIteration);
+                //     for(int iter = 0; iter < numIters; iter++){
+                //         std::cout << "iter " << iter << "\n";
+                //         const size_t begin = iter * maxSubjectsPerIteration;
+                //         const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : ws.h_numSelectedPerPartition[13];
+                //         const size_t num = end - begin;
+
+                //         // std::cout << "begin " << begin << "\n";
+                //         // std::cout << "end " << end << "\n";
+                //         // std::cout << "num " << num << "\n";
+
+                //         cudaMemsetAsync(d_tempHcol2, 0, tempBytesPerSubjectPerBuffer * num, ws.stream1); CUERR;
+                //         cudaMemsetAsync(d_tempEcol2, 0, tempBytesPerSubjectPerBuffer * num, ws.stream1); CUERR;
+
+                //         NW_local_affine_Protein_many_pass_half2<32, 12><<<(num+15)/(2*8), 32*8, 0, ws.stream1>>>(
+                //             ws.devChars_2[source], 
+                //             &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]) + begin, 
+                //             d_tempHcol2, 
+                //             d_tempEcol2, 
+                //             ws.devOffsets_2[source], 
+                //             ws.devLengths_2[source], 
+                //             d_all_selectedPositions + begin, 
+                //             num, 
+                //             ws.d_overflow_positions, 
+                //             ws.d_overflow_number, 
+                //             1, 
+                //             queryLength, 
+                //             gop, 
+                //             gex
+                //         ); CUERR
+                //     }
+
+                //     cudaFreeAsync(d_temp, ws.stream1);
+                // }
 
                 if (batch < int(dbPartitions.size())-1)  {   // data transfer for next batch
                     const auto& nextPartition = dbPartitions[batch+1];
@@ -5799,10 +5898,10 @@ int main(int argc, char* argv[])
 
 
 	
-	
+	const int FIRST_QUERY_NUM = 0;
 
 
-	for(int query_num = 0; query_num < numQueries; ++query_num) {
+	for(int query_num = FIRST_QUERY_NUM; query_num < numQueries; ++query_num) {
 
         dp_cells = avg_length_2 * lengths[query_num];
 
@@ -5840,7 +5939,7 @@ int main(int argc, char* argv[])
                     lengthPartitionIdsForGpus_perDBchunk[chunkId][gpu],
                     &(ws.devChars[offsets[query_num]]),
                     lengths[query_num],
-                    (query_num == 0),
+                    (query_num == FIRST_QUERY_NUM),
                     query_num,
                     avg_length_2,
                     tempHEfactor,
