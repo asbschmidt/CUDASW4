@@ -58,6 +58,9 @@ struct MappedFile{
         }
 
         int mmapflags = MAP_PRIVATE;
+        if(options.writeaccess){
+            mmapflags = MAP_SHARED;
+        }
         if(options.prefault){
             mmapflags |= MAP_POPULATE; //load the file into memory immediately
         }

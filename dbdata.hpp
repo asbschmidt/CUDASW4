@@ -22,15 +22,15 @@ struct DBGlobalInfo{
 };
 
 struct DBdata{
-    friend void loadDBdata(const std::string& inputPrefix, DBdata& result);
+    friend void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess, bool prefetchSeq);
 
     struct MetaData{
         std::vector<int> lengthBoundaries;
         std::vector<size_t> numSequencesPerLengthPartition;
     };
 
-    DBdata(const std::string& inputPrefix){
-        loadDBdata(inputPrefix, *this);
+    DBdata(const std::string& inputPrefix, bool writeAccess, bool prefetchSeq){
+        loadDBdata(inputPrefix, *this, writeAccess, prefetchSeq);
     }
 
     size_t numSequences() const noexcept{
@@ -64,6 +64,27 @@ struct DBdata{
     const MetaData& getMetaData() const noexcept{
         return metaData;
     }
+
+    char* chars() noexcept{
+        return mappedFileSequences->data();
+    }
+
+    size_t* lengths() noexcept{
+        return reinterpret_cast<size_t*>(mappedFileLengths->data());
+    }
+
+    size_t* offsets() noexcept{
+        return reinterpret_cast<size_t*>(mappedFileOffsets->data());
+    }
+
+    char* headers() noexcept{
+        return mappedFileHeaders->data();
+    }
+
+    size_t* headerOffsets() noexcept{
+        return reinterpret_cast<size_t*>(mappedFileHeaderOffsets->data());
+    }
+
     
 private:
     DBdata() = default;
@@ -86,7 +107,7 @@ void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const seque
 void writeGlobalDbInfo(const std::string& outputPrefix, const DBGlobalInfo& info);
 void readGlobalDbInfo(const std::string& prefix, DBGlobalInfo& info);
 
-DB loadDB(const std::string& prefix);
+DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq);
 
 
 

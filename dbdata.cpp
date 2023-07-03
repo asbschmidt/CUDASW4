@@ -10,7 +10,7 @@
 #include <thrust/iterator/transform_iterator.h>
 
 
-void loadDBdata(const std::string& inputPrefix, DBdata& result){
+void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess, bool prefetchSeq){
     std::ifstream metadatain(inputPrefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
     if(!metadatain) throw std::runtime_error("Cannot open file " + inputPrefix + DBdataIoConfig::metadatafilename());
 
@@ -34,21 +34,19 @@ void loadDBdata(const std::string& inputPrefix, DBdata& result){
     }
 
 
-    //only allow read access. do not prefetch headers into ram
     MappedFile::Options headerOptions;
     headerOptions.readaccess = true;
-    headerOptions.writeaccess = false;
+    headerOptions.writeaccess = writeAccess;
     headerOptions.prefault = false;
 
     result.mappedFileHeaders = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::headerfilename(), headerOptions);
     result.mappedFileHeaderOffsets = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::headeroffsetsfilename(), headerOptions);
 
 
-    //only allow read access. prefetch file immediately
     MappedFile::Options sequenceOptions;
     sequenceOptions.readaccess = true;
-    sequenceOptions.writeaccess = false;
-    sequenceOptions.prefault = true;
+    sequenceOptions.writeaccess = writeAccess;
+    sequenceOptions.prefault = prefetchSeq;
 
     result.mappedFileSequences = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::sequencesfilename(), sequenceOptions);
     result.mappedFileLengths = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::sequencelengthsfilename(), sequenceOptions);
@@ -179,14 +177,14 @@ void readGlobalDbInfo(const std::string& prefix, DBGlobalInfo& info){
 }
 
 
-DB loadDB(const std::string& prefix){
+DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq){
 
     DB result;
     readGlobalDbInfo(prefix, result.info);
 
     for(int i = 0; i < result.info.numChunks; i++){
         const std::string chunkPrefix = prefix + std::to_string(i);
-        result.chunks.emplace_back(chunkPrefix);
+        result.chunks.emplace_back(chunkPrefix, writeAccess, prefetchSeq);
     }
 
     return result;

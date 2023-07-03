@@ -11,11 +11,12 @@ COMPILER     = nvcc
 ARTIFACT     = align
 
 MAKEDB = makedb
+MODIFYDB = modifydb
 
 # make targets
 .PHONY: clean
 
-release: $(ARTIFACT) $(MAKEDB)
+release: $(ARTIFACT) $(MAKEDB) $(MODIFYDB)
 
 clean :
 	rm -f *.o
@@ -34,6 +35,9 @@ $(ARTIFACT): main.o sequence_io.o dbdata.o
 $(MAKEDB): makedb.o sequence_io.o dbdata.o
 	$(COMPILER) $^ -o $(MAKEDB) $(LDFLAGS)
 
+$(MODIFYDB): modifydb.o sequence_io.o dbdata.o
+	$(COMPILER) $^ -o $(MODIFYDB) $(LDFLAGS)
+
 # compile CUDA files
 main.o : main.cu sequence_io.h cuda_helpers.cuh length_partitions.hpp
 	$(COMPILE)
@@ -48,6 +52,9 @@ dbdata.o : dbdata.cpp dbdata.hpp mapped_file.hpp sequence_io.h length_partitions
 
 # compile pure C++ files
 makedb.o : makedb.cpp dbdata.hpp sequence_io.h
+	$(COMPILE)
+
+modifydb.o : modifydb.cpp dbdata.hpp sequence_io.h
 	$(COMPILE)
 
 

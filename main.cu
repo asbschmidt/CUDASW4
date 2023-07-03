@@ -5543,7 +5543,7 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    constexpr size_t maxTempBytes = 512 * 1024 * 1024;
+    constexpr size_t maxTempBytes = 4ull * 1024ull * 1024ull * 1024ull;
 
     std::vector<int> deviceIds;
     {
@@ -5609,7 +5609,9 @@ int main(int argc, char* argv[])
 
 	cout << "Reading Database: \n";
 	TIMERSTART_CUDA(READ_DB)
-    DB fullDB = loadDB(argv[2]);
+    constexpr bool writeAccess = false;
+    constexpr bool prefetchSeq = true;
+    DB fullDB = loadDB(argv[2], writeAccess, prefetchSeq);
 	TIMERSTOP_CUDA(READ_DB)
 
     
