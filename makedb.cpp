@@ -7,6 +7,7 @@
 
 #include "sequence_io.h"
 #include "dbdata.hpp"
+#include "convert.cuh"
 #include "kseqpp/kseqpp.hpp"
 
 #define TIMERSTART(label)                                                  \
@@ -64,6 +65,7 @@ void forEachSequenceBatchInFile(const std::string& inputfilename, Func callback)
         batch.headers.push_back(header);
 
         if(batch.chars.size() >= maxCharactersInBatch){
+            std::transform(batch.chars.begin(), batch.chars.end(), batch.chars.begin(), &convert_AA);
             callback(batch, batchId);
             resetBatch(batch);
             batchId++;
@@ -72,9 +74,10 @@ void forEachSequenceBatchInFile(const std::string& inputfilename, Func callback)
 
     //if there is any sequence left (even sequence with 0 chars), process remainder
     if(batch.lengths.size() > 0){
+        std::transform(batch.chars.begin(), batch.chars.end(), batch.chars.begin(), &convert_AA);
         callback(batch, batchId);
-            resetBatch(batch);
-            batchId++;
+        resetBatch(batch);
+        batchId++;
     }
 }
 

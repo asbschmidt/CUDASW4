@@ -12,6 +12,7 @@
 #include <thrust/copy.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/constant_iterator.h>
+#include <thrust/iterator/transform_iterator.h>
 #include <thrust/scatter.h>
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
@@ -26,6 +27,7 @@
 #include "dbdata.hpp"
 #include "length_partitions.hpp"
 #include "util.cuh"
+#include "convert.cuh"
 
 constexpr int ALIGN = 4;
 
@@ -259,6 +261,10 @@ void test(char* chars, size_t* offsets, size_t nseq)
         printf("\n");
     }
 }
+
+
+
+
 
 
 // Needleman-Wunsch (NW): global alignment with linear gap penalty
@@ -1066,39 +1072,6 @@ void NW_local_affine_Protein_many_pass_half2(
         // assert(base_3+x < 2*(blockDim.x/group_size)*(blid+1) * length_2);
     };
 
-	auto convert_AA_alphabetical = [&](const auto& AA) {
-		auto AA_norm = AA-65;
-		if ((AA_norm >= 0) && (AA_norm <=8)) return AA_norm;
-		if ((AA_norm >= 10) && (AA_norm <=13)) return AA_norm-1;
-		if ((AA_norm >= 15) && (AA_norm <=19)) return AA_norm-2;
-		if ((AA_norm >= 21) && (AA_norm <=22)) return AA_norm-3;
-		if (AA_norm == 24) return AA_norm-4;
-	    return 1; // else
-	};
-
-	auto convert_AA = [&](const auto& AA) {
-		if (AA == 'A') return 0;
-	    if (AA == 'R') return 1;
-	    if (AA == 'N') return 2;
-	    if (AA == 'D') return 3;
-	    if (AA == 'C') return 4;
-	    if (AA == 'Q') return 5;
-	    if (AA == 'E') return 6;
-	    if (AA == 'G') return 7;
-	    if (AA == 'H') return 8;
-	    if (AA == 'I') return 9;
-	    if (AA == 'L') return 10;
-	    if (AA == 'K') return 11;
-	    if (AA == 'M') return 12;
-	    if (AA == 'F') return 13;
-	    if (AA == 'P') return 14;
-	    if (AA == 'S') return 15;
-	    if (AA == 'T') return 16;
-	    if (AA == 'W') return 17;
-	    if (AA == 'Y') return 18;
-	    if (AA == 'V') return 19;
-	    return 20; //  else
-	};
 
     auto init_penalties_local = [&](const auto& value) {
         //ZERO = NEGINFINITY2;
@@ -1135,10 +1108,10 @@ void NW_local_affine_Protein_many_pass_half2(
        for (int i=0; i<numRegs; i++) {
 
            if (offset_isc+numRegs*(thid%group_size)+i >= length_S0) subject[i] = 1; // 20;
-           else subject[i] = convert_AA_alphabetical(devChars[offset_isc+base_S0+numRegs*(thid%group_size)+i]);
+           else subject[i] = devChars[offset_isc+base_S0+numRegs*(thid%group_size)+i];
 
            if (offset_isc+numRegs*(thid%group_size)+i >= length_S1) subject[i] += 1*21; // 20*21;
-           else subject[i] += 21*convert_AA_alphabetical(devChars[offset_isc+base_S1+numRegs*(thid%group_size)+i]);
+           else subject[i] += 21*devChars[offset_isc+base_S1+numRegs*(thid%group_size)+i];
        }
     };
 
@@ -1886,40 +1859,6 @@ void NW_local_affine_Protein_single_pass_half2(
         }
     };
 
-	auto convert_AA_alphabetical = [&](const auto& AA) {
-		auto AA_norm = AA-65;
-		if ((AA_norm >= 0) && (AA_norm <=8)) return AA_norm;
-		if ((AA_norm >= 10) && (AA_norm <=13)) return AA_norm-1;
-		if ((AA_norm >= 15) && (AA_norm <=19)) return AA_norm-2;
-		if ((AA_norm >= 21) && (AA_norm <=22)) return AA_norm-3;
-		if (AA_norm == 24) return AA_norm-4;
-	    return 1; // else
-	};
-
-	auto convert_AA = [&](const auto& AA) {
-		if (AA == 'A') return 0;
-	    if (AA == 'R') return 1;
-	    if (AA == 'N') return 2;
-	    if (AA == 'D') return 3;
-	    if (AA == 'C') return 4;
-	    if (AA == 'Q') return 5;
-	    if (AA == 'E') return 6;
-	    if (AA == 'G') return 7;
-	    if (AA == 'H') return 8;
-	    if (AA == 'I') return 9;
-	    if (AA == 'L') return 10;
-	    if (AA == 'K') return 11;
-	    if (AA == 'M') return 12;
-	    if (AA == 'F') return 13;
-	    if (AA == 'P') return 14;
-	    if (AA == 'S') return 15;
-	    if (AA == 'T') return 16;
-	    if (AA == 'W') return 17;
-	    if (AA == 'Y') return 18;
-	    if (AA == 'V') return 19;
-	    return 20; // else
-	};
-
     __half2 temp0; // temp1, E_temp_float, H_temp_float;
 
     auto init_local_score_profile_BLOSUM62 = [&](const auto& offset_isc) {
@@ -1935,10 +1874,10 @@ void NW_local_affine_Protein_single_pass_half2(
        for (int i=0; i<numRegs; i++) {
 
            if (offset_isc+numRegs*(thid%group_size)+i >= length_S0) subject[i] = 1; // 20;
-           else subject[i] = convert_AA_alphabetical(devChars[offset_isc+base_S0+numRegs*(thid%group_size)+i]);
+           else subject[i] = devChars[offset_isc+base_S0+numRegs*(thid%group_size)+i];
 
            if (offset_isc+numRegs*(thid%group_size)+i >= length_S1) subject[i] += 1*21; // 20*21;
-           else subject[i] += 21*convert_AA_alphabetical(devChars[offset_isc+base_S1+numRegs*(thid%group_size)+i]);
+           else subject[i] += 21*devChars[offset_isc+base_S1+numRegs*(thid%group_size)+i];
        }
 
     };
@@ -3233,39 +3172,6 @@ void NW_local_affine_read4_float_query_Protein(
         }
     };
 
-	auto convert_AA_alphabetical = [&](const auto& AA) {
-		auto AA_norm = AA-65;
-		if ((AA_norm >= 0) && (AA_norm <=8)) return AA_norm;
-		if ((AA_norm >= 10) && (AA_norm <=13)) return AA_norm-1;
-		if ((AA_norm >= 15) && (AA_norm <=19)) return AA_norm-2;
-		if ((AA_norm >= 21) && (AA_norm <=22)) return AA_norm-3;
-		if (AA_norm == 24) return AA_norm-4;
-	    return 1; // else
-	};
-
-	auto convert_AA = [&](const auto& AA) {
-		if (AA == 'A') return 0;
-	    if (AA == 'R') return 1;
-	    if (AA == 'N') return 2;
-	    if (AA == 'D') return 3;
-	    if (AA == 'C') return 4;
-	    if (AA == 'Q') return 5;
-	    if (AA == 'E') return 6;
-	    if (AA == 'G') return 7;
-	    if (AA == 'H') return 8;
-	    if (AA == 'I') return 9;
-	    if (AA == 'L') return 10;
-	    if (AA == 'K') return 11;
-	    if (AA == 'M') return 12;
-	    if (AA == 'F') return 13;
-	    if (AA == 'P') return 14;
-	    if (AA == 'S') return 15;
-	    if (AA == 'T') return 16;
-	    if (AA == 'W') return 17;
-	    if (AA == 'Y') return 18;
-		if (AA == 'V') return 19;
-	    return 20; // else
-	};
 
     float temp0; // temp1, E_temp_float, H_temp_float;
     auto init_local_score_profile_BLOSUM62 = [&](const auto& offset_isc) {
@@ -3277,7 +3183,7 @@ void NW_local_affine_read4_float_query_Protein(
 
         for (int i=0; i<numRegs; i++) {
             if (offset_isc+numRegs*(thid%group_size)+i >= length) subject[i] = 1; // 20;
-            else subject[i] = convert_AA_alphabetical(devChars[offset_isc+base+numRegs*(thid%group_size)+i]);
+            else subject[i] = devChars[offset_isc+base+numRegs*(thid%group_size)+i];
         }
     };
 
@@ -5250,8 +5156,8 @@ void processQueryOnGpu(
 
                 auto runAlignmentKernels = [&](float* d_scores, size_t* d_overflow_positions, int* d_overflow_number){
 
-                    if (ws.h_numSelectedPerPartition[0]){NW_local_affine_Protein_single_pass_half2<4, 16><<<(ws.h_numSelectedPerPartition[0]+255)/(2*8*4*4)*2, 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[0], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[1]){NW_local_affine_Protein_single_pass_half2<8, 16><<<(ws.h_numSelectedPerPartition[1]+127)/(2*8*4*2)*2, 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[1], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[0]){NW_local_affine_Protein_single_pass_half2<4, 16><<<(ws.h_numSelectedPerPartition[0]+255)/(2*8*4*4), 32*8*2, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[0], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[1]){NW_local_affine_Protein_single_pass_half2<8, 16><<<(ws.h_numSelectedPerPartition[1]+127)/(2*8*4*2), 32*8*2, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[1], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
                     if (ws.h_numSelectedPerPartition[2]){NW_local_affine_Protein_single_pass_half2<8, 24><<<(ws.h_numSelectedPerPartition[2]+63)/(2*8*4), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[2], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
                     if (ws.h_numSelectedPerPartition[3]){NW_local_affine_Protein_single_pass_half2<16, 16><<<(ws.h_numSelectedPerPartition[3]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[3], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
                     if (ws.h_numSelectedPerPartition[4]){NW_local_affine_Protein_single_pass_half2<16, 20><<<(ws.h_numSelectedPerPartition[4]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[4], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
@@ -6094,10 +6000,11 @@ int main(int argc, char* argv[])
     for(int i = 0; i < numGpus; i++){
         cudaSetDevice(deviceIds[i]);
 
-        const int permutation[21] = {0,20,4,3,6,13,7,8,9,11,10,12,2,14,5,1,15,16,19,17,18};
-        char BLOSUM62_1D_permutation[21*21];
-        perumte_columns_BLOSUM(BLOSUM62_1D,21,permutation,BLOSUM62_1D_permutation);
-        cudaMemcpyToSymbol(cBLOSUM62_dev, &(BLOSUM62_1D_permutation[0]), 21*21*sizeof(char));
+        // const int permutation[21] = {0,20,4,3,6,13,7,8,9,11,10,12,2,14,5,1,15,16,19,17,18};
+        // char BLOSUM62_1D_permutation[21*21];
+        // perumte_columns_BLOSUM(BLOSUM62_1D,21,permutation,BLOSUM62_1D_permutation);
+        // cudaMemcpyToSymbol(cBLOSUM62_dev, &(BLOSUM62_1D_permutation[0]), 21*21*sizeof(char));
+        cudaMemcpyToSymbol(cBLOSUM62_dev, &(BLOSUM62_1D[0]), 21*21*sizeof(char));
     }
 
     cudaSetDevice(masterDeviceId);
