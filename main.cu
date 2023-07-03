@@ -4834,14 +4834,14 @@ struct GpuWorkingSet{
     size_t* d_selectedPositions = nullptr;
     size_t* d_overflow_positions = nullptr;
     int* d_overflow_number = nullptr;
-    int* h_overflow_number;
     char* Fillchar = nullptr;
-    cudaStream_t stream0;
-    cudaStream_t stream1;
-    cudaStream_t stream2;
-    cudaStream_t stream3;
     cudaStream_t hostFuncStream;
+    cudaStream_t workStreamForTempUsage;
     cudaEvent_t forkStreamEvent;
+
+    std::vector<cudaStream_t> workStreams;
+
+
 
 
     int* h_numSelectedPerPartition = nullptr;
@@ -5064,18 +5064,13 @@ void processQueryOnGpu(
 
     //create dependency on mainStream
     cudaEventRecord(ws.forkStreamEvent, mainStream); CUERR;
-    cudaStreamWaitEvent(ws.stream0, ws.forkStreamEvent, 0); CUERR;
-    cudaStreamWaitEvent(ws.stream1, ws.forkStreamEvent, 0); CUERR;
-    cudaStreamWaitEvent(ws.stream2, ws.forkStreamEvent, 0); CUERR;
-    cudaStreamWaitEvent(ws.stream3, ws.forkStreamEvent, 0); CUERR;
+    cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.forkStreamEvent, 0); CUERR;
     cudaStreamWaitEvent(ws.hostFuncStream, ws.forkStreamEvent, 0); CUERR;
     cudaStreamWaitEvent(ws.dblBufferStreams[0], ws.forkStreamEvent, 0); CUERR;
     cudaStreamWaitEvent(ws.dblBufferStreams[1], ws.forkStreamEvent, 0); CUERR;
 
     int64_t dp_cells = 0;
     int totalOverFlowNumber = 0;
-    
-    ws.h_overflow_number[0] = 0;
 
     size_t globalSequenceOffsetOfBatch = 0;
 
@@ -5125,7 +5120,7 @@ void processQueryOnGpu(
 
         if (!select_datatype) {  // HALF2
 
-            cudaStream_t workStream = ws.stream0;
+            cudaStream_t workStream = ws.workStreamForTempUsage;
 
             cudaEventRecord(ws.forkStreamEvent, ws.dblBufferStreams[source]); CUERR;
             cudaStreamWaitEvent(workStream, ws.forkStreamEvent, 0); CUERR;
@@ -5329,62 +5324,32 @@ void processQueryOnGpu(
                 #endif
 
                 #if 0
-                if (ws.h_numSelectedPerPartition[13]){
-                    constexpr int blocksize = 32 * 8;
-                    constexpr int groupsize = 32;
-                    constexpr int groupsPerBlock = blocksize / groupsize;
-                    constexpr int alignmentsPerGroup = 2;
-                    constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
-                    
-                    const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * alignmentsPerBlock * queryLength;
+                    if (ws.h_numSelectedPerPartition[13]){
+                        constexpr int blocksize = 32 * 8;
+                        constexpr int groupsize = 32;
+                        constexpr int groupsPerBlock = blocksize / groupsize;
+                        constexpr int alignmentsPerGroup = 2;
+                        constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
+                        
+                        const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * alignmentsPerBlock * queryLength;
 
-                    const size_t maxNumBlocks = ws.maxTempBytes / (tempBytesPerBlockPerBuffer * 2);
-                    const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(ws.h_numSelectedPerPartition[13]));
+                        const size_t maxNumBlocks = ws.maxTempBytes / (tempBytesPerBlockPerBuffer * 2);
+                        const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(ws.h_numSelectedPerPartition[13]));
 
-                    const size_t numBlocksPerIteration = SDIV(maxSubjectsPerIteration, alignmentsPerBlock);
-                    const size_t requiredTempBytes = tempBytesPerBlockPerBuffer * 2 * numBlocksPerIteration;
+                        const size_t numBlocksPerIteration = SDIV(maxSubjectsPerIteration, alignmentsPerBlock);
+                        const size_t requiredTempBytes = tempBytesPerBlockPerBuffer * 2 * numBlocksPerIteration;
 
-                    __half2* d_temp = (__half2*)ws.d_tempStorageHE;
-                    __half2* d_tempHcol2 = d_temp;
-                    __half2* d_tempEcol2 = (__half2*)(((char*)d_tempHcol2) + requiredTempBytes / 2);
+                        __half2* d_temp = (__half2*)ws.d_tempStorageHE;
+                        __half2* d_tempHcol2 = d_temp;
+                        __half2* d_tempEcol2 = (__half2*)(((char*)d_tempHcol2) + requiredTempBytes / 2);
 
-                    const int numIters =  SDIV(ws.h_numSelectedPerPartition[13], maxSubjectsPerIteration);
+                        const int numIters =  SDIV(ws.h_numSelectedPerPartition[13], maxSubjectsPerIteration);
 
-                    constexpr float invalidscore = 123456.0f;
+                        constexpr float invalidscore = 123456.0f;
 
-                    thrust::device_vector<float> fooscores1(54465398, invalidscore);
-                    thrust::device_vector<size_t> d_overflow_positions1(54465398, 99999999);
-                    thrust::device_vector<int> d_overflow_number1(1, 0);                    
-
-                    for(int iter = 0; iter < numIters; iter++){
-                        const size_t begin = iter * maxSubjectsPerIteration;
-                        const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : ws.h_numSelectedPerPartition[13];
-                        const size_t num = end - begin;                      
-
-                        cudaMemsetAsync(d_temp, 0, requiredTempBytes, workStream); CUERR;
-
-                        NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, workStream>>>(
-                            ws.devChars_2[source], 
-                            fooscores1.data().get(), 
-                            d_tempHcol2, 
-                            d_tempEcol2, 
-                            ws.devOffsets_2[source], 
-                            ws.devLengths_2[source], 
-                            d_selectedPositions + begin, 
-                            num, 
-                            d_overflow_positions1.data().get(), 
-                            d_overflow_number1.data().get(), 
-                            1, 
-                            queryLength, 
-                            gop, 
-                            gex
-                        ); CUERR
-                    }
-
-                    for(int repeat = 0; repeat < 20; repeat++){
-                        thrust::device_vector<float> fooscores2(54465398, invalidscore);
-                        thrust::device_vector<size_t> d_overflow_positions2(54465398, 99999999);
-                        thrust::device_vector<int> d_overflow_number2(1, 0);
+                        thrust::device_vector<float> fooscores1(54465398, invalidscore);
+                        thrust::device_vector<size_t> d_overflow_positions1(54465398, 99999999);
+                        thrust::device_vector<int> d_overflow_number1(1, 0);                    
 
                         for(int iter = 0; iter < numIters; iter++){
                             const size_t begin = iter * maxSubjectsPerIteration;
@@ -5395,15 +5360,15 @@ void processQueryOnGpu(
 
                             NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, workStream>>>(
                                 ws.devChars_2[source], 
-                                fooscores2.data().get(), 
+                                fooscores1.data().get(), 
                                 d_tempHcol2, 
                                 d_tempEcol2, 
                                 ws.devOffsets_2[source], 
                                 ws.devLengths_2[source], 
                                 d_selectedPositions + begin, 
                                 num, 
-                                d_overflow_positions2.data().get(), 
-                                d_overflow_number2.data().get(), 
+                                d_overflow_positions1.data().get(), 
+                                d_overflow_number1.data().get(), 
                                 1, 
                                 queryLength, 
                                 gop, 
@@ -5411,59 +5376,89 @@ void processQueryOnGpu(
                             ); CUERR
                         }
 
-                        thrust::sort(
-                            d_overflow_positions1.begin(),
-                            d_overflow_positions1.end()
-                        );
-                        thrust::sort(
-                            d_overflow_positions2.begin(),
-                            d_overflow_positions2.end()
-                        );
+                        for(int repeat = 0; repeat < 20; repeat++){
+                            thrust::device_vector<float> fooscores2(54465398, invalidscore);
+                            thrust::device_vector<size_t> d_overflow_positions2(54465398, 99999999);
+                            thrust::device_vector<int> d_overflow_number2(1, 0);
 
-                        thrust::scatter(
-                            thrust::make_constant_iterator<float>(invalidscore),
-                            thrust::make_constant_iterator<float>(invalidscore) + d_overflow_number1[0],
-                            d_overflow_positions1.begin(),
-                            fooscores1.begin()
-                        );
+                            for(int iter = 0; iter < numIters; iter++){
+                                const size_t begin = iter * maxSubjectsPerIteration;
+                                const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : ws.h_numSelectedPerPartition[13];
+                                const size_t num = end - begin;                      
 
-                        thrust::scatter(
-                            thrust::make_constant_iterator<float>(invalidscore),
-                            thrust::make_constant_iterator<float>(invalidscore) + d_overflow_number2[0],
-                            d_overflow_positions2.begin(),
-                            fooscores2.begin()
-                        );
+                                cudaMemsetAsync(d_temp, 0, requiredTempBytes, workStream); CUERR;
 
-                        if(d_overflow_number1 != d_overflow_number2){
-                            std::cout << "repeat = " << repeat << ", d_overflow_number1 " << d_overflow_number1[0] << ", d_overflow_number2 " << d_overflow_number2[0] << "\n";
-                        }
-                        if(d_overflow_positions1 != d_overflow_positions2){
-                            std::cout << "repeat = " << repeat << ", different overflow positions\n";
-                        }
-                        if(fooscores1 != fooscores2){                            
-                            thrust::host_vector<float> h_fooscores1 = fooscores1;
-                            thrust::host_vector<float> h_fooscores2 = fooscores2;
+                                NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, workStream>>>(
+                                    ws.devChars_2[source], 
+                                    fooscores2.data().get(), 
+                                    d_tempHcol2, 
+                                    d_tempEcol2, 
+                                    ws.devOffsets_2[source], 
+                                    ws.devLengths_2[source], 
+                                    d_selectedPositions + begin, 
+                                    num, 
+                                    d_overflow_positions2.data().get(), 
+                                    d_overflow_number2.data().get(), 
+                                    1, 
+                                    queryLength, 
+                                    gop, 
+                                    gex
+                                ); CUERR
+                            }
 
-                            for(int i = 0; i < 54465398; i++){
-                                if(h_fooscores1[i] != h_fooscores2[i]){
-                                    std::cout << " Batch: " << batch << ", numseqs " << dbPartitions[batch].numSequences() << ", repeat = " << repeat << ", different scores\n";
-                                    std::cout << "error i " << i << ", got " << h_fooscores2[i] << " expected " << h_fooscores1[i] << "\n";
-                                    std::cout << "expected: ";
-                                    for(int k = i; k < std::min(54465398, i+30); k++){
-                                        std::cout << h_fooscores1[k] << " ";
+                            thrust::sort(
+                                d_overflow_positions1.begin(),
+                                d_overflow_positions1.end()
+                            );
+                            thrust::sort(
+                                d_overflow_positions2.begin(),
+                                d_overflow_positions2.end()
+                            );
+
+                            thrust::scatter(
+                                thrust::make_constant_iterator<float>(invalidscore),
+                                thrust::make_constant_iterator<float>(invalidscore) + d_overflow_number1[0],
+                                d_overflow_positions1.begin(),
+                                fooscores1.begin()
+                            );
+
+                            thrust::scatter(
+                                thrust::make_constant_iterator<float>(invalidscore),
+                                thrust::make_constant_iterator<float>(invalidscore) + d_overflow_number2[0],
+                                d_overflow_positions2.begin(),
+                                fooscores2.begin()
+                            );
+
+                            if(d_overflow_number1 != d_overflow_number2){
+                                std::cout << "repeat = " << repeat << ", d_overflow_number1 " << d_overflow_number1[0] << ", d_overflow_number2 " << d_overflow_number2[0] << "\n";
+                            }
+                            if(d_overflow_positions1 != d_overflow_positions2){
+                                std::cout << "repeat = " << repeat << ", different overflow positions\n";
+                            }
+                            if(fooscores1 != fooscores2){                            
+                                thrust::host_vector<float> h_fooscores1 = fooscores1;
+                                thrust::host_vector<float> h_fooscores2 = fooscores2;
+
+                                for(int i = 0; i < 54465398; i++){
+                                    if(h_fooscores1[i] != h_fooscores2[i]){
+                                        std::cout << " Batch: " << batch << ", numseqs " << dbPartitions[batch].numSequences() << ", repeat = " << repeat << ", different scores\n";
+                                        std::cout << "error i " << i << ", got " << h_fooscores2[i] << " expected " << h_fooscores1[i] << "\n";
+                                        std::cout << "expected: ";
+                                        for(int k = i; k < std::min(54465398, i+30); k++){
+                                            std::cout << h_fooscores1[k] << " ";
+                                        }
+                                        std::cout << "\n";
+                                        std::cout << "got     : ";
+                                        for(int k = i; k < std::min(54465398, i+30); k++){
+                                            std::cout << h_fooscores2[k] << " ";
+                                        }
+                                        std::cout << "\n";
+                                        //std::exit(0);
                                     }
-                                    std::cout << "\n";
-                                    std::cout << "got     : ";
-                                    for(int k = i; k < std::min(54465398, i+30); k++){
-                                        std::cout << h_fooscores2[k] << " ";
-                                    }
-                                    std::cout << "\n";
-                                    //std::exit(0);
                                 }
                             }
                         }
                     }
-                }
                 #endif
 
 
@@ -5497,17 +5492,9 @@ void processQueryOnGpu(
     }
 
     //create dependency for mainStream
-    cudaEventRecord(ws.forkStreamEvent, ws.stream0); CUERR;
+    cudaEventRecord(ws.forkStreamEvent, ws.workStreamForTempUsage); CUERR;
     cudaStreamWaitEvent(mainStream, ws.forkStreamEvent, 0); CUERR;
 
-    cudaEventRecord(ws.forkStreamEvent, ws.stream1); CUERR;
-    cudaStreamWaitEvent(mainStream, ws.forkStreamEvent, 0); CUERR;
-
-    cudaEventRecord(ws.forkStreamEvent, ws.stream2); CUERR;
-    cudaStreamWaitEvent(mainStream, ws.forkStreamEvent, 0); CUERR;
-
-    cudaEventRecord(ws.forkStreamEvent, ws.stream3); CUERR;
-    cudaStreamWaitEvent(mainStream, ws.forkStreamEvent, 0); CUERR;
 
     cudaEventRecord(ws.forkStreamEvent, ws.hostFuncStream); CUERR;
     cudaStreamWaitEvent(mainStream, ws.forkStreamEvent, 0); CUERR;
@@ -5570,7 +5557,19 @@ int main(int argc, char* argv[])
         uint64_t threshold = UINT64_MAX;
         cudaMemPoolSetAttribute(mempool, cudaMemPoolAttrReleaseThreshold, &threshold);CUERR
     }
+    std::vector<cudaStream_t> gpuStreams(numGpus);
+    for(int i = 0; i < numGpus; i++){
+        cudaSetDevice(deviceIds[i]); CUERR
+        cudaStreamCreate(&gpuStreams[i]); CUERR;
+    }
+
     cudaSetDevice(masterDeviceId); CUERR
+    cudaEvent_t masterevent1;
+    cudaEventCreate(&masterevent1, cudaEventDisableTiming);
+    cudaStream_t masterStream1;
+    cudaStreamCreate(&masterStream1);
+
+
 
 
 
@@ -5855,6 +5854,8 @@ int main(int argc, char* argv[])
             cudaStreamCreate(&ws.dblBufferStreams[i]); CUERR;
         }
 
+
+
         cudaMalloc(&ws.devAlignmentScoresFloat, sizeof(float)*num_sequences);
 
         cudaMalloc(&ws.d_tempStorageHE, ws.maxTempBytes);
@@ -5871,16 +5872,19 @@ int main(int argc, char* argv[])
 
         cudaMalloc(&ws.d_overflow_positions, max_batch_num_sequences * sizeof(size_t)); CUERR
         cudaMalloc(&ws.d_overflow_number, 1 * sizeof(int)); CUERR
-        cudaMallocHost(&ws.h_overflow_number, 2 * sizeof(int)); CUERR
 
         cudaMalloc(&ws.Fillchar, 16*512);
         cudaMemset(ws.Fillchar, 20, 16*512);
 
-        cudaStreamCreate(&ws.stream0); CUERR
-        cudaStreamCreate(&ws.stream1); CUERR
-        cudaStreamCreate(&ws.stream2); CUERR
-        cudaStreamCreate(&ws.stream3); CUERR
+        cudaStreamCreate(&ws.workStreamForTempUsage); CUERR
+
         cudaStreamCreate(&ws.hostFuncStream); CUERR
+
+        const int numWorkStreams = 3;
+        ws.workStreams.resize(numWorkStreams);
+        for(int i = 0; i <numWorkStreams; i++){
+            cudaStreamCreate(&ws.workStreams[i]); CUERR;
+        }
         
 
         cudaEventCreate(&ws.forkStreamEvent, cudaEventDisableTiming); CUERR
@@ -5918,17 +5922,17 @@ int main(int argc, char* argv[])
 
         cudaFree(ws.d_overflow_positions); CUERR
         cudaFree(ws.d_overflow_number); CUERR
-        cudaFreeHost(ws.h_overflow_number); CUERR
 
         cudaFree(ws.Fillchar);
 
-        cudaStreamDestroy(ws.stream0); CUERR
-        cudaStreamDestroy(ws.stream1); CUERR
-        cudaStreamDestroy(ws.stream2); CUERR
-        cudaStreamDestroy(ws.stream3); CUERR
+        cudaStreamDestroy(ws.workStreamForTempUsage); CUERR
 
         cudaStreamDestroy(ws.hostFuncStream); CUERR
         cudaEventDestroy(ws.forkStreamEvent); CUERR
+
+        for(int i = 0; i < int(ws.workStreams.size()); i++){
+            cudaStreamDestroy(ws.workStreams[i]); CUERR;
+        }
 
         cudaSetDevice(oldId);
     };
@@ -6015,10 +6019,7 @@ int main(int argc, char* argv[])
     thrust::device_vector<float> devAllAlignmentScoresFloat(totalNumberOfSequencesInDB);
     thrust::device_vector<size_t> dev_sorted_indices(totalNumberOfSequencesInDB);
 
-    cudaEvent_t masterevent1;
-    cudaEventCreate(&masterevent1, cudaEventDisableTiming);
-    cudaStream_t masterStream1;
-    cudaStreamCreate(&masterStream1);
+
 
 
     cout << "Starting FULLSCAN_CUDA: \n";
@@ -6028,10 +6029,10 @@ int main(int argc, char* argv[])
     for(int i = 0; i < numGpus; i++){
         cudaSetDevice(deviceIds[i]);
         auto& ws = workingSets[i];
-        cudaMemcpyAsync(ws.devChars, chars, charBytes, cudaMemcpyHostToDevice, ws.stream2); CUERR
-        cudaMemcpyAsync(ws.devOffsets, offsets, offsetBytes, cudaMemcpyHostToDevice, ws.stream2); CUERR
-        cudaMemcpyAsync(ws.devLengths, lengths, offsetBytes, cudaMemcpyHostToDevice, ws.stream2); CUERR
-        NW_convert_protein<<<numQueries, 128, 0, ws.stream2>>>(ws.devChars, ws.devOffsets); CUERR
+        cudaMemcpyAsync(ws.devChars, chars, charBytes, cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
+        cudaMemcpyAsync(ws.devOffsets, offsets, offsetBytes, cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
+        cudaMemcpyAsync(ws.devLengths, lengths, offsetBytes, cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
+        NW_convert_protein<<<numQueries, 128, 0, gpuStreams[i]>>>(ws.devChars, ws.devOffsets); CUERR
     }
 
 
@@ -6070,7 +6071,7 @@ int main(int argc, char* argv[])
                 auto& ws = workingSets[gpu];
                 assert(ws.deviceId == deviceIds[gpu]);
 
-                cudaStreamWaitEvent(ws.stream2, masterevent1, 0); CUERR;
+                cudaStreamWaitEvent(gpuStreams[gpu], masterevent1, 0); CUERR;
 
                 processQueryOnGpu(
                     ws,
@@ -6084,7 +6085,7 @@ int main(int argc, char* argv[])
                     select_datatype,
                     select_dpx,
                     useExtraThreadForBatchTransfer,
-                    ws.stream2
+                    gpuStreams[gpu]
                 );
 
                 cudaMemcpyAsync(
@@ -6093,10 +6094,10 @@ int main(int argc, char* argv[])
                     //sizeof(float) * dbPartitionsForGpus[i].numSequences(),
                     sizeof(float) * numSequencesPerGpu_perDBchunk[chunkId][gpu],
                     cudaMemcpyDeviceToDevice,
-                    ws.stream2
+                    gpuStreams[gpu]
                 );
 
-                cudaEventRecord(ws.forkStreamEvent, ws.stream2); CUERR;
+                cudaEventRecord(ws.forkStreamEvent, gpuStreams[gpu]); CUERR;
                 cudaStreamWaitEvent(masterStream1, ws.forkStreamEvent, 0); CUERR;
             }
 
