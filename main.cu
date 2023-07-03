@@ -4918,9 +4918,10 @@ struct GpuWorkingSet{
     cudaEvent_t dblBufferEvents[2];
     cudaStream_t dblBufferStreams[2];
 
+    size_t maxTempBytes;
+    void* d_tempStorageHE;
+
     float* devAlignmentScoresFloat = nullptr;
-    half2* devTempHcol2 = nullptr;
-    half2* devTempEcol2 = nullptr;
     int* d_numSelectedPerPartition;
     size_t* d_all_selectedPositions = nullptr;
     size_t* d_overflow_positions = nullptr;
@@ -5217,9 +5218,6 @@ void processQueryOnGpu(
 
         assert(currentPartition.numSequences() <= ws.max_batch_num_sequences);
 
-
-        cudaMemsetAsync(ws.devTempHcol2, 0, sizeof(half2)*(tempHEfactor*MAX_long_seq)*queryLength, ws.dblBufferStreams[source]);
-        cudaMemsetAsync(ws.devTempEcol2, 0, sizeof(half2)*(tempHEfactor*MAX_long_seq)*queryLength, ws.dblBufferStreams[source]);
         cudaMemsetAsync(ws.d_overflow_number,0,sizeof(int), ws.dblBufferStreams[source]);
 
 
@@ -5229,9 +5227,10 @@ void processQueryOnGpu(
 
         if (!select_datatype) {  // HALF2
 
+            cudaStream_t workStream = ws.stream0;
+
             cudaEventRecord(ws.forkStreamEvent, ws.dblBufferStreams[source]); CUERR;
-            cudaStreamWaitEvent(ws.stream0, ws.forkStreamEvent, 0); CUERR;
-            cudaStreamWaitEvent(ws.stream1, ws.forkStreamEvent, 0); CUERR;
+            cudaStreamWaitEvent(workStream, ws.forkStreamEvent, 0); CUERR;
 
             if (!select_dpx) {
                 //cout << "Starting NW_local_affine_half2: Query " << query_num << " Batch " << batch << "\n";
@@ -5242,15 +5241,10 @@ void processQueryOnGpu(
                 const float gop = -11.0;
                 const float gex = -1.0;
                 if (ws.h_numSelectedPerPartition[14]){
-                    constexpr size_t maxTempBytes = 512 * 1024 * 1024;
                     const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
-                    const size_t maxSubjectsPerIteration = std::min(size_t(ws.h_numSelectedPerPartition[14]), maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
+                    const size_t maxSubjectsPerIteration = std::min(size_t(ws.h_numSelectedPerPartition[14]), ws.maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
-                    // std::cout << "tempBytesPerSubjectPerBuffer " << tempBytesPerSubjectPerBuffer << "\n";
-                    // std::cout << "maxSubjectsPerIteration " << maxSubjectsPerIteration << "\n";
-
-                    short2* d_temp;
-                    cudaMallocAsync(&d_temp, maxTempBytes, ws.stream0);
+                    short2* d_temp = (short2*)ws.d_tempStorageHE;
                     short2* d_tempHcol2 = d_temp;
                     short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
 
@@ -5260,19 +5254,9 @@ void processQueryOnGpu(
                         const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : ws.h_numSelectedPerPartition[14];
                         const size_t num = end - begin;
 
-                        // std::cout << "begin " << begin << "\n";
-                        // std::cout << "end " << end << "\n";
-                        // std::cout << "num " << num << "\n";
+                        cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, workStream); CUERR;
 
-                        cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, ws.stream0); CUERR;
-
-                        // cudaMemsetAsync(d_tempHcol2, 0, tempBytesPerSubjectPerBuffer * num, ws.stream0); CUERR;
-                        // cudaMemsetAsync(d_tempEcol2, 0, tempBytesPerSubjectPerBuffer * num, ws.stream0); CUERR;
-
-                        //thrust::fill(thrust::cuda::par_nosync.on(ws.stream0), d_temp, d_temp + (maxTempBytes / sizeof(short2)), make_short2(-30000, -30000));
-
-
-                        NW_local_affine_read4_float_query_Protein<32, 12><<<num, 32, 0, ws.stream0>>>(
+                        NW_local_affine_read4_float_query_Protein<32, 12><<<num, 32, 0, workStream>>>(
                             ws.devChars_2[source], 
                             &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), 
                             d_tempHcol2, 
@@ -5285,66 +5269,35 @@ void processQueryOnGpu(
                             gex
                         ); CUERR 
                     }
-
-                    cudaFreeAsync(d_temp, ws.stream0);
                 }
-                //if (ws.h_numSelectedPerPartition[14]){NW_local_affine_read4_float_query_Protein<32, 12><<<ws.h_numSelectedPerPartition[14], 32, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), (short2*)ws.devTempHcol2, (short2*)ws.devTempEcol2, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, queryLength, gop, gex); CUERR }
 
-                //std::cout << "waiting for 14\n"; cudaStreamSynchronize(ws.stream0); CUERR
-                if (ws.h_numSelectedPerPartition[0]){NW_local_affine_Protein_single_pass_half2<4, 16><<<(ws.h_numSelectedPerPartition[0]+255)/(2*8*4*4)*2, 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[0], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                //std::cout << "waiting for 0\n"; cudaStreamSynchronize(ws.stream0); CUERR
-                if (ws.h_numSelectedPerPartition[1]){NW_local_affine_Protein_single_pass_half2<8, 16><<<(ws.h_numSelectedPerPartition[1]+127)/(2*8*4*2)*2, 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[1], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                //std::cout << "waiting for 1\n"; cudaStreamSynchronize(ws.stream0); 
-                if (ws.h_numSelectedPerPartition[2]){NW_local_affine_Protein_single_pass_half2<8, 24><<<(ws.h_numSelectedPerPartition[2]+63)/(2*8*4), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[2], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                //std::cout << "waiting for 2\n"; cudaStreamSynchronize(ws.stream0); 
-                if (ws.h_numSelectedPerPartition[3]){NW_local_affine_Protein_single_pass_half2<16, 16><<<(ws.h_numSelectedPerPartition[3]+31)/(2*8*2), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[3], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                //std::cout << "waiting for 3\n"; cudaStreamSynchronize(ws.stream0); 
-                if (ws.h_numSelectedPerPartition[4]){NW_local_affine_Protein_single_pass_half2<16, 20><<<(ws.h_numSelectedPerPartition[4]+31)/(2*8*2), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[4], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                //std::cout << "waiting for 4\n"; cudaStreamSynchronize(ws.stream0); 
-                if (ws.h_numSelectedPerPartition[5]){NW_local_affine_Protein_single_pass_half2<16, 24><<<(ws.h_numSelectedPerPartition[5]+31)/(2*8*2), 32*8, 0, ws.stream0>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[5], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                //std::cout << "waiting for 5\n"; cudaStreamSynchronize(ws.stream0); 
-                if (ws.h_numSelectedPerPartition[6]){NW_local_affine_Protein_single_pass_half2<16, 28><<<(ws.h_numSelectedPerPartition[6]+31)/(2*8*2), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[6], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                //std::cout << "waiting for 14\n"; cudaStreamSynchronize(workStream); CUERR
+                if (ws.h_numSelectedPerPartition[0]){NW_local_affine_Protein_single_pass_half2<4, 16><<<(ws.h_numSelectedPerPartition[0]+255)/(2*8*4*4)*2, 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[0], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                //std::cout << "waiting for 0\n"; cudaStreamSynchronize(workStream); CUERR
+                if (ws.h_numSelectedPerPartition[1]){NW_local_affine_Protein_single_pass_half2<8, 16><<<(ws.h_numSelectedPerPartition[1]+127)/(2*8*4*2)*2, 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[1], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                //std::cout << "waiting for 1\n"; cudaStreamSynchronize(workStream); 
+                if (ws.h_numSelectedPerPartition[2]){NW_local_affine_Protein_single_pass_half2<8, 24><<<(ws.h_numSelectedPerPartition[2]+63)/(2*8*4), 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[2], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                //std::cout << "waiting for 2\n"; cudaStreamSynchronize(workStream); 
+                if (ws.h_numSelectedPerPartition[3]){NW_local_affine_Protein_single_pass_half2<16, 16><<<(ws.h_numSelectedPerPartition[3]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[3], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                //std::cout << "waiting for 3\n"; cudaStreamSynchronize(workStream); 
+                if (ws.h_numSelectedPerPartition[4]){NW_local_affine_Protein_single_pass_half2<16, 20><<<(ws.h_numSelectedPerPartition[4]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[4], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                //std::cout << "waiting for 4\n"; cudaStreamSynchronize(workStream); 
+                if (ws.h_numSelectedPerPartition[5]){NW_local_affine_Protein_single_pass_half2<16, 24><<<(ws.h_numSelectedPerPartition[5]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[5], ws.d_overflow_positions, ws.d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                //std::cout << "waiting for 5\n"; cudaStreamSynchronize(workStream); 
+                if (ws.h_numSelectedPerPartition[6]){NW_local_affine_Protein_single_pass_half2<16, 28><<<(ws.h_numSelectedPerPartition[6]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[6], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 6\n"; cudaStreamSynchronize(ws.stream1); 
-                if (ws.h_numSelectedPerPartition[7]){NW_local_affine_Protein_single_pass_half2<32, 16><<<(ws.h_numSelectedPerPartition[7]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[7], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[7]){NW_local_affine_Protein_single_pass_half2<32, 16><<<(ws.h_numSelectedPerPartition[7]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[7], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 7\n"; cudaStreamSynchronize(ws.stream1); 
-                if (ws.h_numSelectedPerPartition[8]){NW_local_affine_Protein_single_pass_half2<32, 18><<<(ws.h_numSelectedPerPartition[8]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[8], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[8]){NW_local_affine_Protein_single_pass_half2<32, 18><<<(ws.h_numSelectedPerPartition[8]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[8], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 8\n"; cudaStreamSynchronize(ws.stream1); 
-                if (ws.h_numSelectedPerPartition[9]){NW_local_affine_Protein_single_pass_half2<32, 20><<<(ws.h_numSelectedPerPartition[9]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[9], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[9]){NW_local_affine_Protein_single_pass_half2<32, 20><<<(ws.h_numSelectedPerPartition[9]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[9], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 9\n"; cudaStreamSynchronize(ws.stream1); 
-                if (ws.h_numSelectedPerPartition[10]){NW_local_affine_Protein_single_pass_half2<32, 24><<<(ws.h_numSelectedPerPartition[10]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[10], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[10]){NW_local_affine_Protein_single_pass_half2<32, 24><<<(ws.h_numSelectedPerPartition[10]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[10], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 10\n"; cudaStreamSynchronize(ws.stream1); 
-                if (ws.h_numSelectedPerPartition[11]){NW_local_affine_Protein_single_pass_half2<32, 28><<<(ws.h_numSelectedPerPartition[11]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[11], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                if (ws.h_numSelectedPerPartition[11]){NW_local_affine_Protein_single_pass_half2<32, 28><<<(ws.h_numSelectedPerPartition[11]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[11], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 //std::cout << "waiting for 11\n"; cudaStreamSynchronize(ws.stream1); 
-                if (ws.h_numSelectedPerPartition[12]){NW_local_affine_Protein_single_pass_half2<32, 32><<<(ws.h_numSelectedPerPartition[12]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[12], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                // if (ws.h_numSelectedPerPartition[13] + ws.h_numSelectedPerPartition[14] <= MAX_long_seq) {
-                //     if (ws.h_numSelectedPerPartition[13]) NW_local_affine_Protein_many_pass_half2<32, 12><<<(ws.h_numSelectedPerPartition[13]+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), &(ws.devTempHcol2[ws.h_numSelectedPerPartition[14]*queryLength]), &(ws.devTempEcol2[ws.h_numSelectedPerPartition[14]*queryLength]), ws.devOffsets_2[source], ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[13], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR
-                // } else {
-                //     uint Num_Seq_per_call = MAX_long_seq - ws.h_numSelectedPerPartition[14];
-                //     //std::cout << " Batch: " << batch << " Num_Seq_per_call: " << Num_Seq_per_call<< " Iterations: " << ws.h_numSelectedPerPartition[9]/Num_Seq_per_call << "\n";
-                //     for (int i=0; i<ws.h_numSelectedPerPartition[13]/Num_Seq_per_call; i++)
-                //         NW_local_affine_Protein_many_pass_half2<32, 12><<<(Num_Seq_per_call+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), &(ws.devTempHcol2[ws.h_numSelectedPerPartition[14]*queryLength]), &(ws.devTempEcol2[ws.h_numSelectedPerPartition[14]*queryLength]), ws.devOffsets_2[source], ws.devLengths_2[source], d_all_selectedPositions+i*Num_Seq_per_call, Num_Seq_per_call, ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR
-                //     uint Remaining_Seq = ws.h_numSelectedPerPartition[13]%Num_Seq_per_call;
-                //     if (Remaining_Seq)
-                //         NW_local_affine_Protein_many_pass_half2<32, 12><<<(Remaining_Seq+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), &(ws.devTempHcol2[ws.h_numSelectedPerPartition[14]*queryLength]), &(ws.devTempEcol2[ws.h_numSelectedPerPartition[14]*queryLength]), ws.devOffsets_2[source], ws.devLengths_2[source], d_all_selectedPositions+(ws.h_numSelectedPerPartition[13]/Num_Seq_per_call)*Num_Seq_per_call, Remaining_Seq, ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR
-                // }
+                if (ws.h_numSelectedPerPartition[12]){NW_local_affine_Protein_single_pass_half2<32, 32><<<(ws.h_numSelectedPerPartition[12]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[12], ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR }
 
-                // if (ws.h_numSelectedPerPartition[13]) {
-                //     //std::cout << "start old\n";
-
-                //     uint Num_Seq_per_call = std::min(10000u, uint(ws.h_numSelectedPerPartition[13]));
-                //     //std::cout << " Batch: " << batch << " Num_Seq_per_call: " << Num_Seq_per_call<< " Iterations: " << ws.h_numSelectedPerPartition[13]/Num_Seq_per_call << "\n";
-                //     for (int i=0; i<ws.h_numSelectedPerPartition[13]/Num_Seq_per_call; i++){
-                //         //std::cout << "NW_local_affine_Protein_many_pass_half2<" << 32 << ", 12><<<" << (Num_Seq_per_call+15)/(2*8) << "," << 32*8 << ">>>"
-                //         //    << "(" << (void*)(d_all_selectedPositions + i*Num_Seq_per_call) << ", " << Num_Seq_per_call << ")\n";
-                //         NW_local_affine_Protein_many_pass_half2<32, 12><<<(Num_Seq_per_call+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), &(ws.devTempHcol2[ws.h_numSelectedPerPartition[14]*queryLength]), &(ws.devTempEcol2[ws.h_numSelectedPerPartition[14]*queryLength]), ws.devOffsets_2[source], ws.devLengths_2[source], d_all_selectedPositions+i*Num_Seq_per_call, Num_Seq_per_call, ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR
-                //     }
-                //     uint Remaining_Seq = ws.h_numSelectedPerPartition[13]%Num_Seq_per_call;
-                //     if (Remaining_Seq){
-                //         //std::cout << "NW_local_affine_Protein_many_pass_half2<" << 32 << ", 12><<<" << (Remaining_Seq+15)/(2*8) << "," << 32*8 << ">>>"
-                //         //    << "(" << (void*)(d_all_selectedPositions + (ws.h_numSelectedPerPartition[13]/Num_Seq_per_call)*Num_Seq_per_call) << ", " << Remaining_Seq << ")\n";
-                //         NW_local_affine_Protein_many_pass_half2<32, 12><<<(Remaining_Seq+15)/(2*8), 32*8, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), &(ws.devTempHcol2[ws.h_numSelectedPerPartition[14]*queryLength]), &(ws.devTempEcol2[ws.h_numSelectedPerPartition[14]*queryLength]), ws.devOffsets_2[source], ws.devLengths_2[source], d_all_selectedPositions+(ws.h_numSelectedPerPartition[13]/Num_Seq_per_call)*Num_Seq_per_call, Remaining_Seq, ws.d_overflow_positions, ws.d_overflow_number, 1, queryLength, gop, gex); CUERR
-                //     }
-                // }
 
                 // if (ws.h_numSelectedPerPartition[13]) {
                 //     cudaDeviceSynchronize(); CUERR;
@@ -5406,7 +5359,6 @@ void processQueryOnGpu(
                 // }
 
                 if (ws.h_numSelectedPerPartition[13]){
-                    constexpr size_t maxTempBytes = 512ull * 1024ull * 1024ull;
                     constexpr int blocksize = 32 * 8;
                     constexpr int groupsize = 32;
                     constexpr int groupsPerBlock = blocksize / groupsize;
@@ -5415,34 +5367,26 @@ void processQueryOnGpu(
                     
                     const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * alignmentsPerBlock * queryLength;
 
-                    const size_t maxNumBlocks = maxTempBytes / (tempBytesPerBlockPerBuffer * 2);
+                    const size_t maxNumBlocks = ws.maxTempBytes / (tempBytesPerBlockPerBuffer * 2);
                     const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(ws.h_numSelectedPerPartition[13]));
 
                     const size_t numBlocksPerIteration = SDIV(maxSubjectsPerIteration, alignmentsPerBlock);
                     const size_t requiredTempBytes = tempBytesPerBlockPerBuffer * 2 * numBlocksPerIteration;
 
-                    // std::cout << "queryLength " << queryLength << ", tempBytesPerBlockPerBuffer " << tempBytesPerBlockPerBuffer << "\n";
-                    // std::cout << "maxNumBlocks: " << maxNumBlocks << ", maxSubjectsPerIteration: " << maxSubjectsPerIteration 
-                    //     << ", numBlocksPerIteration: " << numBlocksPerIteration << ", requiredTempBytes: " << requiredTempBytes 
-                    //     << ", ws.h_numSelectedPerPartition[13]: " << ws.h_numSelectedPerPartition[13] << "\n";
-                    // std::cout << "globalSequenceOffsetOfBatch " << globalSequenceOffsetOfBatch << "\n";
-
-                    __half2* d_temp;
-                    cudaMallocAsync(&d_temp, maxTempBytes, ws.stream1); CUERR;
+                    __half2* d_temp = (__half2*)ws.d_tempStorageHE;
                     __half2* d_tempHcol2 = d_temp;
                     __half2* d_tempEcol2 = (__half2*)(((char*)d_tempHcol2) + requiredTempBytes / 2);
 
                     const int numIters =  SDIV(ws.h_numSelectedPerPartition[13], maxSubjectsPerIteration);
 
                     for(int iter = 0; iter < numIters; iter++){
-                        //std::cout << "iter " << iter << " / " << numIters << "\n";
                         const size_t begin = iter * maxSubjectsPerIteration;
                         const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : ws.h_numSelectedPerPartition[13];
                         const size_t num = end - begin;                      
 
-                        cudaMemsetAsync(d_temp, 0, requiredTempBytes, ws.stream1); CUERR;
+                        cudaMemsetAsync(d_temp, 0, requiredTempBytes, workStream); CUERR;
 
-                        NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.stream1>>>(
+                        NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, workStream>>>(
                             ws.devChars_2[source], 
                             &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), 
                             d_tempHcol2, 
@@ -5459,8 +5403,6 @@ void processQueryOnGpu(
                             gex
                         ); CUERR
                     }
-
-                    cudaFreeAsync(d_temp, ws.stream1);
                 }
 
 
@@ -5609,14 +5551,12 @@ void processQueryOnGpu(
                 }
 
                 {
-                    constexpr size_t maxTempBytes = 512ull * 1024ull * 1024ull;
-                    short2* d_temp;
-                    cudaMallocAsync(&d_temp, maxTempBytes, ws.stream0);
+                    short2* d_temp = (short2*)ws.d_tempStorageHE;
 
-                    launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32, 12><<<1,1,0, ws.stream1>>>(
+                    launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32, 12><<<1,1,0, workStream>>>(
                         ws.d_overflow_number,
                         d_temp, 
-                        maxTempBytes,
+                        ws.maxTempBytes,
                         ws.devChars_2[source], 
                         &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), 
                         ws.devOffsets_2[source] , 
@@ -5624,33 +5564,13 @@ void processQueryOnGpu(
                         ws.d_overflow_positions, 
                         queryLength, gop, gex
                     ); CUERR
-
-                    cudaFreeAsync(d_temp, ws.stream1); CUERR;
                 }
 
 
-
-                // cudaMemcpyAsync(ws.h_overflow_number, ws.d_overflow_number, 1*sizeof(int), cudaMemcpyDeviceToHost, ws.stream1);  CUERR
-                // cudaStreamSynchronize(ws.stream1);
-                // //std::cout << h_overflow_number[0] << " overflow positions \n";
-                // //cudaDeviceSynchronize(); CUERR
-
-                // if (ws.h_overflow_number[0]) {
-                //     //std::cout << h_overflow_number[0] << " overflow positions \n";
-                //     NW_local_affine_read4_float_query_Protein<32, 12><<<ws.h_overflow_number[0], 32, 0, ws.stream1>>>(ws.devChars_2[source], &(ws.devAlignmentScoresFloat[globalSequenceOffsetOfBatch]), (short2*)&(ws.devTempHcol2[(MAX_long_seq+16)*queryLength]), (short2*)&(ws.devTempEcol2[(MAX_long_seq+16)*queryLength]), ws.devOffsets_2[source] , ws.devLengths_2[source], ws.d_overflow_positions, queryLength, gop, gex); CUERR
-                // }
-                //cudaDeviceSynchronize();
-            //    TIMERSTOP_CUDA(NW_local_affine_half2_query_Protein)
-                //totalOverFlowNumber += ws.h_overflow_number[0];
-
                 //join the working streams to the next double buffer stream
-                cudaEventRecord(ws.forkStreamEvent, ws.stream0); CUERR;
+                cudaEventRecord(ws.forkStreamEvent, workStream); CUERR;
                 cudaStreamWaitEvent(ws.dblBufferStreams[target], ws.forkStreamEvent, 0); CUERR;
                 cudaStreamWaitEvent(ws.dblBufferStreams[source], ws.forkStreamEvent, 0); CUERR;
-                cudaEventRecord(ws.forkStreamEvent, ws.stream1); CUERR;
-                cudaStreamWaitEvent(ws.dblBufferStreams[target], ws.forkStreamEvent, 0); CUERR;
-                cudaStreamWaitEvent(ws.dblBufferStreams[source], ws.forkStreamEvent, 0); CUERR;
-
             }
         }
 
@@ -5703,6 +5623,8 @@ int main(int argc, char* argv[])
         cout << "Usage:\n  " << argv[0] << " <FASTA filename 1> [dbPrefix]\n";
         return 0;
     }
+
+    constexpr size_t maxTempBytes = 512 * 1024 * 1024;
 
     std::vector<int> deviceIds;
     {
@@ -5987,6 +5909,7 @@ int main(int argc, char* argv[])
     auto createGpuWorkingSet = [&](
         int deviceId, 
         GpuWorkingSet& ws, 
+        size_t maxTempBytes,
         size_t max_batch_char_bytes, 
         size_t max_batch_offset_bytes,
         size_t max_batch_num_sequences,
@@ -5997,6 +5920,7 @@ int main(int argc, char* argv[])
         cudaSetDevice(deviceId); CUERR;
 
         ws.deviceId = deviceId;
+        ws.maxTempBytes = maxTempBytes;
         ws.max_batch_num_sequences = max_batch_num_sequences;
 
         cudaMalloc(&ws.devChars, charBytes); CUERR
@@ -6016,9 +5940,7 @@ int main(int argc, char* argv[])
 
         cudaMalloc(&ws.devAlignmentScoresFloat, sizeof(float)*num_sequences);
 
-        std::cout << "ws allocate " << sizeof(half2)*(tempHEfactor*MAX_long_seq)*max_length << " for H E\n";
-        cudaMalloc(&ws.devTempHcol2, sizeof(half2)*(tempHEfactor*MAX_long_seq)*max_length);
-        cudaMalloc(&ws.devTempEcol2, sizeof(half2)*(tempHEfactor*MAX_long_seq)*max_length);
+        cudaMalloc(&ws.d_tempStorageHE, ws.maxTempBytes);
 
         
         cudaMalloc(&ws.d_numSelectedPerPartition, sizeof(int) * numLengthPartitions);
@@ -6067,12 +5989,11 @@ int main(int argc, char* argv[])
             cudaStreamDestroy(ws.dblBufferStreams[i]); CUERR;
         }
 
-        cudaFree(ws.devAlignmentScoresFloat);
-        cudaFree(ws.devTempHcol2);
-        cudaFree(ws.devTempEcol2);
+        cudaFree(ws.devAlignmentScoresFloat); CUERR;
+        cudaFree(ws.d_tempStorageHE); CUERR;
         
-        cudaFree(ws.d_numSelectedPerPartition);
-        cudaFreeHost(ws.h_numSelectedPerPartition);
+        cudaFree(ws.d_numSelectedPerPartition); CUERR;
+        cudaFreeHost(ws.h_numSelectedPerPartition); CUERR;
         cudaFree(ws.d_all_selectedPositions); CUERR
 
         cudaFree(ws.d_overflow_positions); CUERR
@@ -6138,10 +6059,10 @@ int main(int argc, char* argv[])
         createGpuWorkingSet(
             deviceIds[i], 
             workingSets[i],
+            maxTempBytes,
             max_batch_char_bytes, 
             max_batch_offset_bytes,
             max_batch_num_sequences,
-            //dbPartitionsForGpus[i].numSequences()
             numSequencesPerGpu_total[i]
         );
 
