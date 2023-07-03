@@ -4925,8 +4925,7 @@ struct GpuWorkingSet{
     void* d_tempStorageHE;
 
     float* devAlignmentScoresFloat = nullptr;
-    int* d_numSelectedPerPartition;
-    size_t* d_all_selectedPositions = nullptr;
+    size_t* d_selectedPositions = nullptr;
     size_t* d_overflow_positions = nullptr;
     int* d_overflow_number = nullptr;
     int* h_overflow_number;
@@ -5017,8 +5016,6 @@ void processQueryOnGpu(
     bool isFirstQuery,
     int query_num,
     int64_t avg_length_2,
-    float tempHEfactor,
-    unsigned int MAX_long_seq,
     int select_datatype,
     int select_dpx,
     bool useExtraThreadForBatchTransfer,
@@ -5230,14 +5227,16 @@ void processQueryOnGpu(
             cudaMemsetAsync(ws.d_overflow_number,0,sizeof(int), workStream);
 
             //all sequences of the batch belong to the same length partition. use a single index array with counts from 0 to N-1
-            auto d_all_selectedPositions = &(ws.d_all_selectedPositions[0*ws.max_batch_num_sequences]);
-            thrust::sequence(
-                thrust::cuda::par_nosync.on(workStream),
-                d_all_selectedPositions,
-                d_all_selectedPositions + currentPartition.numSequences(),
-                0
-            );
-            // auto d_all_selectedPositions = thrust::make_counting_iterator<size_t>(0);
+            auto d_selectedPositions = ws.d_selectedPositions;
+            
+            //&(ws.d_selectedPositions[0*ws.max_batch_num_sequences]);
+            // thrust::sequence(
+            //     thrust::cuda::par_nosync.on(workStream),
+            //     d_selectedPositions,
+            //     d_selectedPositions + currentPartition.numSequences(),
+            //     0
+            // );
+            // auto d_selectedPositions = thrust::make_counting_iterator<size_t>(0);
 
 
             if (!select_dpx) {
@@ -5251,19 +5250,19 @@ void processQueryOnGpu(
 
                 auto runAlignmentKernels = [&](float* d_scores, size_t* d_overflow_positions, int* d_overflow_number){
 
-                    if (ws.h_numSelectedPerPartition[0]){NW_local_affine_Protein_single_pass_half2<4, 16><<<(ws.h_numSelectedPerPartition[0]+255)/(2*8*4*4)*2, 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[0], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[1]){NW_local_affine_Protein_single_pass_half2<8, 16><<<(ws.h_numSelectedPerPartition[1]+127)/(2*8*4*2)*2, 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[1], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[2]){NW_local_affine_Protein_single_pass_half2<8, 24><<<(ws.h_numSelectedPerPartition[2]+63)/(2*8*4), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[2], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[3]){NW_local_affine_Protein_single_pass_half2<16, 16><<<(ws.h_numSelectedPerPartition[3]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[3], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[4]){NW_local_affine_Protein_single_pass_half2<16, 20><<<(ws.h_numSelectedPerPartition[4]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[4], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[5]){NW_local_affine_Protein_single_pass_half2<16, 24><<<(ws.h_numSelectedPerPartition[5]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[5], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[6]){NW_local_affine_Protein_single_pass_half2<16, 28><<<(ws.h_numSelectedPerPartition[6]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[6], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[7]){NW_local_affine_Protein_single_pass_half2<32, 16><<<(ws.h_numSelectedPerPartition[7]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[7], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[8]){NW_local_affine_Protein_single_pass_half2<32, 18><<<(ws.h_numSelectedPerPartition[8]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[8], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[9]){NW_local_affine_Protein_single_pass_half2<32, 20><<<(ws.h_numSelectedPerPartition[9]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[9], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[10]){NW_local_affine_Protein_single_pass_half2<32, 24><<<(ws.h_numSelectedPerPartition[10]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[10], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[11]){NW_local_affine_Protein_single_pass_half2<32, 28><<<(ws.h_numSelectedPerPartition[11]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[11], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                    if (ws.h_numSelectedPerPartition[12]){NW_local_affine_Protein_single_pass_half2<32, 32><<<(ws.h_numSelectedPerPartition[12]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_all_selectedPositions, ws.h_numSelectedPerPartition[12], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[0]){NW_local_affine_Protein_single_pass_half2<4, 16><<<(ws.h_numSelectedPerPartition[0]+255)/(2*8*4*4)*2, 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[0], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[1]){NW_local_affine_Protein_single_pass_half2<8, 16><<<(ws.h_numSelectedPerPartition[1]+127)/(2*8*4*2)*2, 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[1], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[2]){NW_local_affine_Protein_single_pass_half2<8, 24><<<(ws.h_numSelectedPerPartition[2]+63)/(2*8*4), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[2], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[3]){NW_local_affine_Protein_single_pass_half2<16, 16><<<(ws.h_numSelectedPerPartition[3]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[3], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[4]){NW_local_affine_Protein_single_pass_half2<16, 20><<<(ws.h_numSelectedPerPartition[4]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[4], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[5]){NW_local_affine_Protein_single_pass_half2<16, 24><<<(ws.h_numSelectedPerPartition[5]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[5], d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[6]){NW_local_affine_Protein_single_pass_half2<16, 28><<<(ws.h_numSelectedPerPartition[6]+31)/(2*8*2), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[6], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[7]){NW_local_affine_Protein_single_pass_half2<32, 16><<<(ws.h_numSelectedPerPartition[7]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[7], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[8]){NW_local_affine_Protein_single_pass_half2<32, 18><<<(ws.h_numSelectedPerPartition[8]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[8], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[9]){NW_local_affine_Protein_single_pass_half2<32, 20><<<(ws.h_numSelectedPerPartition[9]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[9], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[10]){NW_local_affine_Protein_single_pass_half2<32, 24><<<(ws.h_numSelectedPerPartition[10]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[10], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[11]){NW_local_affine_Protein_single_pass_half2<32, 28><<<(ws.h_numSelectedPerPartition[11]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[11], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                    if (ws.h_numSelectedPerPartition[12]){NW_local_affine_Protein_single_pass_half2<32, 32><<<(ws.h_numSelectedPerPartition[12]+15)/(2*8), 32*8, 0, workStream>>>(ws.devChars_2[source], d_scores, ws.devOffsets_2[source] , ws.devLengths_2[source], d_selectedPositions, ws.h_numSelectedPerPartition[12], d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
 
                     if (ws.h_numSelectedPerPartition[13]){
                         constexpr int blocksize = 32 * 8;
@@ -5300,7 +5299,7 @@ void processQueryOnGpu(
                                 d_tempEcol2, 
                                 ws.devOffsets_2[source], 
                                 ws.devLengths_2[source], 
-                                d_all_selectedPositions + begin, 
+                                d_selectedPositions + begin, 
                                 num, 
                                 d_overflow_positions, 
                                 d_overflow_number, 
@@ -5335,7 +5334,7 @@ void processQueryOnGpu(
                                 d_tempEcol2, 
                                 ws.devOffsets_2[source], 
                                 ws.devLengths_2[source], 
-                                d_all_selectedPositions + begin, 
+                                d_selectedPositions + begin, 
                                 queryLength, 
                                 gop, 
                                 gex
@@ -5465,7 +5464,7 @@ void processQueryOnGpu(
                             d_tempEcol2, 
                             ws.devOffsets_2[source], 
                             ws.devLengths_2[source], 
-                            d_all_selectedPositions + begin, 
+                            d_selectedPositions + begin, 
                             num, 
                             d_overflow_positions1.data().get(), 
                             d_overflow_number1.data().get(), 
@@ -5495,7 +5494,7 @@ void processQueryOnGpu(
                                 d_tempEcol2, 
                                 ws.devOffsets_2[source], 
                                 ws.devLengths_2[source], 
-                                d_all_selectedPositions + begin, 
+                                d_selectedPositions + begin, 
                                 num, 
                                 d_overflow_positions2.data().get(), 
                                 d_overflow_number2.data().get(), 
@@ -5733,12 +5732,10 @@ int main(int argc, char* argv[])
 
 
     uint MAX_Num_Seq = 1000000;
-	uint MAX_long_seq = 100000; // MAX_Num_Seq/10;
 	uint batch_size = 200000;
     if (maximumNumberOfSequencesInDBChunk <= MAX_Num_Seq) {
         batch_size = maximumNumberOfSequencesInDBChunk;
-	 	MAX_long_seq = MAX_Num_Seq/10;	}
-	else {
+    }else {
 	 	batch_size = MAX_Num_Seq;
 	}
 
@@ -5915,9 +5912,6 @@ int main(int argc, char* argv[])
 
 
 
-    float tempHEfactor;
-    if (lengths[0] < 2000) tempHEfactor = 1.1; else tempHEfactor = 1.5;
-
 
 
     auto createGpuWorkingSet = [&](
@@ -5958,13 +5952,16 @@ int main(int argc, char* argv[])
         cudaMalloc(&ws.d_tempStorageHE, ws.maxTempBytes);
 
         
-        cudaMalloc(&ws.d_numSelectedPerPartition, sizeof(int) * numLengthPartitions);
-        cudaMemset(ws.d_numSelectedPerPartition, 0, sizeof(int) * numLengthPartitions);
         cudaMallocHost(&ws.h_numSelectedPerPartition, sizeof(int) * numLengthPartitions);
+        cudaMalloc(&ws.d_selectedPositions, sizeof(size_t)*(max_batch_num_sequences)); CUERR
+        thrust::sequence(
+            thrust::device,
+            ws.d_selectedPositions,
+            ws.d_selectedPositions + max_batch_num_sequences,
+            size_t(0)
+        );
 
-        cudaMalloc(&ws.d_all_selectedPositions, sizeof(size_t)*(numLengthPartitions*max_batch_num_sequences)); CUERR
-
-        cudaMalloc(&ws.d_overflow_positions, MAX_long_seq * sizeof(size_t)); CUERR
+        cudaMalloc(&ws.d_overflow_positions, max_batch_num_sequences * sizeof(size_t)); CUERR
         cudaMalloc(&ws.d_overflow_number, 1 * sizeof(int)); CUERR
         cudaMallocHost(&ws.h_overflow_number, 2 * sizeof(int)); CUERR
 
@@ -6008,9 +6005,8 @@ int main(int argc, char* argv[])
         cudaFree(ws.devAlignmentScoresFloat); CUERR;
         cudaFree(ws.d_tempStorageHE); CUERR;
         
-        cudaFree(ws.d_numSelectedPerPartition); CUERR;
         cudaFreeHost(ws.h_numSelectedPerPartition); CUERR;
-        cudaFree(ws.d_all_selectedPositions); CUERR
+        cudaFree(ws.d_selectedPositions); CUERR
 
         cudaFree(ws.d_overflow_positions); CUERR
         cudaFree(ws.d_overflow_number); CUERR
@@ -6176,8 +6172,6 @@ int main(int argc, char* argv[])
                     (query_num == FIRST_QUERY_NUM),
                     query_num,
                     avg_length_2,
-                    tempHEfactor,
-                    MAX_long_seq,
                     select_datatype,
                     select_dpx,
                     useExtraThreadForBatchTransfer,
