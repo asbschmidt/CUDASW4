@@ -6,7 +6,7 @@ WARNINGS     = -Xcompiler="-Wall -Wextra"
 # NVCC_FLAGS   = -arch=sm_61 -lineinfo --expt-relaxed-constexpr -rdc=true
 NVCC_FLAGS   = -arch=sm_80 -lineinfo --expt-relaxed-constexpr -rdc=true --extended-lambda -Xcompiler="-fopenmp" #-Xptxas "-v"
 #LDFLAGS      = -Xcompiler="-pthread -s"  $(NVCC_FLAGS) -lz
-LDFLAGS      = -Xcompiler="-pthread"  $(NVCC_FLAGS)
+LDFLAGS      = -Xcompiler="-pthread"  $(NVCC_FLAGS) -lz
 COMPILER     = nvcc
 ARTIFACT     = align
 

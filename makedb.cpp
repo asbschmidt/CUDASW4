@@ -28,7 +28,8 @@
 template<class Func>
 void forEachSequenceBatchInFile(const std::string& inputfilename, Func callback){
     constexpr int ALIGN = 4;
-    constexpr size_t maxCharactersInBatch = 50'000'000'000ull;
+    //constexpr size_t maxCharactersInBatch = 50'000'000'000ull;
+    constexpr size_t maxCharactersInBatch = std::numeric_limits<size_t>::max();
 
     auto resetBatch = [](auto& batch){
         batch.chars.clear();
