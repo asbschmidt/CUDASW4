@@ -4938,6 +4938,132 @@ struct DoMinus_size_t{
     }
 };
 
+struct DeviceBatchCopyToPinnedPlan{
+    struct CopyRange{
+        int currentCopyPartition;
+        int currentCopySeqInPartition;
+        int numToCopy;
+    };
+    size_t usedBytes = 0;
+    size_t usedSeq = 0;
+    std::vector<int> h_partitionIds;
+    std::vector<int> h_numPerPartition;
+    std::vector<CopyRange> copyRanges;
+};
+
+std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlan(
+    const std::vector<DBdataView>& dbPartitions,
+    const std::vector<int>& lengthPartitionIds,
+    size_t MAX_CHARDATA_BYTES,
+    size_t MAX_SEQ
+){
+    std::vector<DeviceBatchCopyToPinnedPlan> result;
+
+    size_t currentCopyPartition = 0;
+    size_t currentCopySeqInPartition = 0;
+
+    size_t processedSequences = 0;
+    while(currentCopyPartition < dbPartitions.size()){
+        
+        size_t usedBytes = 0;
+        size_t usedSeq = 0;
+
+        DeviceBatchCopyToPinnedPlan plan;
+
+        while(currentCopyPartition < dbPartitions.size()){
+            //figure out how many sequences to copy to pinned
+            size_t remainingBytes = MAX_CHARDATA_BYTES - usedBytes;
+            
+            auto dboffsetsBegin = dbPartitions[currentCopyPartition].offsets() + currentCopySeqInPartition;
+            auto dboffsetsEnd = dbPartitions[currentCopyPartition].offsets() + dbPartitions[currentCopyPartition].numSequences() + 1;
+            
+            auto searchFor = dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition] + remainingBytes + 1; // +1 because remainingBytes is inclusive
+            auto it = std::lower_bound(
+                dboffsetsBegin,
+                dboffsetsEnd,
+                searchFor
+            );
+
+            size_t numToCopyByBytes = 0;
+            if(it != dboffsetsBegin){
+                numToCopyByBytes = std::distance(dboffsetsBegin, it) - 1;
+            }
+            if(numToCopyByBytes == 0 && currentCopySeqInPartition == 0){
+                std::cout << "Warning. copy buffer size to small. skipped a db portion\n";
+                break;
+            }
+            
+            size_t remainingSeq = MAX_SEQ - usedSeq;            
+            size_t numToCopyBySeq = std::min(dbPartitions[currentCopyPartition].numSequences() - currentCopySeqInPartition, remainingSeq);
+            size_t numToCopy = std::min(numToCopyByBytes,numToCopyBySeq);
+
+            if(numToCopy > 0){
+                DeviceBatchCopyToPinnedPlan::CopyRange copyRange;
+                copyRange.currentCopyPartition = currentCopyPartition;
+                copyRange.currentCopySeqInPartition = currentCopySeqInPartition;
+                copyRange.numToCopy = numToCopy;
+                plan.copyRanges.push_back(copyRange);
+
+                // auto end = std::copy(
+                //     dbPartitions[currentCopyPartition].chars() + dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition],
+                //     dbPartitions[currentCopyPartition].chars() + dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition+numToCopy],
+                //     h_chardata_vec[whichBuffer].data().get() + usedBytes
+                // );
+                // std::copy(
+                //     dbPartitions[currentCopyPartition].lengths() + currentCopySeqInPartition,
+                //     dbPartitions[currentCopyPartition].lengths() + currentCopySeqInPartition+numToCopy,
+                //     h_lengthdata_vec[whichBuffer].data().get() + usedSeq
+                // );
+                // std::transform(
+                //     dboffsetsBegin,
+                //     dboffsetsBegin + numToCopy,
+                //     h_offsetdata_vec[whichBuffer].data().get() + usedSeq,
+                //     [&](size_t off){
+                //         return off - dboffsetsBegin[0] + usedBytes;
+                //     }
+                // );
+                if(usedSeq == 0){
+                    plan.h_partitionIds.push_back(lengthPartitionIds[currentCopyPartition]);
+                    plan.h_numPerPartition.push_back(numToCopy);
+                }else{
+                    //if is same length partition as previous copy 
+                    if(plan.h_partitionIds.back() == lengthPartitionIds[currentCopyPartition]){
+                        plan.h_numPerPartition.back() += numToCopy;
+                    }else{
+                        //new length partition
+                        plan.h_partitionIds.push_back(lengthPartitionIds[currentCopyPartition]);
+                        plan.h_numPerPartition.push_back(numToCopy);
+                    }
+                }
+                usedBytes += (dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition+numToCopy] 
+                    - dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition]);
+                usedSeq += numToCopy;
+
+                currentCopySeqInPartition += numToCopy;
+                if(currentCopySeqInPartition == dbPartitions[currentCopyPartition].numSequences()){
+                    currentCopySeqInPartition = 0;
+                    currentCopyPartition++;
+                }
+            }else{
+                break;
+            }
+        }
+
+        plan.usedBytes = usedBytes;
+        plan.usedSeq = usedSeq;
+
+        
+        if(usedSeq == 0 && currentCopyPartition < dbPartitions.size()){
+            std::cout << "Warning. copy buffer size to small. skipped a db portion. stop\n";
+            break;
+        }
+
+        result.push_back(plan);
+    }
+
+    return result;
+}
+
 void processQueryOnGpu(
     GpuWorkingSet& ws,
     const std::vector<DBdataView>& dbPartitions,
@@ -5119,306 +5245,556 @@ void processQueryOnGpu(
         std::vector<thrust::device_vector<size_t>>& d_offsetdata_vec = ws.d_offsetdata_vec;
         std::vector<CudaStream>& copyStreams = ws.copyStreams;
 
+        std::vector<DeviceBatchCopyToPinnedPlan> batchPlan = computeDbCopyPlan(
+            dbPartitions,
+            lengthPartitionIds,
+            ws.MAX_CHARDATA_BYTES,
+            ws.MAX_SEQ
+        );
+        std::cout << "Will process " << batchPlan.size() << " batches\n";
 
 
-        std::vector<std::vector<int>> h_partitionIds_vec(numCopyBuffers);
-        std::vector<std::vector<int>> h_numPerPartition_vec(numCopyBuffers);
+        #if 1
 
-        size_t currentCopyPartition = 0;
-        size_t currentCopySeqInPartition = 0;
-        int& whichBuffer = ws.copyBufferIndex;
-        size_t processedSequences = 0;
-        while(currentCopyPartition < dbPartitions.size()){
-            whichBuffer = (whichBuffer+1) % numCopyBuffers;
-            cudaStream_t copyToPinnedStream = ws.hostFuncStream;
-            cudaStream_t H2DcopyStream = copyStreams[whichBuffer];
-            
-            h_partitionIds_vec[whichBuffer].clear();
-            h_numPerPartition_vec[whichBuffer].clear();
-            size_t usedBytes = 0;
-            size_t usedSeq = 0;
-
-            //can only overwrite device buffer if it is no longer in use on workstream
-            cudaStreamWaitEvent(H2DcopyStream, ws.deviceBufferEvents[whichBuffer], 0); CUERR;
-            //synchronize to avoid overwriting pinned buffer of target before it has been fully transferred
-            cudaEventSynchronize(ws.pinnedBufferEvents[whichBuffer]); CUERR;
-            while(currentCopyPartition < dbPartitions.size()){
-                //figure out how many sequences to copy to pinned
-                size_t remainingBytes = MAX_CHARDATA_BYTES - usedBytes;
+            int& whichBuffer = ws.copyBufferIndex;
+            size_t processedSequences = 0;
+            for(const auto& plan : batchPlan){
+                whichBuffer = (whichBuffer+1) % numCopyBuffers;
+                cudaStream_t copyToPinnedStream = ws.hostFuncStream;
+                cudaStream_t H2DcopyStream = copyStreams[whichBuffer];
                 
-                auto dboffsetsBegin = dbPartitions[currentCopyPartition].offsets() + currentCopySeqInPartition;
-                auto dboffsetsEnd = dbPartitions[currentCopyPartition].offsets() + dbPartitions[currentCopyPartition].numSequences() + 1;
-                
-                auto searchFor = dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition] + remainingBytes + 1; // +1 because remainingBytes is inclusive
-                auto it = std::lower_bound(
-                    dboffsetsBegin,
-                    dboffsetsEnd,
-                    searchFor
-                );
+                //can only overwrite device buffer if it is no longer in use on workstream
+                cudaStreamWaitEvent(H2DcopyStream, ws.deviceBufferEvents[whichBuffer], 0); CUERR;
+                //synchronize to avoid overwriting pinned buffer of target before it has been fully transferred
+                cudaEventSynchronize(ws.pinnedBufferEvents[whichBuffer]); CUERR;
 
-                size_t numToCopyByBytes = 0;
-                if(it != dboffsetsBegin){
-                    numToCopyByBytes = std::distance(dboffsetsBegin, it) - 1;
-                }
-                if(numToCopyByBytes == 0 && currentCopySeqInPartition == 0){
-                    std::cout << "Warning. copy buffer size to small. skipped a db portion\n";
-                    break;
-                }
-                
-                size_t remainingSeq = MAX_SEQ - usedSeq;
-                
-                size_t numToCopyBySeq = std::min(dbPartitions[currentCopyPartition].numSequences() - currentCopySeqInPartition, remainingSeq);
-                size_t numToCopy = std::min(numToCopyByBytes,numToCopyBySeq);
-
-                if(numToCopy > 0){
+                size_t usedBytes = 0;
+                size_t usedSeq = 0;
+                for(const auto& copyRange : plan.copyRanges){
+                    const auto& dbPartition = dbPartitions[copyRange.currentCopyPartition];
+                    const auto& firstSeq = copyRange.currentCopySeqInPartition;
+                    const auto& numToCopy = copyRange.numToCopy;
 
                     auto end = std::copy(
-                        dbPartitions[currentCopyPartition].chars() + dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition],
-                        dbPartitions[currentCopyPartition].chars() + dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition+numToCopy],
+                        dbPartition.chars() + dbPartition.offsets()[firstSeq],
+                        dbPartition.chars() + dbPartition.offsets()[firstSeq + numToCopy],
                         h_chardata_vec[whichBuffer].data().get() + usedBytes
                     );
                     std::copy(
-                        dbPartitions[currentCopyPartition].lengths() + currentCopySeqInPartition,
-                        dbPartitions[currentCopyPartition].lengths() + currentCopySeqInPartition+numToCopy,
+                        dbPartition.lengths() + firstSeq,
+                        dbPartition.lengths() + firstSeq+numToCopy,
                         h_lengthdata_vec[whichBuffer].data().get() + usedSeq
                     );
                     std::transform(
-                        dboffsetsBegin,
-                        dboffsetsBegin + numToCopy,
+                        dbPartition.offsets() + firstSeq,
+                        dbPartition.offsets() + firstSeq + numToCopy,
                         h_offsetdata_vec[whichBuffer].data().get() + usedSeq,
                         [&](size_t off){
-                            return off - dboffsetsBegin[0] + usedBytes;
+                            return off - dbPartition.offsets()[firstSeq] + usedBytes;
                         }
                     );
-                    if(usedSeq == 0){
-                        h_partitionIds_vec[whichBuffer].push_back(lengthPartitionIds[currentCopyPartition]);
-                        h_numPerPartition_vec[whichBuffer].push_back(numToCopy);
-                    }else{
-                        //if is same length partition as previous copy 
-                        if(h_partitionIds_vec[whichBuffer].back() == lengthPartitionIds[currentCopyPartition]){
-                            h_numPerPartition_vec[whichBuffer].back() += numToCopy;
-                        }else{
-                            //new length partition
-                            h_partitionIds_vec[whichBuffer].push_back(lengthPartitionIds[currentCopyPartition]);
-                            h_numPerPartition_vec[whichBuffer].push_back(numToCopy);
-                        }
-                    }
                     usedBytes += std::distance(h_chardata_vec[whichBuffer].data().get() + usedBytes, end);
                     usedSeq += numToCopy;
+                }
+                
+                cudaMemcpyAsync(
+                    d_chardata_vec[whichBuffer].data().get(),
+                    h_chardata_vec[whichBuffer].data().get(),
+                    plan.usedBytes,
+                    H2D,
+                    H2DcopyStream
+                ); CUERR;
+                cudaMemcpyAsync(
+                    d_lengthdata_vec[whichBuffer].data().get(),
+                    h_lengthdata_vec[whichBuffer].data().get(),
+                    sizeof(size_t) * plan.usedSeq,
+                    H2D,
+                    H2DcopyStream
+                ); CUERR;
+                cudaMemcpyAsync(
+                    d_offsetdata_vec[whichBuffer].data().get(),
+                    h_offsetdata_vec[whichBuffer].data().get(),
+                    sizeof(size_t) * plan.usedSeq,
+                    H2D,
+                    H2DcopyStream
+                ); CUERR;
+                cudaEventRecord(ws.pinnedBufferEvents[whichBuffer], H2DcopyStream); CUERR;
 
-                    currentCopySeqInPartition += numToCopy;
-                    if(currentCopySeqInPartition == dbPartitions[currentCopyPartition].numSequences()){
-                        currentCopySeqInPartition = 0;
-                        currentCopyPartition++;
+                const char* const inputChars = d_chardata_vec[whichBuffer].data().get();
+                const size_t* const inputOffsets = d_offsetdata_vec[whichBuffer].data().get();
+                const size_t* const inputLengths = d_lengthdata_vec[whichBuffer].data().get();
+                int* const d_overflow_number = ws.d_new_overflow_number.data().get() + whichBuffer;
+                size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[whichBuffer].data().get();
+                cudaMemsetAsync(d_overflow_number, 0, sizeof(int), H2DcopyStream);
+
+                //all data is ready for alignments. create dependencies for work streams
+                cudaEventRecord(ws.forkStreamEvent, H2DcopyStream); CUERR;
+                cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.forkStreamEvent, 0); CUERR;
+                for(auto& stream : ws.workStreamsWithoutTemp_vec[0]){
+                    cudaStreamWaitEvent(stream, ws.forkStreamEvent, 0); CUERR;
+                }
+                //wait for previous batch to finish
+                cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.deviceBufferEvents[1-whichBuffer], 0); CUERR;
+                for(auto& stream : ws.workStreamsWithoutTemp_vec[0]){
+                    cudaStreamWaitEvent(stream, ws.deviceBufferEvents[1-whichBuffer], 0); CUERR;
+                }
+
+
+
+
+
+
+                const float gop = -11.0;
+                const float gex = -1.0;
+
+                auto runAlignmentKernels = [&](float* d_scores, size_t* d_overflow_positions, int* d_overflow_number){
+                    auto nextWorkStreamNoTemp = [&](){
+                        const int index = 0; //whichBuffer;
+                        ws.workstreamIndex_vec[index] = (ws.workstreamIndex_vec[index] + 1) % ws.numWorkStreamsWithoutTemp;
+                        return (cudaStream_t)ws.workStreamsWithoutTemp_vec[index][ws.workstreamIndex_vec[index]];
+                    };
+                    size_t exclPs = 0;
+                    for(int lp = 0; lp < int(plan.h_partitionIds.size()); lp++){
+                        const int partId = plan.h_partitionIds[lp];
+                        const int numSeq = plan.h_numPerPartition[lp];
+                        
+                        const size_t* const d_selectedPositions = ws.d_selectedPositionsNew.data().get() + exclPs;
+
+
+                        if (partId == 0){NW_local_affine_Protein_single_pass_half2<4, 16><<<(numSeq+255)/(2*8*4*4), 32*8*2, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                        if (partId == 1){NW_local_affine_Protein_single_pass_half2<8, 16><<<(numSeq+127)/(2*8*4*2), 32*8*2, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                        if (partId == 2){NW_local_affine_Protein_single_pass_half2<8, 24><<<(numSeq+63)/(2*8*4), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                        if (partId == 3){NW_local_affine_Protein_single_pass_half2<16, 16><<<(numSeq+31)/(2*8*2), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                        if (partId == 4){NW_local_affine_Protein_single_pass_half2<16, 20><<<(numSeq+31)/(2*8*2), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                        if (partId == 5){NW_local_affine_Protein_single_pass_half2<16, 24><<<(numSeq+31)/(2*8*2), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                        if (partId == 6){NW_local_affine_Protein_single_pass_half2<16, 28><<<(numSeq+31)/(2*8*2), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                        if (partId == 7){NW_local_affine_Protein_single_pass_half2<32, 16><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                        if (partId == 8){NW_local_affine_Protein_single_pass_half2<32, 18><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                        if (partId == 9){NW_local_affine_Protein_single_pass_half2<32, 20><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                        if (partId == 10){NW_local_affine_Protein_single_pass_half2<32, 24><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                        if (partId == 11){NW_local_affine_Protein_single_pass_half2<32, 28><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                        if (partId == 12){NW_local_affine_Protein_single_pass_half2<32, 32><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+
+                        if (partId == 13){
+                            constexpr int blocksize = 32 * 8;
+                            constexpr int groupsize = 32;
+                            constexpr int groupsPerBlock = blocksize / groupsize;
+                            constexpr int alignmentsPerGroup = 2;
+                            constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
+                            
+                            const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * alignmentsPerBlock * queryLength;
+
+                            const size_t maxNumBlocks = ws.maxTempBytes / (tempBytesPerBlockPerBuffer * 2);
+                            const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(numSeq));
+
+                            const size_t numBlocksPerIteration = SDIV(maxSubjectsPerIteration, alignmentsPerBlock);
+                            const size_t requiredTempBytes = tempBytesPerBlockPerBuffer * 2 * numBlocksPerIteration;
+
+                            __half2* d_temp = (__half2*)ws.d_tempStorageHE;
+                            __half2* d_tempHcol2 = d_temp;
+                            __half2* d_tempEcol2 = (__half2*)(((char*)d_tempHcol2) + requiredTempBytes / 2);
+
+                            const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
+
+                            for(int iter = 0; iter < numIters; iter++){
+                                const size_t begin = iter * maxSubjectsPerIteration;
+                                const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
+                                const size_t num = end - begin;                      
+
+                                cudaMemsetAsync(d_temp, 0, requiredTempBytes, ws.workStreamForTempUsage); CUERR;
+
+                                NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
+                                    inputChars, 
+                                    d_scores, 
+                                    d_tempHcol2, 
+                                    d_tempEcol2, 
+                                    inputOffsets, 
+                                    inputLengths, 
+                                    d_selectedPositions + begin, 
+                                    num, 
+                                    d_overflow_positions, 
+                                    d_overflow_number, 
+                                    1, 
+                                    queryLength, 
+                                    gop, 
+                                    gex
+                                ); CUERR
+                            }
+                        }
+
+                        if (partId == 14){
+                            const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
+                            const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
+
+                            short2* d_temp = (short2*)ws.d_tempStorageHE;
+                            short2* d_tempHcol2 = d_temp;
+                            short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+
+                            const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
+                            for(int iter = 0; iter < numIters; iter++){
+                                const size_t begin = iter * maxSubjectsPerIteration;
+                                const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
+                                const size_t num = end - begin;
+
+                                cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, ws.workStreamForTempUsage); CUERR;
+
+                                NW_local_affine_read4_float_query_Protein<32, 12><<<num, 32, 0, ws.workStreamForTempUsage>>>(
+                                    inputChars, 
+                                    d_scores, 
+                                    d_tempHcol2, 
+                                    d_tempEcol2, 
+                                    inputOffsets, 
+                                    inputLengths, 
+                                    d_selectedPositions + begin, 
+                                    queryLength, 
+                                    gop, 
+                                    gex
+                                ); CUERR 
+                            }
+                        }
+
+                        exclPs += numSeq;
                     }
-                }else{
+                };
+
+                
+
+                runAlignmentKernels(&(ws.devAlignmentScoresFloat[processedSequences]), d_overflow_positions, d_overflow_number);
+
+
+                //alignments are done in workstreams. now, join all workstreams into workStreamForTempUsage to process overflow alignments
+                for(auto& stream : ws.workStreamsWithoutTemp_vec[0]){
+                    cudaEventRecord(ws.forkStreamEvent, stream); CUERR;
+                    cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.forkStreamEvent, 0); CUERR;    
+                }
+
+                {
+                    short2* d_temp = (short2*)ws.d_tempStorageHE;
+
+                    launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32, 12><<<1,1,0, ws.workStreamForTempUsage>>>(
+                        d_overflow_number,
+                        d_temp, 
+                        ws.maxTempBytes,
+                        inputChars, 
+                        &(ws.devAlignmentScoresFloat[processedSequences]), 
+                        inputOffsets, 
+                        inputLengths, 
+                        d_overflow_positions, 
+                        queryLength, gop, gex
+                    ); CUERR
+                }
+
+                //after processing overflow alignments, the batch is done and its data can be resused
+                cudaEventRecord(ws.deviceBufferEvents[whichBuffer], ws.workStreamForTempUsage); CUERR;
+
+                //let other workstreams depend on temp usage stream
+                for(auto& stream : ws.workStreamsWithoutTemp_vec[0]){
+                    cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.deviceBufferEvents[whichBuffer], 0); CUERR;    
+                }
+
+                processedSequences += usedSeq;
+            }
+        #else
+                        std::vector<std::vector<int>> h_partitionIds_vec(numCopyBuffers);
+            std::vector<std::vector<int>> h_numPerPartition_vec(numCopyBuffers);
+
+            size_t currentCopyPartition = 0;
+            size_t currentCopySeqInPartition = 0;
+            int& whichBuffer = ws.copyBufferIndex;
+            size_t processedSequences = 0;
+            while(currentCopyPartition < dbPartitions.size()){
+                whichBuffer = (whichBuffer+1) % numCopyBuffers;
+                cudaStream_t copyToPinnedStream = ws.hostFuncStream;
+                cudaStream_t H2DcopyStream = copyStreams[whichBuffer];
+                
+                h_partitionIds_vec[whichBuffer].clear();
+                h_numPerPartition_vec[whichBuffer].clear();
+                size_t usedBytes = 0;
+                size_t usedSeq = 0;
+
+                //can only overwrite device buffer if it is no longer in use on workstream
+                cudaStreamWaitEvent(H2DcopyStream, ws.deviceBufferEvents[whichBuffer], 0); CUERR;
+                //synchronize to avoid overwriting pinned buffer of target before it has been fully transferred
+                cudaEventSynchronize(ws.pinnedBufferEvents[whichBuffer]); CUERR;
+                while(currentCopyPartition < dbPartitions.size()){
+                    //figure out how many sequences to copy to pinned
+                    size_t remainingBytes = MAX_CHARDATA_BYTES - usedBytes;
+                    
+                    auto dboffsetsBegin = dbPartitions[currentCopyPartition].offsets() + currentCopySeqInPartition;
+                    auto dboffsetsEnd = dbPartitions[currentCopyPartition].offsets() + dbPartitions[currentCopyPartition].numSequences() + 1;
+                    
+                    auto searchFor = dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition] + remainingBytes + 1; // +1 because remainingBytes is inclusive
+                    auto it = std::lower_bound(
+                        dboffsetsBegin,
+                        dboffsetsEnd,
+                        searchFor
+                    );
+
+                    size_t numToCopyByBytes = 0;
+                    if(it != dboffsetsBegin){
+                        numToCopyByBytes = std::distance(dboffsetsBegin, it) - 1;
+                    }
+                    if(numToCopyByBytes == 0 && currentCopySeqInPartition == 0){
+                        std::cout << "Warning. copy buffer size to small. skipped a db portion\n";
+                        break;
+                    }
+                    
+                    size_t remainingSeq = MAX_SEQ - usedSeq;
+                    
+                    size_t numToCopyBySeq = std::min(dbPartitions[currentCopyPartition].numSequences() - currentCopySeqInPartition, remainingSeq);
+                    size_t numToCopy = std::min(numToCopyByBytes,numToCopyBySeq);
+
+                    if(numToCopy > 0){
+
+                        auto end = std::copy(
+                            dbPartitions[currentCopyPartition].chars() + dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition],
+                            dbPartitions[currentCopyPartition].chars() + dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition+numToCopy],
+                            h_chardata_vec[whichBuffer].data().get() + usedBytes
+                        );
+                        std::copy(
+                            dbPartitions[currentCopyPartition].lengths() + currentCopySeqInPartition,
+                            dbPartitions[currentCopyPartition].lengths() + currentCopySeqInPartition+numToCopy,
+                            h_lengthdata_vec[whichBuffer].data().get() + usedSeq
+                        );
+                        std::transform(
+                            dboffsetsBegin,
+                            dboffsetsBegin + numToCopy,
+                            h_offsetdata_vec[whichBuffer].data().get() + usedSeq,
+                            [&](size_t off){
+                                return off - dboffsetsBegin[0] + usedBytes;
+                            }
+                        );
+                        if(usedSeq == 0){
+                            h_partitionIds_vec[whichBuffer].push_back(lengthPartitionIds[currentCopyPartition]);
+                            h_numPerPartition_vec[whichBuffer].push_back(numToCopy);
+                        }else{
+                            //if is same length partition as previous copy 
+                            if(h_partitionIds_vec[whichBuffer].back() == lengthPartitionIds[currentCopyPartition]){
+                                h_numPerPartition_vec[whichBuffer].back() += numToCopy;
+                            }else{
+                                //new length partition
+                                h_partitionIds_vec[whichBuffer].push_back(lengthPartitionIds[currentCopyPartition]);
+                                h_numPerPartition_vec[whichBuffer].push_back(numToCopy);
+                            }
+                        }
+                        usedBytes += std::distance(h_chardata_vec[whichBuffer].data().get() + usedBytes, end);
+                        usedSeq += numToCopy;
+
+                        currentCopySeqInPartition += numToCopy;
+                        if(currentCopySeqInPartition == dbPartitions[currentCopyPartition].numSequences()){
+                            currentCopySeqInPartition = 0;
+                            currentCopyPartition++;
+                        }
+                    }else{
+                        break;
+                    }
+                }
+
+                
+                if(usedSeq == 0 && currentCopyPartition < dbPartitions.size()){
+                    std::cout << "Warning. copy buffer size to small. skipped a db portion. stop\n";
                     break;
                 }
-            }
 
-            
-            if(usedSeq == 0 && currentCopyPartition < dbPartitions.size()){
-                std::cout << "Warning. copy buffer size to small. skipped a db portion. stop\n";
-                break;
-            }
+                cudaMemcpyAsync(
+                    d_chardata_vec[whichBuffer].data().get(),
+                    h_chardata_vec[whichBuffer].data().get(),
+                    usedBytes,
+                    H2D,
+                    H2DcopyStream
+                ); CUERR;
+                cudaMemcpyAsync(
+                    d_lengthdata_vec[whichBuffer].data().get(),
+                    h_lengthdata_vec[whichBuffer].data().get(),
+                    sizeof(size_t) * usedSeq,
+                    H2D,
+                    H2DcopyStream
+                ); CUERR;
+                cudaMemcpyAsync(
+                    d_offsetdata_vec[whichBuffer].data().get(),
+                    h_offsetdata_vec[whichBuffer].data().get(),
+                    sizeof(size_t) * usedSeq,
+                    H2D,
+                    H2DcopyStream
+                ); CUERR;
+                cudaEventRecord(ws.pinnedBufferEvents[whichBuffer], H2DcopyStream); CUERR;
 
-            cudaMemcpyAsync(
-                d_chardata_vec[whichBuffer].data().get(),
-                h_chardata_vec[whichBuffer].data().get(),
-                usedBytes,
-                H2D,
-                H2DcopyStream
-            ); CUERR;
-            cudaMemcpyAsync(
-                d_lengthdata_vec[whichBuffer].data().get(),
-                h_lengthdata_vec[whichBuffer].data().get(),
-                sizeof(size_t) * usedSeq,
-                H2D,
-                H2DcopyStream
-            ); CUERR;
-            cudaMemcpyAsync(
-                d_offsetdata_vec[whichBuffer].data().get(),
-                h_offsetdata_vec[whichBuffer].data().get(),
-                sizeof(size_t) * usedSeq,
-                H2D,
-                H2DcopyStream
-            ); CUERR;
-            cudaEventRecord(ws.pinnedBufferEvents[whichBuffer], H2DcopyStream); CUERR;
+                const char* const inputChars = d_chardata_vec[whichBuffer].data().get();
+                const size_t* const inputOffsets = d_offsetdata_vec[whichBuffer].data().get();
+                const size_t* const inputLengths = d_lengthdata_vec[whichBuffer].data().get();
+                int* const d_overflow_number = ws.d_new_overflow_number.data().get() + whichBuffer;
+                size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[whichBuffer].data().get();
+                cudaMemsetAsync(d_overflow_number, 0, sizeof(int), H2DcopyStream);
 
-            const char* const inputChars = d_chardata_vec[whichBuffer].data().get();
-            const size_t* const inputOffsets = d_offsetdata_vec[whichBuffer].data().get();
-            const size_t* const inputLengths = d_lengthdata_vec[whichBuffer].data().get();
-            int* const d_overflow_number = ws.d_new_overflow_number.data().get() + whichBuffer;
-            size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[whichBuffer].data().get();
-            cudaMemsetAsync(d_overflow_number, 0, sizeof(int), H2DcopyStream);
-
-            //all data is ready for alignments. create dependencies for work streams
-            cudaEventRecord(ws.forkStreamEvent, H2DcopyStream); CUERR;
-            cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.forkStreamEvent, 0); CUERR;
-            for(auto& stream : ws.workStreamsWithoutTemp_vec[0]){
-                cudaStreamWaitEvent(stream, ws.forkStreamEvent, 0); CUERR;
-            }
-            //wait for previous batch to finish
-            cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.deviceBufferEvents[1-whichBuffer], 0); CUERR;
-            for(auto& stream : ws.workStreamsWithoutTemp_vec[0]){
-                cudaStreamWaitEvent(stream, ws.deviceBufferEvents[1-whichBuffer], 0); CUERR;
-            }
-
-
-
-
-
-
-            const float gop = -11.0;
-            const float gex = -1.0;
-
-            auto runAlignmentKernels = [&](float* d_scores, size_t* d_overflow_positions, int* d_overflow_number){
-                auto nextWorkStreamNoTemp = [&](){
-                    const int index = 0; //whichBuffer;
-                    ws.workstreamIndex_vec[index] = (ws.workstreamIndex_vec[index] + 1) % ws.numWorkStreamsWithoutTemp;
-                    return (cudaStream_t)ws.workStreamsWithoutTemp_vec[index][ws.workstreamIndex_vec[index]];
-                };
-                size_t exclPs = 0;
-                for(int lp = 0; lp < int(h_partitionIds_vec[whichBuffer].size()); lp++){
-                    const int partId = h_partitionIds_vec[whichBuffer][lp];
-                    const int numSeq = h_numPerPartition_vec[whichBuffer][lp];
-                    
-                    const size_t* const d_selectedPositions = ws.d_selectedPositionsNew.data().get() + exclPs;
-
-
-                    if (partId == 0){NW_local_affine_Protein_single_pass_half2<4, 16><<<(numSeq+255)/(2*8*4*4), 32*8*2, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (partId == 1){NW_local_affine_Protein_single_pass_half2<8, 16><<<(numSeq+127)/(2*8*4*2), 32*8*2, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (partId == 2){NW_local_affine_Protein_single_pass_half2<8, 24><<<(numSeq+63)/(2*8*4), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (partId == 3){NW_local_affine_Protein_single_pass_half2<16, 16><<<(numSeq+31)/(2*8*2), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (partId == 4){NW_local_affine_Protein_single_pass_half2<16, 20><<<(numSeq+31)/(2*8*2), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (partId == 5){NW_local_affine_Protein_single_pass_half2<16, 24><<<(numSeq+31)/(2*8*2), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
-                    if (partId == 6){NW_local_affine_Protein_single_pass_half2<16, 28><<<(numSeq+31)/(2*8*2), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                    if (partId == 7){NW_local_affine_Protein_single_pass_half2<32, 16><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                    if (partId == 8){NW_local_affine_Protein_single_pass_half2<32, 18><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                    if (partId == 9){NW_local_affine_Protein_single_pass_half2<32, 20><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                    if (partId == 10){NW_local_affine_Protein_single_pass_half2<32, 24><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                    if (partId == 11){NW_local_affine_Protein_single_pass_half2<32, 28><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                    if (partId == 12){NW_local_affine_Protein_single_pass_half2<32, 32><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-
-                    if (partId == 13){
-                        constexpr int blocksize = 32 * 8;
-                        constexpr int groupsize = 32;
-                        constexpr int groupsPerBlock = blocksize / groupsize;
-                        constexpr int alignmentsPerGroup = 2;
-                        constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
-                        
-                        const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * alignmentsPerBlock * queryLength;
-
-                        const size_t maxNumBlocks = ws.maxTempBytes / (tempBytesPerBlockPerBuffer * 2);
-                        const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(numSeq));
-
-                        const size_t numBlocksPerIteration = SDIV(maxSubjectsPerIteration, alignmentsPerBlock);
-                        const size_t requiredTempBytes = tempBytesPerBlockPerBuffer * 2 * numBlocksPerIteration;
-
-                        __half2* d_temp = (__half2*)ws.d_tempStorageHE;
-                        __half2* d_tempHcol2 = d_temp;
-                        __half2* d_tempEcol2 = (__half2*)(((char*)d_tempHcol2) + requiredTempBytes / 2);
-
-                        const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
-
-                        for(int iter = 0; iter < numIters; iter++){
-                            const size_t begin = iter * maxSubjectsPerIteration;
-                            const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
-                            const size_t num = end - begin;                      
-
-                            cudaMemsetAsync(d_temp, 0, requiredTempBytes, ws.workStreamForTempUsage); CUERR;
-
-                            NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
-                                inputChars, 
-                                d_scores, 
-                                d_tempHcol2, 
-                                d_tempEcol2, 
-                                inputOffsets, 
-                                inputLengths, 
-                                d_selectedPositions + begin, 
-                                num, 
-                                d_overflow_positions, 
-                                d_overflow_number, 
-                                1, 
-                                queryLength, 
-                                gop, 
-                                gex
-                            ); CUERR
-                        }
-                    }
-
-                    if (partId == 14){
-                        const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
-                        const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
-
-                        short2* d_temp = (short2*)ws.d_tempStorageHE;
-                        short2* d_tempHcol2 = d_temp;
-                        short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
-
-                        const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
-                        for(int iter = 0; iter < numIters; iter++){
-                            const size_t begin = iter * maxSubjectsPerIteration;
-                            const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
-                            const size_t num = end - begin;
-
-                            cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, ws.workStreamForTempUsage); CUERR;
-
-                            NW_local_affine_read4_float_query_Protein<32, 12><<<num, 32, 0, ws.workStreamForTempUsage>>>(
-                                inputChars, 
-                                d_scores, 
-                                d_tempHcol2, 
-                                d_tempEcol2, 
-                                inputOffsets, 
-                                inputLengths, 
-                                d_selectedPositions + begin, 
-                                queryLength, 
-                                gop, 
-                                gex
-                            ); CUERR 
-                        }
-                    }
-
-                    exclPs += numSeq;
+                //all data is ready for alignments. create dependencies for work streams
+                cudaEventRecord(ws.forkStreamEvent, H2DcopyStream); CUERR;
+                cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.forkStreamEvent, 0); CUERR;
+                for(auto& stream : ws.workStreamsWithoutTemp_vec[0]){
+                    cudaStreamWaitEvent(stream, ws.forkStreamEvent, 0); CUERR;
                 }
-            };
+                //wait for previous batch to finish
+                cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.deviceBufferEvents[1-whichBuffer], 0); CUERR;
+                for(auto& stream : ws.workStreamsWithoutTemp_vec[0]){
+                    cudaStreamWaitEvent(stream, ws.deviceBufferEvents[1-whichBuffer], 0); CUERR;
+                }
 
-            
-
-            runAlignmentKernels(&(ws.devAlignmentScoresFloat[processedSequences]), d_overflow_positions, d_overflow_number);
 
 
-            //alignments are done in workstreams. now, join all workstreams into workStreamForTempUsage to process overflow alignments
-            for(auto& stream : ws.workStreamsWithoutTemp_vec[0]){
-                cudaEventRecord(ws.forkStreamEvent, stream); CUERR;
-                cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.forkStreamEvent, 0); CUERR;    
+
+
+
+                const float gop = -11.0;
+                const float gex = -1.0;
+
+                auto runAlignmentKernels = [&](float* d_scores, size_t* d_overflow_positions, int* d_overflow_number){
+                    auto nextWorkStreamNoTemp = [&](){
+                        const int index = 0; //whichBuffer;
+                        ws.workstreamIndex_vec[index] = (ws.workstreamIndex_vec[index] + 1) % ws.numWorkStreamsWithoutTemp;
+                        return (cudaStream_t)ws.workStreamsWithoutTemp_vec[index][ws.workstreamIndex_vec[index]];
+                    };
+                    size_t exclPs = 0;
+                    for(int lp = 0; lp < int(h_partitionIds_vec[whichBuffer].size()); lp++){
+                        const int partId = h_partitionIds_vec[whichBuffer][lp];
+                        const int numSeq = h_numPerPartition_vec[whichBuffer][lp];
+                        
+                        const size_t* const d_selectedPositions = ws.d_selectedPositionsNew.data().get() + exclPs;
+
+
+                        if (partId == 0){NW_local_affine_Protein_single_pass_half2<4, 16><<<(numSeq+255)/(2*8*4*4), 32*8*2, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                        if (partId == 1){NW_local_affine_Protein_single_pass_half2<8, 16><<<(numSeq+127)/(2*8*4*2), 32*8*2, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                        if (partId == 2){NW_local_affine_Protein_single_pass_half2<8, 24><<<(numSeq+63)/(2*8*4), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                        if (partId == 3){NW_local_affine_Protein_single_pass_half2<16, 16><<<(numSeq+31)/(2*8*2), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                        if (partId == 4){NW_local_affine_Protein_single_pass_half2<16, 20><<<(numSeq+31)/(2*8*2), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                        if (partId == 5){NW_local_affine_Protein_single_pass_half2<16, 24><<<(numSeq+31)/(2*8*2), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
+                        if (partId == 6){NW_local_affine_Protein_single_pass_half2<16, 28><<<(numSeq+31)/(2*8*2), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                        if (partId == 7){NW_local_affine_Protein_single_pass_half2<32, 16><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                        if (partId == 8){NW_local_affine_Protein_single_pass_half2<32, 18><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                        if (partId == 9){NW_local_affine_Protein_single_pass_half2<32, 20><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                        if (partId == 10){NW_local_affine_Protein_single_pass_half2<32, 24><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                        if (partId == 11){NW_local_affine_Protein_single_pass_half2<32, 28><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+                        if (partId == 12){NW_local_affine_Protein_single_pass_half2<32, 32><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
+
+                        if (partId == 13){
+                            constexpr int blocksize = 32 * 8;
+                            constexpr int groupsize = 32;
+                            constexpr int groupsPerBlock = blocksize / groupsize;
+                            constexpr int alignmentsPerGroup = 2;
+                            constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
+                            
+                            const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * alignmentsPerBlock * queryLength;
+
+                            const size_t maxNumBlocks = ws.maxTempBytes / (tempBytesPerBlockPerBuffer * 2);
+                            const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(numSeq));
+
+                            const size_t numBlocksPerIteration = SDIV(maxSubjectsPerIteration, alignmentsPerBlock);
+                            const size_t requiredTempBytes = tempBytesPerBlockPerBuffer * 2 * numBlocksPerIteration;
+
+                            __half2* d_temp = (__half2*)ws.d_tempStorageHE;
+                            __half2* d_tempHcol2 = d_temp;
+                            __half2* d_tempEcol2 = (__half2*)(((char*)d_tempHcol2) + requiredTempBytes / 2);
+
+                            const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
+
+                            for(int iter = 0; iter < numIters; iter++){
+                                const size_t begin = iter * maxSubjectsPerIteration;
+                                const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
+                                const size_t num = end - begin;                      
+
+                                cudaMemsetAsync(d_temp, 0, requiredTempBytes, ws.workStreamForTempUsage); CUERR;
+
+                                NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
+                                    inputChars, 
+                                    d_scores, 
+                                    d_tempHcol2, 
+                                    d_tempEcol2, 
+                                    inputOffsets, 
+                                    inputLengths, 
+                                    d_selectedPositions + begin, 
+                                    num, 
+                                    d_overflow_positions, 
+                                    d_overflow_number, 
+                                    1, 
+                                    queryLength, 
+                                    gop, 
+                                    gex
+                                ); CUERR
+                            }
+                        }
+
+                        if (partId == 14){
+                            const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
+                            const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
+
+                            short2* d_temp = (short2*)ws.d_tempStorageHE;
+                            short2* d_tempHcol2 = d_temp;
+                            short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+
+                            const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
+                            for(int iter = 0; iter < numIters; iter++){
+                                const size_t begin = iter * maxSubjectsPerIteration;
+                                const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
+                                const size_t num = end - begin;
+
+                                cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, ws.workStreamForTempUsage); CUERR;
+
+                                NW_local_affine_read4_float_query_Protein<32, 12><<<num, 32, 0, ws.workStreamForTempUsage>>>(
+                                    inputChars, 
+                                    d_scores, 
+                                    d_tempHcol2, 
+                                    d_tempEcol2, 
+                                    inputOffsets, 
+                                    inputLengths, 
+                                    d_selectedPositions + begin, 
+                                    queryLength, 
+                                    gop, 
+                                    gex
+                                ); CUERR 
+                            }
+                        }
+
+                        exclPs += numSeq;
+                    }
+                };
+
+                
+
+                runAlignmentKernels(&(ws.devAlignmentScoresFloat[processedSequences]), d_overflow_positions, d_overflow_number);
+
+
+                //alignments are done in workstreams. now, join all workstreams into workStreamForTempUsage to process overflow alignments
+                for(auto& stream : ws.workStreamsWithoutTemp_vec[0]){
+                    cudaEventRecord(ws.forkStreamEvent, stream); CUERR;
+                    cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.forkStreamEvent, 0); CUERR;    
+                }
+
+                {
+                    short2* d_temp = (short2*)ws.d_tempStorageHE;
+
+                    launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32, 12><<<1,1,0, ws.workStreamForTempUsage>>>(
+                        d_overflow_number,
+                        d_temp, 
+                        ws.maxTempBytes,
+                        inputChars, 
+                        &(ws.devAlignmentScoresFloat[processedSequences]), 
+                        inputOffsets, 
+                        inputLengths, 
+                        d_overflow_positions, 
+                        queryLength, gop, gex
+                    ); CUERR
+                }
+
+                //after processing overflow alignments, the batch is done and its data can be resused
+                cudaEventRecord(ws.deviceBufferEvents[whichBuffer], ws.workStreamForTempUsage); CUERR;
+
+                //let other workstreams depend on temp usage stream
+                for(auto& stream : ws.workStreamsWithoutTemp_vec[0]){
+                    cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.deviceBufferEvents[whichBuffer], 0); CUERR;    
+                }
+
+                processedSequences += usedSeq;
             }
+        #endif
 
-            {
-                short2* d_temp = (short2*)ws.d_tempStorageHE;
-
-                launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32, 12><<<1,1,0, ws.workStreamForTempUsage>>>(
-                    d_overflow_number,
-                    d_temp, 
-                    ws.maxTempBytes,
-                    inputChars, 
-                    &(ws.devAlignmentScoresFloat[processedSequences]), 
-                    inputOffsets, 
-                    inputLengths, 
-                    d_overflow_positions, 
-                    queryLength, gop, gex
-                ); CUERR
-            }
-
-            //after processing overflow alignments, the batch is done and its data can be resused
-            cudaEventRecord(ws.deviceBufferEvents[whichBuffer], ws.workStreamForTempUsage); CUERR;
-
-            //let other workstreams depend on temp usage stream
-            for(auto& stream : ws.workStreamsWithoutTemp_vec[0]){
-                cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.deviceBufferEvents[whichBuffer], 0); CUERR;    
-            }
-
-            processedSequences += usedSeq;
-        }
     #endif
 
     #if 0
