@@ -39,7 +39,7 @@ $(MODIFYDB): modifydb.o sequence_io.o dbdata.o
 	$(COMPILER) $^ -o $(MODIFYDB) $(LDFLAGS)
 
 # compile CUDA files
-main.o : main.cu sequence_io.h cuda_helpers.cuh length_partitions.hpp
+main.o : main.cu sequence_io.h length_partitions.hpp
 	$(COMPILE)
 
 # compile pure C++ files

@@ -7,6 +7,7 @@
 #include <future>
 #include <cstdlib>
 #include <numeric>
+#include <memory>
 
 //#include <cuda_fp8.h>
 #include <thrust/copy.h>
@@ -21,8 +22,11 @@
 #include <thrust/count.h>
 #include <thrust/equal.h>
 
+#include "hpc_helpers/cuda_raiiwrappers.cuh"
+#include "hpc_helpers/all_helpers.cuh"
+
 #include "sequence_io.h"
-#include "cuda_helpers.cuh"
+
 #include <omp.h>
 #include "dbdata.hpp"
 #include "length_partitions.hpp"
@@ -5548,7 +5552,7 @@ int main(int argc, char* argv[])
 
     for(int i = 0; i < numGpus; i++){
         cudaSetDevice(deviceIds[i]); CUERR
-        init_cuda_context(); CUERR
+        helpers::init_cuda_context(); CUERR
         cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);CUERR
         cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeFourByte); CUERR
 
@@ -6020,11 +6024,15 @@ int main(int argc, char* argv[])
     thrust::device_vector<size_t> dev_sorted_indices(totalNumberOfSequencesInDB);
 
 
+    cudaSetDevice(masterDeviceId);
 
+    std::vector<std::unique_ptr<helpers::GpuTimer>> queryTimers;
+    for(int i = 0; i < numQueries; i++){
+        queryTimers.emplace_back(std::make_unique<helpers::GpuTimer>(masterStream1, "Query " + std::to_string(i)));
+    }
 
     cout << "Starting FULLSCAN_CUDA: \n";
-    cudaSetDevice(masterDeviceId);
-    TIMERSTART_CUDA(FULLSCAN_CUDA)
+    helpers::GpuTimer fullscanTimer(masterStream1, "FULLSCAN_CUDA");
 
     for(int i = 0; i < numGpus; i++){
         cudaSetDevice(deviceIds[i]);
@@ -6034,7 +6042,6 @@ int main(int argc, char* argv[])
         cudaMemcpyAsync(ws.devLengths, lengths, offsetBytes, cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
         NW_convert_protein<<<numQueries, 128, 0, gpuStreams[i]>>>(ws.devChars, ws.devOffsets); CUERR
     }
-
 
 
 	
@@ -6056,7 +6063,8 @@ int main(int argc, char* argv[])
         );
 
         std::cout << "Starting NW_local_affine_half2 for Query " << query_num << "\n";
-        TIMERSTART_CUDA_STREAM(NW_local_affine_half2_query_Protein, masterStream1)
+
+        queryTimers[query_num]->start();
 
         for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
             cudaSetDevice(masterDeviceId);
@@ -6140,14 +6148,16 @@ int main(int argc, char* argv[])
 
         }
 
-        cudaSetDevice(masterDeviceId);
-        TIMERSTOP_CUDA_STREAM(NW_local_affine_half2_query_Protein, masterStream1)
+        queryTimers[query_num]->stop();
 
     }
     cudaSetDevice(masterDeviceId);
     cudaStreamSynchronize(masterStream1); CUERR
-    dp_cells = avg_length_2 * avg_length;
-    TIMERSTOP_CUDA(FULLSCAN_CUDA)
+
+    for(int i = 0; i < numQueries; i++){
+        queryTimers[i]->printGCUPS(avg_length_2 * lengths[i]);
+    }
+    fullscanTimer.printGCUPS(avg_length_2 * avg_length);
 
     CUERR;
 
