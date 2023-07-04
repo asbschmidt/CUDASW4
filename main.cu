@@ -5499,6 +5499,10 @@ void processQueryOnGpu(
     cudaEventRecord(ws.forkStreamEvent, ws.workStreamForTempUsage); CUERR;
     cudaStreamWaitEvent(mainStream, ws.forkStreamEvent, 0); CUERR;
 
+    for(auto stream : ws.workStreams){
+        cudaEventRecord(ws.forkStreamEvent, stream); CUERR;
+        cudaStreamWaitEvent(mainStream, ws.forkStreamEvent, 0); CUERR;
+    }
 
     cudaEventRecord(ws.forkStreamEvent, ws.hostFuncStream); CUERR;
     cudaStreamWaitEvent(mainStream, ws.forkStreamEvent, 0); CUERR;
@@ -5508,10 +5512,6 @@ void processQueryOnGpu(
 
     cudaEventRecord(ws.forkStreamEvent,ws.dblBufferStreams[1]); CUERR;
     cudaStreamWaitEvent(mainStream, ws.forkStreamEvent, 0); CUERR;
-
-    //TIMERSTOP_CUDA_STREAM(NW_local_affine_half2_query_Protein, mainStream)
-
-    //cudaStreamSynchronize(mainStream); CUERR;
 }
 
 
@@ -5874,7 +5874,7 @@ int main(int argc, char* argv[])
             size_t(0)
         );
 
-        cudaMalloc(&ws.d_overflow_positions, max_batch_num_sequences * sizeof(size_t)); CUERR
+        cudaMalloc(&ws.d_overflow_positions, num_sequences * sizeof(size_t)); CUERR
         cudaMalloc(&ws.d_overflow_number, 1 * sizeof(int)); CUERR
 
         cudaMalloc(&ws.Fillchar, 16*512);
