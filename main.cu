@@ -4951,6 +4951,15 @@ struct DeviceBatchCopyToPinnedPlan{
     std::vector<CopyRange> copyRanges;
 };
 
+std::ostream& operator<<(std::ostream& os, const DeviceBatchCopyToPinnedPlan& plan){
+    os << "usedBytes " << plan.usedBytes << ", usedSeq " << plan.usedSeq << " ";
+    for(int i = 0; i < int(plan.h_partitionIds.size()); i++){
+        os << "(" << plan.h_partitionIds[i] << "," << plan.h_numPerPartition[i] << ") ";
+    }
+    
+    return os;
+}
+
 std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlan(
     const std::vector<DBdataView>& dbPartitions,
     const std::vector<int>& lengthPartitionIds,
@@ -5004,24 +5013,6 @@ std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlan(
                 copyRange.numToCopy = numToCopy;
                 plan.copyRanges.push_back(copyRange);
 
-                // auto end = std::copy(
-                //     dbPartitions[currentCopyPartition].chars() + dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition],
-                //     dbPartitions[currentCopyPartition].chars() + dbPartitions[currentCopyPartition].offsets()[currentCopySeqInPartition+numToCopy],
-                //     h_chardata_vec[whichBuffer].data().get() + usedBytes
-                // );
-                // std::copy(
-                //     dbPartitions[currentCopyPartition].lengths() + currentCopySeqInPartition,
-                //     dbPartitions[currentCopyPartition].lengths() + currentCopySeqInPartition+numToCopy,
-                //     h_lengthdata_vec[whichBuffer].data().get() + usedSeq
-                // );
-                // std::transform(
-                //     dboffsetsBegin,
-                //     dboffsetsBegin + numToCopy,
-                //     h_offsetdata_vec[whichBuffer].data().get() + usedSeq,
-                //     [&](size_t off){
-                //         return off - dboffsetsBegin[0] + usedBytes;
-                //     }
-                // );
                 if(usedSeq == 0){
                     plan.h_partitionIds.push_back(lengthPartitionIds[currentCopyPartition]);
                     plan.h_numPerPartition.push_back(numToCopy);
@@ -5059,6 +5050,177 @@ std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlan(
         }
 
         result.push_back(plan);
+    }
+
+    return result;
+}
+
+
+std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlanMaybeOptimized1(
+    const std::vector<DBdataView>& dbPartitions,
+    const std::vector<int>& lengthPartitionIds,
+    size_t MAX_CHARDATA_BYTES,
+    size_t MAX_SEQ
+){
+    using P = std::pair<DBdataView, int>;
+    std::vector<DeviceBatchCopyToPinnedPlan> result;
+
+    const int numPartitions = dbPartitions.size();
+    std::vector<P> partitionsWithLengthIds;
+    
+    for(int i = 0; i < numPartitions; i++){
+        partitionsWithLengthIds.emplace_back(dbPartitions[i], lengthPartitionIds[i]);
+    }
+
+    std::vector<int> sortedIndices(numPartitions);
+    std::iota(sortedIndices.begin(), sortedIndices.end(), 0);
+    //sort by length partition id
+    std::sort(sortedIndices.begin(), sortedIndices.end(), [&](const auto& l, const auto& r){return partitionsWithLengthIds[l].second < partitionsWithLengthIds[r].second;});
+
+    //sort by length partition id
+    //std::sort(partitionsWithLengthIds.begin(), partitionsWithLengthIds.end(), [](const auto& l, const auto& r){return l.second < r.second;});
+
+    constexpr int firstLengthPartitionWithTempStorage = 13;
+
+    auto largeBeginIt = std::stable_partition(
+        sortedIndices.begin(), 
+        sortedIndices.end(), 
+        [&](const auto& l){return  partitionsWithLengthIds[l].second < firstLengthPartitionWithTempStorage;}
+    );
+    //sort large partitions from largest to smallest
+    std::sort(largeBeginIt, sortedIndices.end(), [&](const auto& l, const auto& r){return partitionsWithLengthIds[l].second > partitionsWithLengthIds[r].second;});
+
+    const int numSmallPartitions = std::distance(sortedIndices.begin(), largeBeginIt);
+    const int numLargePartitions = std::distance(largeBeginIt, sortedIndices.end());
+    const int firstLargePartition = numSmallPartitions;
+
+    // auto largeBeginIt = std::stable_partition(
+    //     partitionsWithLengthIds.begin(), 
+    //     partitionsWithLengthIds.end(), 
+    //     [](const auto& l){return l.second < firstLengthPartitionWithTempStorage;}
+    // );
+    // //sort large partitions from largest to smallest
+    // std::sort(largeBeginIt, partitionsWithLengthIds.end(), [](const auto& l, const auto& r){return l.second > r.second;});
+
+    // const int numSmallPartitions = std::distance(partitionsWithLengthIds.begin(), largeBeginIt);
+    // const int numLargePartitions = std::distance(largeBeginIt, partitionsWithLengthIds.end());
+    // const int firstLargePartition = numSmallPartitions;
+
+    size_t numSequences = 0;
+    for(const auto& p : partitionsWithLengthIds){
+        numSequences += p.first.numSequences();
+    }
+
+    std::vector<size_t> currentCopySeqInPartition_vec(numPartitions, 0);
+
+
+    size_t processedSequences = 0;
+    while(processedSequences < numSequences){
+        size_t oldProcessedSequences = processedSequences;
+        size_t usedBytes = 0;
+        size_t usedSeq = 0;
+
+        DeviceBatchCopyToPinnedPlan plan;
+
+        auto processPartition = [&](int index, size_t charmemoryLimit) -> size_t{
+            const int sortedIndex = sortedIndices[index];
+            const auto& dbPartition = partitionsWithLengthIds[sortedIndex].first;
+            const int lengthPartitionId = partitionsWithLengthIds[sortedIndex].second;
+            auto& currentCopySeqInPartition = currentCopySeqInPartition_vec[sortedIndex];
+            size_t remainingBytes = charmemoryLimit - usedBytes;
+            
+            auto dboffsetsBegin = dbPartition.offsets() + currentCopySeqInPartition;
+            auto dboffsetsEnd = dbPartition.offsets() + dbPartition.numSequences() + 1;
+            
+            auto searchFor = dbPartition.offsets()[currentCopySeqInPartition] + remainingBytes + 1; // +1 because remainingBytes is inclusive
+            auto it = std::lower_bound(
+                dboffsetsBegin,
+                dboffsetsEnd,
+                searchFor
+            );
+
+            size_t numToCopyByBytes = 0;
+            if(it != dboffsetsBegin){
+                numToCopyByBytes = std::distance(dboffsetsBegin, it) - 1;
+            }
+            if(numToCopyByBytes == 0 && currentCopySeqInPartition == 0){
+                //std::cout << "Warning. copy buffer size to small. skipped a db portion\n";
+                return 0;
+            }
+            
+            size_t remainingSeq = MAX_SEQ - usedSeq;            
+            size_t numToCopyBySeq = std::min(dbPartition.numSequences() - currentCopySeqInPartition, remainingSeq);
+            size_t numToCopy = std::min(numToCopyByBytes,numToCopyBySeq);
+
+            if(numToCopy > 0){
+                DeviceBatchCopyToPinnedPlan::CopyRange copyRange;
+                copyRange.currentCopyPartition = sortedIndex;
+                copyRange.currentCopySeqInPartition = currentCopySeqInPartition;
+                copyRange.numToCopy = numToCopy;
+                plan.copyRanges.push_back(copyRange);
+
+                if(usedSeq == 0){
+                    plan.h_partitionIds.push_back(lengthPartitionId);
+                    plan.h_numPerPartition.push_back(numToCopy);
+                }else{
+                    //if is same length partition as previous copy 
+                    if(plan.h_partitionIds.back() == lengthPartitionId){
+                        plan.h_numPerPartition.back() += numToCopy;
+                    }else{
+                        //new length partition
+                        plan.h_partitionIds.push_back(lengthPartitionId);
+                        plan.h_numPerPartition.push_back(numToCopy);
+                    }
+                }
+                usedBytes += (dbPartition.offsets()[currentCopySeqInPartition+numToCopy] 
+                    - dbPartition.offsets()[currentCopySeqInPartition]);
+                usedSeq += numToCopy;
+
+                currentCopySeqInPartition += numToCopy;
+
+                processedSequences += numToCopy;
+            }
+
+            return numToCopy;
+        };
+
+        //add large partitions, up to half the memory
+        for(int i = firstLargePartition; i < numPartitions; i++){
+            const int sortedIndex = sortedIndices[i];
+            if(currentCopySeqInPartition_vec[sortedIndex] < partitionsWithLengthIds[sortedIndex].first.numSequences()){
+                //large partitions are sorted descending, if no sequence could be added here, a shorter sequence might be added from a smaller large partition
+               processPartition(i, MAX_CHARDATA_BYTES / 2);
+            }
+        }
+        //fill up with small partitions
+        for(int i = 0; i < numSmallPartitions; i++){
+            const int sortedIndex = sortedIndices[i];
+            if(currentCopySeqInPartition_vec[sortedIndex] < partitionsWithLengthIds[sortedIndex].first.numSequences()){
+                size_t numAdded = processPartition(i, MAX_CHARDATA_BYTES);
+                if(numAdded == 0){
+                    break;
+                }
+            }
+        }
+
+        if(oldProcessedSequences == processedSequences){
+            // bool allAreDone = true;
+            // for(int i = 0; i < numPartitions; i++){
+            //     allAreDone &= (currentCopySeqInPartition_vec[i] == partitionsWithLengthIds[i].first.numSequences());
+            // }
+            std::cout << "Warning. copy buffer size to small. skipped a db portion. stop\n";
+            break;
+        }else{
+            plan.usedBytes = usedBytes;
+            plan.usedSeq = usedSeq;
+
+            // std::cout << "plan " << result.size() << "\n";
+            // std::cout << plan << "\n";
+
+            result.push_back(plan);
+
+        }
+
     }
 
     return result;
@@ -6856,7 +7018,8 @@ int main(int argc, char* argv[])
             assert(int(partitionedByGpu.size()) <= numGpus);
     
             for(int gpu = 0; gpu < int(partitionedByGpu.size()); gpu++){
-                const auto partitionedBySeq = partitionDBdata_by_numberOfSequences(partitionedByGpu[gpu], batch_size);
+                //const auto partitionedBySeq = partitionDBdata_by_numberOfSequences(partitionedByGpu[gpu], batch_size);
+                const auto& partitionedBySeq = partitionedByGpu;
     
                 // std::cout << "partitionedBySeq \n";
                 // printPartitions(partitionedBySeq);
@@ -6869,10 +7032,10 @@ int main(int argc, char* argv[])
             }
         }
 
-        for(int gpu = 0; gpu < numGpus; gpu++){
-            std::rotate(subPartitionsForGpus[gpu].rbegin(), subPartitionsForGpus[gpu].rbegin() + 1, subPartitionsForGpus[gpu].rend());
-            std::rotate(lengthPartitionIdsForGpus[gpu].rbegin(), lengthPartitionIdsForGpus[gpu].rbegin() + 1, lengthPartitionIdsForGpus[gpu].rend());
-        }
+        // for(int gpu = 0; gpu < numGpus; gpu++){
+        //     std::rotate(subPartitionsForGpus[gpu].rbegin(), subPartitionsForGpus[gpu].rbegin() + 1, subPartitionsForGpus[gpu].rend());
+        //     std::rotate(lengthPartitionIdsForGpus[gpu].rbegin(), lengthPartitionIdsForGpus[gpu].rbegin() + 1, lengthPartitionIdsForGpus[gpu].rend());
+        // }
 
         for(int i = 0; i < numGpus; i++){
             for(const auto& p : subPartitionsForGpus[i]){
