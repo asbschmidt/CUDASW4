@@ -5230,6 +5230,7 @@ void processQueryOnGpu(
     GpuWorkingSet& ws,
     const std::vector<DBdataView>& dbPartitions,
     const std::vector<int>& lengthPartitionIds, // dbPartitions[i] belongs to the length partition lengthPartitionIds[i]
+    const std::vector<DeviceBatchCopyToPinnedPlan>& batchPlan,
     const char* d_query,
     const int queryLength,
     bool isFirstQuery,
@@ -5407,12 +5408,6 @@ void processQueryOnGpu(
         std::vector<thrust::device_vector<size_t>>& d_offsetdata_vec = ws.d_offsetdata_vec;
         std::vector<CudaStream>& copyStreams = ws.copyStreams;
 
-        std::vector<DeviceBatchCopyToPinnedPlan> batchPlan = computeDbCopyPlan(
-            dbPartitions,
-            lengthPartitionIds,
-            ws.MAX_CHARDATA_BYTES,
-            ws.MAX_SEQ
-        );
         std::cout << "Will process " << batchPlan.size() << " batches\n";
 
 
@@ -7242,7 +7237,8 @@ int main(int argc, char* argv[])
     //set up gpus
 
 
-    std::vector<GpuWorkingSet> workingSets(numGpus);
+    std::vector<GpuWorkingSet> workingSets(numGpus);  
+
 
     cout << "Allocate Memory: \n";
 	TIMERSTART_CUDA(ALLOC_MEM)
@@ -7295,6 +7291,24 @@ int main(int argc, char* argv[])
     
 
 	TIMERSTOP_CUDA(ALLOC_MEM)
+
+
+    std::vector<std::vector<std::vector<DeviceBatchCopyToPinnedPlan>>> batchPlans_perChunk(numDBChunks);
+
+    for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
+        batchPlans_perChunk[chunkId].resize(numGpus);
+
+        for(int gpu = 0; gpu < numGpus; gpu++){
+            const auto& ws = workingSets[gpu];
+            
+            batchPlans_perChunk[chunkId][gpu] = computeDbCopyPlan(
+                subPartitionsForGpus_perDBchunk[chunkId][gpu],
+                lengthPartitionIdsForGpus_perDBchunk[chunkId][gpu],
+                ws.MAX_CHARDATA_BYTES,
+                ws.MAX_SEQ
+            );
+        }
+    }
 
 
     for(int i = 0; i < numGpus; i++){
@@ -7375,6 +7389,7 @@ int main(int argc, char* argv[])
                     ws,
                     subPartitionsForGpus_perDBchunk[chunkId][gpu],
                     lengthPartitionIdsForGpus_perDBchunk[chunkId][gpu],
+                    batchPlans_perChunk[chunkId][gpu],
                     &(ws.devChars[offsets[query_num]]),
                     lengths[query_num],
                     (query_num == FIRST_QUERY_NUM),
