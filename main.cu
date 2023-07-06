@@ -24,6 +24,7 @@
 
 #include "hpc_helpers/cuda_raiiwrappers.cuh"
 #include "hpc_helpers/all_helpers.cuh"
+#include "hpc_helpers/nvtx_markers.cuh"
 
 #include "sequence_io.h"
 
@@ -4883,6 +4884,7 @@ struct GpuWorkingSet{
         }
     }
 
+    bool singleBatchDBisOnGpu = false;
     int deviceId;
     int numCopyBuffers;
     int numWorkStreamsWithoutTemp = 1;
@@ -5333,103 +5335,117 @@ void processQueryOnGpu(
     std::vector<thrust::device_vector<size_t>>& d_offsetdata_vec = ws.d_offsetdata_vec;
     std::vector<CudaStream>& copyStreams = ws.copyStreams;
 
-    int& whichBuffer = ws.copyBufferIndex;
+
     size_t processedSequences = 0;
     for(const auto& plan : batchPlan){
-        whichBuffer = (whichBuffer+1) % numCopyBuffers;
-        cudaStream_t copyToPinnedStream = ws.hostFuncStream;
-        cudaStream_t H2DcopyStream = copyStreams[whichBuffer];
-        
-        //can only overwrite device buffer if it is no longer in use on workstream
-        cudaStreamWaitEvent(H2DcopyStream, ws.deviceBufferEvents[whichBuffer], 0); CUERR;
-        //synchronize to avoid overwriting pinned buffer of target before it has been fully transferred
-        cudaEventSynchronize(ws.pinnedBufferEvents[whichBuffer]); CUERR;
+        int currentBuffer = 0;
+        int previousBuffer = 0;
+        cudaStream_t H2DcopyStream = copyStreams[currentBuffer];
+        if(!ws.singleBatchDBisOnGpu){
+            currentBuffer = ws.copyBufferIndex;
+            if(currentBuffer == 0){
+                previousBuffer = numCopyBuffers - 1;
+            }else{
+                previousBuffer = (currentBuffer - 1);
+            }
+            ws.copyBufferIndex = (ws.copyBufferIndex+1) % numCopyBuffers;
+            H2DcopyStream = copyStreams[currentBuffer];
+            
+            //can only overwrite device buffer if it is no longer in use on workstream
+            cudaStreamWaitEvent(H2DcopyStream, ws.deviceBufferEvents[currentBuffer], 0); CUERR;
+            //synchronize to avoid overwriting pinned buffer of target before it has been fully transferred
+            cudaEventSynchronize(ws.pinnedBufferEvents[currentBuffer]); CUERR;
 
-        size_t usedBytes = 0;
-        size_t usedSeq = 0;
-        for(const auto& copyRange : plan.copyRanges){
-            const auto& dbPartition = dbPartitions[copyRange.currentCopyPartition];
-            const auto& firstSeq = copyRange.currentCopySeqInPartition;
-            const auto& numToCopy = copyRange.numToCopy;
-            size_t numBytesToCopy = dbPartition.offsets()[firstSeq + numToCopy] - dbPartition.offsets()[firstSeq];
+            size_t usedBytes = 0;
+            size_t usedSeq = 0;
+            for(const auto& copyRange : plan.copyRanges){
+                const auto& dbPartition = dbPartitions[copyRange.currentCopyPartition];
+                const auto& firstSeq = copyRange.currentCopySeqInPartition;
+                const auto& numToCopy = copyRange.numToCopy;
+                size_t numBytesToCopy = dbPartition.offsets()[firstSeq + numToCopy] - dbPartition.offsets()[firstSeq];
 
-            auto end = std::copy(
-                dbPartition.chars() + dbPartition.offsets()[firstSeq],
-                dbPartition.chars() + dbPartition.offsets()[firstSeq + numToCopy],
-                h_chardata_vec[whichBuffer].data().get() + usedBytes
-            );
-            std::copy(
-                dbPartition.lengths() + firstSeq,
-                dbPartition.lengths() + firstSeq+numToCopy,
-                h_lengthdata_vec[whichBuffer].data().get() + usedSeq
-            );
-            std::transform(
-                dbPartition.offsets() + firstSeq,
-                dbPartition.offsets() + firstSeq + (numToCopy+1),
-                h_offsetdata_vec[whichBuffer].data().get() + usedSeq,
-                [&](size_t off){
-                    return off - dbPartition.offsets()[firstSeq] + usedBytes;
-                }
-            );
-            // cudaMemcpyAsync(
-            //     d_chardata_vec[whichBuffer].data().get() + usedBytes,
-            //     h_chardata_vec[whichBuffer].data().get() + usedBytes,
-            //     numBytesToCopy,
-            //     H2D,
-            //     H2DcopyStream
-            // ); CUERR;
-            // cudaMemcpyAsync(
-            //     d_lengthdata_vec[whichBuffer].data().get() + usedSeq,
-            //     h_lengthdata_vec[whichBuffer].data().get() + usedSeq,
-            //     sizeof(size_t) * numToCopy,
-            //     H2D,
-            //     H2DcopyStream
-            // ); CUERR;
-            // cudaMemcpyAsync(
-            //     d_offsetdata_vec[whichBuffer].data().get() + usedSeq,
-            //     h_offsetdata_vec[whichBuffer].data().get() + usedSeq,
-            //     sizeof(size_t) * (numToCopy+1),
-            //     H2D,
-            //     H2DcopyStream
-            // ); CUERR;
+                auto end = std::copy(
+                    dbPartition.chars() + dbPartition.offsets()[firstSeq],
+                    dbPartition.chars() + dbPartition.offsets()[firstSeq + numToCopy],
+                    h_chardata_vec[currentBuffer].data().get() + usedBytes
+                );
+                std::copy(
+                    dbPartition.lengths() + firstSeq,
+                    dbPartition.lengths() + firstSeq+numToCopy,
+                    h_lengthdata_vec[currentBuffer].data().get() + usedSeq
+                );
+                std::transform(
+                    dbPartition.offsets() + firstSeq,
+                    dbPartition.offsets() + firstSeq + (numToCopy+1),
+                    h_offsetdata_vec[currentBuffer].data().get() + usedSeq,
+                    [&](size_t off){
+                        return off - dbPartition.offsets()[firstSeq] + usedBytes;
+                    }
+                );
+                // cudaMemcpyAsync(
+                //     d_chardata_vec[currentBuffer].data().get() + usedBytes,
+                //     h_chardata_vec[currentBuffer].data().get() + usedBytes,
+                //     numBytesToCopy,
+                //     H2D,
+                //     H2DcopyStream
+                // ); CUERR;
+                // cudaMemcpyAsync(
+                //     d_lengthdata_vec[currentBuffer].data().get() + usedSeq,
+                //     h_lengthdata_vec[currentBuffer].data().get() + usedSeq,
+                //     sizeof(size_t) * numToCopy,
+                //     H2D,
+                //     H2DcopyStream
+                // ); CUERR;
+                // cudaMemcpyAsync(
+                //     d_offsetdata_vec[currentBuffer].data().get() + usedSeq,
+                //     h_offsetdata_vec[currentBuffer].data().get() + usedSeq,
+                //     sizeof(size_t) * (numToCopy+1),
+                //     H2D,
+                //     H2DcopyStream
+                // ); CUERR;
 
-            usedBytes += std::distance(h_chardata_vec[whichBuffer].data().get() + usedBytes, end);
-            usedSeq += numToCopy;
+                usedBytes += std::distance(h_chardata_vec[currentBuffer].data().get() + usedBytes, end);
+                usedSeq += numToCopy;
+            }
+            //assert(batchPlan.size() == 1);
+            // std::cout << "usedBytes " << usedBytes << " usedSeq " << usedSeq << " totaloffset " << h_offsetdata_vec[currentBuffer][plan.usedSeq] << "\n";
+            // assert(usedBytes == plan.usedBytes);
+            // assert(usedSeq == plan.usedSeq);
+            // assert(usedBytes == plan.usedBytes);
+            
+            cudaMemcpyAsync(
+                d_chardata_vec[currentBuffer].data().get(),
+                h_chardata_vec[currentBuffer].data().get(),
+                plan.usedBytes,
+                H2D,
+                H2DcopyStream
+            ); CUERR;
+            cudaMemcpyAsync(
+                d_lengthdata_vec[currentBuffer].data().get(),
+                h_lengthdata_vec[currentBuffer].data().get(),
+                sizeof(size_t) * plan.usedSeq,
+                H2D,
+                H2DcopyStream
+            ); CUERR;
+            cudaMemcpyAsync(
+                d_offsetdata_vec[currentBuffer].data().get(),
+                h_offsetdata_vec[currentBuffer].data().get(),
+                sizeof(size_t) * (plan.usedSeq+1),
+                H2D,
+                H2DcopyStream
+            ); CUERR;
+            cudaEventRecord(ws.pinnedBufferEvents[currentBuffer], H2DcopyStream); CUERR;
+        }else{
+            assert(batchPlan.size() == 1);
         }
-        //assert(batchPlan.size() == 1);
-        // std::cout << "usedBytes " << usedBytes << " usedSeq " << usedSeq << " totaloffset " << h_offsetdata_vec[whichBuffer][plan.usedSeq] << "\n";
-        // assert(usedBytes == plan.usedBytes);
-        // assert(usedSeq == plan.usedSeq);
-        // assert(usedBytes == plan.usedBytes);
-        
-        cudaMemcpyAsync(
-            d_chardata_vec[whichBuffer].data().get(),
-            h_chardata_vec[whichBuffer].data().get(),
-            plan.usedBytes,
-            H2D,
-            H2DcopyStream
-        ); CUERR;
-        cudaMemcpyAsync(
-            d_lengthdata_vec[whichBuffer].data().get(),
-            h_lengthdata_vec[whichBuffer].data().get(),
-            sizeof(size_t) * plan.usedSeq,
-            H2D,
-            H2DcopyStream
-        ); CUERR;
-        cudaMemcpyAsync(
-            d_offsetdata_vec[whichBuffer].data().get(),
-            h_offsetdata_vec[whichBuffer].data().get(),
-            sizeof(size_t) * (plan.usedSeq+1),
-            H2D,
-            H2DcopyStream
-        ); CUERR;
-        cudaEventRecord(ws.pinnedBufferEvents[whichBuffer], H2DcopyStream); CUERR;
 
-        const char* const inputChars = d_chardata_vec[whichBuffer].data().get();
-        const size_t* const inputOffsets = d_offsetdata_vec[whichBuffer].data().get();
-        const size_t* const inputLengths = d_lengthdata_vec[whichBuffer].data().get();
-        int* const d_overflow_number = ws.d_new_overflow_number.data().get() + whichBuffer;
-        size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[whichBuffer].data().get();
+        const char* const inputChars = d_chardata_vec[currentBuffer].data().get();
+        const size_t* const inputOffsets = d_offsetdata_vec[currentBuffer].data().get();
+        const size_t* const inputLengths = d_lengthdata_vec[currentBuffer].data().get();
+        int* const d_overflow_number = ws.d_new_overflow_number.data().get() + currentBuffer;
+        size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[currentBuffer].data().get();
+
+
         cudaMemsetAsync(d_overflow_number, 0, sizeof(int), H2DcopyStream);
 
         //all data is ready for alignments. create dependencies for work streams
@@ -5439,9 +5455,9 @@ void processQueryOnGpu(
             cudaStreamWaitEvent(stream, ws.forkStreamEvent, 0); CUERR;
         }
         //wait for previous batch to finish
-        cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.deviceBufferEvents[1-whichBuffer], 0); CUERR;
+        cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.deviceBufferEvents[previousBuffer], 0); CUERR;
         for(auto& stream : ws.workStreamsWithoutTemp){
-            cudaStreamWaitEvent(stream, ws.deviceBufferEvents[1-whichBuffer], 0); CUERR;
+            cudaStreamWaitEvent(stream, ws.deviceBufferEvents[previousBuffer], 0); CUERR;
         }
 
 
@@ -5454,7 +5470,6 @@ void processQueryOnGpu(
 
         auto runAlignmentKernels = [&](float* d_scores, size_t* d_overflow_positions, int* d_overflow_number){
             auto nextWorkStreamNoTemp = [&](){
-                const int index = 0; //whichBuffer;
                 ws.workstreamIndex = (ws.workstreamIndex + 1) % ws.numWorkStreamsWithoutTemp;
                 return (cudaStream_t)ws.workStreamsWithoutTemp[ws.workstreamIndex];
             };
@@ -5507,7 +5522,7 @@ void processQueryOnGpu(
                         const size_t num = end - begin;                      
 
                         cudaMemsetAsync(d_temp, 0, requiredTempBytes, ws.workStreamForTempUsage); CUERR;
-                        std::cout << "iter " << iter << " / " << numIters << " gridsize " << SDIV(num, alignmentsPerBlock) << "\n";
+                        //std::cout << "iter " << iter << " / " << numIters << " gridsize " << SDIV(num, alignmentsPerBlock) << "\n";
                         
                         NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
                             inputChars, 
@@ -5591,14 +5606,14 @@ void processQueryOnGpu(
         }
 
         //after processing overflow alignments, the batch is done and its data can be resused
-        cudaEventRecord(ws.deviceBufferEvents[whichBuffer], ws.workStreamForTempUsage); CUERR;
+        cudaEventRecord(ws.deviceBufferEvents[currentBuffer], ws.workStreamForTempUsage); CUERR;
 
         //let other workstreams depend on temp usage stream
         for(auto& stream : ws.workStreamsWithoutTemp){
-            cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.deviceBufferEvents[whichBuffer], 0); CUERR;    
+            cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.deviceBufferEvents[currentBuffer], 0); CUERR;    
         }
 
-        processedSequences += usedSeq;
+        processedSequences += plan.usedSeq;
     }
 
     //create dependency for mainStream
@@ -5999,6 +6014,82 @@ int main(int argc, char* argv[])
         }
     }
 
+    assert(numDBChunks == 1);
+    for(int gpu = 0; gpu < numGpus; gpu++){
+        const int chunkId = 0;
+        if(true && batchPlans_perChunk[chunkId][gpu].size() == 1){
+            auto& ws = *workingSets[gpu];
+            const auto& plan = batchPlans_perChunk[chunkId][gpu][0];
+            std::cout << "Upload single batch DB to gpu " << gpu << "\n";
+            helpers::CpuTimer copyTimer("copy db");
+            std::vector<pinned_vector<char>>& h_chardata_vec = ws.h_chardata_vec;
+            std::vector<pinned_vector<size_t>>& h_lengthdata_vec = ws.h_lengthdata_vec;
+            std::vector<pinned_vector<size_t>>& h_offsetdata_vec = ws.h_offsetdata_vec;
+            std::vector<thrust::device_vector<char>>& d_chardata_vec = ws.d_chardata_vec;
+            std::vector<thrust::device_vector<size_t>>& d_lengthdata_vec = ws.d_lengthdata_vec;
+            std::vector<thrust::device_vector<size_t>>& d_offsetdata_vec = ws.d_offsetdata_vec;
+            std::vector<CudaStream>& copyStreams = ws.copyStreams;
+            const int currentBuffer = 0;
+
+            cudaStream_t H2DcopyStream = ws.copyStreams[currentBuffer];
+            
+            size_t usedBytes = 0;
+            size_t usedSeq = 0;
+            for(const auto& copyRange : plan.copyRanges){
+                const auto& dbPartition = subPartitionsForGpus_perDBchunk[chunkId][gpu][copyRange.currentCopyPartition];
+                const auto& firstSeq = copyRange.currentCopySeqInPartition;
+                const auto& numToCopy = copyRange.numToCopy;
+                size_t numBytesToCopy = dbPartition.offsets()[firstSeq + numToCopy] - dbPartition.offsets()[firstSeq];
+
+                auto end = std::copy(
+                    dbPartition.chars() + dbPartition.offsets()[firstSeq],
+                    dbPartition.chars() + dbPartition.offsets()[firstSeq + numToCopy],
+                    h_chardata_vec[currentBuffer].data().get() + usedBytes
+                );
+                std::copy(
+                    dbPartition.lengths() + firstSeq,
+                    dbPartition.lengths() + firstSeq+numToCopy,
+                    h_lengthdata_vec[currentBuffer].data().get() + usedSeq
+                );
+                std::transform(
+                    dbPartition.offsets() + firstSeq,
+                    dbPartition.offsets() + firstSeq + (numToCopy+1),
+                    h_offsetdata_vec[currentBuffer].data().get() + usedSeq,
+                    [&](size_t off){
+                        return off - dbPartition.offsets()[firstSeq] + usedBytes;
+                    }
+                );
+
+                usedBytes += std::distance(h_chardata_vec[currentBuffer].data().get() + usedBytes, end);
+                usedSeq += numToCopy;
+            }            
+            cudaMemcpyAsync(
+                d_chardata_vec[currentBuffer].data().get(),
+                h_chardata_vec[currentBuffer].data().get(),
+                plan.usedBytes,
+                H2D,
+                H2DcopyStream
+            ); CUERR;
+            cudaMemcpyAsync(
+                d_lengthdata_vec[currentBuffer].data().get(),
+                h_lengthdata_vec[currentBuffer].data().get(),
+                sizeof(size_t) * plan.usedSeq,
+                H2D,
+                H2DcopyStream
+            ); CUERR;
+            cudaMemcpyAsync(
+                d_offsetdata_vec[currentBuffer].data().get(),
+                h_offsetdata_vec[currentBuffer].data().get(),
+                sizeof(size_t) * (plan.usedSeq+1),
+                H2D,
+                H2DcopyStream
+            ); CUERR;
+            cudaStreamSynchronize(H2DcopyStream); CUERR;
+            copyTimer.print();
+            ws.singleBatchDBisOnGpu = true;
+        }
+    }
+
 
     for(int i = 0; i < numGpus; i++){
         cudaSetDevice(deviceIds[i]);
@@ -6057,6 +6148,7 @@ int main(int argc, char* argv[])
 
         std::cout << "Starting NW_local_affine_half2 for Query " << query_num << "\n";
 
+        nvtx::push_range("QUERY", 0);
         queryTimers[query_num]->start();
 
         for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
@@ -6145,6 +6237,7 @@ int main(int argc, char* argv[])
         }
 
         queryTimers[query_num]->stop();
+        nvtx::pop_range();
 
     }
     cudaSetDevice(masterDeviceId);
