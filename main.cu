@@ -5749,12 +5749,20 @@ int main(int argc, char* argv[])
     cout << "Number of input characters Query-File: " << charBytes << '\n';
     int64_t dp_cells = 0;
 
+    #if 1
 	cout << "Reading Database: \n";
 	TIMERSTART_CUDA(READ_DB)
     constexpr bool writeAccess = false;
     constexpr bool prefetchSeq = true;
     DB fullDB = loadDB(argv[2], writeAccess, prefetchSeq);
 	TIMERSTOP_CUDA(READ_DB)
+    {
+    #else
+    for(int pseudodbSeqLength : {64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 768, 896, 1024}){
+       std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
+
+    PseudoDB fullDB = loadPseudoDB(256*1024, pseudodbSeqLength);
+    #endif
 
     
 
@@ -5763,8 +5771,8 @@ int main(int argc, char* argv[])
     const int numDBChunks = fullDB.info.numChunks;
     std::cout << "Number of DB chunks: " << numDBChunks << "\n";
     for(int i = 0; i < numDBChunks; i++){
-        const DBdata& chunkData = fullDB.chunks[i];
-        const DBdata::MetaData& dbMetaData = chunkData.getMetaData();
+        const auto& chunkData = fullDB.chunks[i];
+        const auto& dbMetaData = chunkData.getMetaData();
         std::cout << "DB chunk " << i << ": " << chunkData.numSequences() << " sequences, " << chunkData.numChars() << " characters\n";
         for(int i = 0; i < int(dbMetaData.lengthBoundaries.size()); i++){
             std::cout << "<= " << dbMetaData.lengthBoundaries[i] << ": " << dbMetaData.numSequencesPerLengthPartition[i] << "\n";
@@ -5774,7 +5782,7 @@ int main(int argc, char* argv[])
     size_t totalNumberOfSequencesInDB = 0;
     size_t maximumNumberOfSequencesInDBChunk = 0;
     for(int i = 0; i < numDBChunks; i++){
-        const DBdata& chunkData = fullDB.chunks[i];
+        const auto& chunkData = fullDB.chunks[i];
         totalNumberOfSequencesInDB += chunkData.numSequences();
         maximumNumberOfSequencesInDBChunk = std::max(maximumNumberOfSequencesInDBChunk, chunkData.numSequences());
     }
@@ -5790,7 +5798,7 @@ int main(int argc, char* argv[])
     }
 
     for(int i = 0; i < numDBChunks; i++){
-        const DBdata& chunkData = fullDB.chunks[i];
+        const auto& chunkData = fullDB.chunks[i];
         size_t numSeq = chunkData.numSequences();
 
         for (size_t i=0; i < numSeq; i++) {
@@ -5958,7 +5966,7 @@ int main(int argc, char* argv[])
     
 
 
-    const uint results_per_query = 100;
+    const uint results_per_query = std::min(100ul, totalNumberOfSequencesInDB);
     // std::vector<float> alignment_scores_float(numQueries *numDBChunks * results_per_query);
     // std::vector<size_t> sorted_indices(numQueries *numDBChunks * results_per_query);
     // std::vector<int> resultDbChunkIndices(numQueries *numDBChunks * results_per_query);
@@ -5973,7 +5981,7 @@ int main(int argc, char* argv[])
 
 
     cout << "Allocate Memory: \n";
-    nvtx::push_range("ALLOC_MEM", 0);
+    //nvtx::push_range("ALLOC_MEM", 0);
 	helpers::CpuTimer allocTimer("ALLOC_MEM");
 
     for(int i = 0; i < numGpus; i++){
@@ -6018,7 +6026,7 @@ int main(int argc, char* argv[])
     }    
 
 	allocTimer.print();
-    nvtx::pop_range();
+    //nvtx::pop_range();
 
 
     std::vector<std::vector<std::vector<DeviceBatchCopyToPinnedPlan>>> batchPlans_perChunk(numDBChunks);
@@ -6159,7 +6167,7 @@ int main(int argc, char* argv[])
 
 
 	for(int query_num = FIRST_QUERY_NUM; query_num < numQueries; ++query_num) {
-
+        //if(query_num != 6) continue;
         dp_cells = avg_length_2 * lengths[query_num];
 
         const bool useExtraThreadForBatchTransfer = numGpus > 1;
@@ -6174,7 +6182,7 @@ int main(int argc, char* argv[])
 
         std::cout << "Starting NW_local_affine_half2 for Query " << query_num << "\n";
 
-        nvtx::push_range("QUERY " + std::to_string(query_num), 0);
+        //nvtx::push_range("QUERY " + std::to_string(query_num), 0);
         queryTimers[query_num]->start();
 
         for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
@@ -6263,13 +6271,14 @@ int main(int argc, char* argv[])
         }
 
         queryTimers[query_num]->stop();
-        nvtx::pop_range();
+        queryTimers[query_num]->printGCUPS(avg_length_2 * lengths[query_num]);
+        //nvtx::pop_range();
     }
     cudaSetDevice(masterDeviceId);
     cudaStreamSynchronize(masterStream1); CUERR
 
     for(int i = 0; i < numQueries; i++){
-        queryTimers[i]->printGCUPS(avg_length_2 * lengths[i]);
+        //queryTimers[i]->printGCUPS(avg_length_2 * lengths[i]);
     }
     fullscanTimer.printGCUPS(avg_length_2 * avg_length);
 
@@ -6332,5 +6341,7 @@ int main(int argc, char* argv[])
         CUERR;
 
     }
+
+    } //pseudodb length loop
 
 }

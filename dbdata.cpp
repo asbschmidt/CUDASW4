@@ -191,7 +191,13 @@ DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq){
 }
 
 
+PseudoDB loadPseudoDB(size_t num, size_t length, int randomseed){
+    PseudoDB result;
+    result.info.numChunks = 1;
+    result.chunks.emplace_back(num, length, randomseed);
 
+    return result;
+}
 
 
 

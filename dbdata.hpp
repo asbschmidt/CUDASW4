@@ -3,9 +3,15 @@
 
 #include "mapped_file.hpp"
 #include "sequence_io.h"
+#include "length_partitions.hpp"
 
 #include <memory>
 #include <fstream>
+#include <random>
+#include <algorithm>
+#include <numeric>
+#include <vector>
+#include <iostream>
 
 struct DBdataIoConfig{
     static const std::string metadatafilename(){ return "metadata"; }
@@ -21,13 +27,15 @@ struct DBGlobalInfo{
     int numChunks;
 };
 
+
+struct DBdataMetaData{
+    std::vector<int> lengthBoundaries;
+    std::vector<size_t> numSequencesPerLengthPartition;
+};
+
 struct DBdata{
     friend void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess, bool prefetchSeq);
 
-    struct MetaData{
-        std::vector<int> lengthBoundaries;
-        std::vector<size_t> numSequencesPerLengthPartition;
-    };
 
     DBdata(const std::string& inputPrefix, bool writeAccess, bool prefetchSeq){
         loadDBdata(inputPrefix, *this, writeAccess, prefetchSeq);
@@ -61,7 +69,7 @@ struct DBdata{
         return reinterpret_cast<const size_t*>(mappedFileHeaderOffsets->data());
     }
 
-    const MetaData& getMetaData() const noexcept{
+    const DBdataMetaData& getMetaData() const noexcept{
         return metaData;
     }
 
@@ -95,7 +103,129 @@ private:
     std::unique_ptr<MappedFile> mappedFileOffsets;
     std::unique_ptr<MappedFile> mappedFileHeaders;
     std::unique_ptr<MappedFile> mappedFileHeaderOffsets;
-    MetaData metaData;
+    DBdataMetaData metaData;
+};
+
+struct PseudoDBdata{
+
+
+    PseudoDBdata(size_t num, size_t length, int randomseed = 42)
+    : lengthRounded(((length + 3) / 4) * 4),
+        charvec(num * lengthRounded),
+        lengthvec(num),
+        offsetvec(num+1),
+        headervec(num), //headers will be only 1 letter
+        headeroffsetvec(num+1)
+    {
+        const char* letters = "ARNDCQEGHILKMFPSTWYV";
+
+        std::mt19937 gen(randomseed);
+        std::uniform_int_distribution<> dist(0,19);
+
+
+        std::string dummyseq(length, ' ');
+        for(size_t i = 0; i < length; i++){
+            dummyseq[i] = letters[dist(gen)];
+        }
+        std::cout << "PseudoDBdata: num " << num << ", length " << length << ", sequence " << dummyseq << "\n";
+
+        for(size_t i = 0; i < num; i++){
+            offsetvec[i] = i * lengthRounded;
+            std::copy(dummyseq.begin(), dummyseq.end(), charvec.begin() + i * lengthRounded);
+        }
+        offsetvec[num] = num * lengthRounded;
+
+        std::fill(lengthvec.begin(), lengthvec.end(), length);
+
+        std::fill(headervec.begin(), headervec.end(), 'H');
+        std::iota(headeroffsetvec.begin(), headeroffsetvec.end(), size_t(0));
+
+        //convert nucs to integers
+        auto convert_AA = [](const char& AA) {
+            if (AA == 'A') return 0;
+            if (AA == 'R') return 1;
+            if (AA == 'N') return 2;
+            if (AA == 'D') return 3;
+            if (AA == 'C') return 4;
+            if (AA == 'Q') return 5;
+            if (AA == 'E') return 6;
+            if (AA == 'G') return 7;
+            if (AA == 'H') return 8;
+            if (AA == 'I') return 9;
+            if (AA == 'L') return 10;
+            if (AA == 'K') return 11;
+            if (AA == 'M') return 12;
+            if (AA == 'F') return 13;
+            if (AA == 'P') return 14;
+            if (AA == 'S') return 15;
+            if (AA == 'T') return 16;
+            if (AA == 'W') return 17;
+            if (AA == 'Y') return 18;
+            if (AA == 'V') return 19;
+            return 20; //  else
+        };
+        std::transform(charvec.begin(), charvec.end(), charvec.begin(), convert_AA);
+        
+
+        auto boundaries = getLengthPartitionBoundaries();
+
+        metaData.lengthBoundaries.insert(metaData.lengthBoundaries.end(), boundaries.begin(), boundaries.end());
+        metaData.numSequencesPerLengthPartition.resize(boundaries.size());
+
+        for(int i = 0; i < int(boundaries.size()); i++){
+            int lower = i == 0 ? 0 : boundaries[i-1];
+            int upper = boundaries[i];
+
+            if(lower < length && length <= upper){
+                metaData.numSequencesPerLengthPartition[i] = num;
+            }else{
+                metaData.numSequencesPerLengthPartition[i] = 0;
+            }
+        }
+    }
+
+    size_t numSequences() const noexcept{
+        return lengthvec.size();
+    }
+
+    size_t numChars() const noexcept{
+        return charvec.size();
+    }
+
+    const char* chars() const noexcept{
+        return charvec.data();
+    }
+
+    const size_t* lengths() const noexcept{
+        return lengthvec.data();
+    }
+
+    const size_t* offsets() const noexcept{
+        return offsetvec.data();
+    }
+
+    const char* headers() const noexcept{
+        return headervec.data();
+    }
+
+    const size_t* headerOffsets() const noexcept{
+        return headeroffsetvec.data();
+    }
+
+    const DBdataMetaData& getMetaData() const noexcept{
+        return metaData;
+    }
+    
+private:
+    PseudoDBdata() = default;
+
+    size_t lengthRounded;
+    std::vector<char> charvec;
+    std::vector<size_t> lengthvec;
+    std::vector<size_t> offsetvec;
+    std::vector<char> headervec;
+    std::vector<size_t> headeroffsetvec;
+    DBdataMetaData metaData;
 };
 
 struct DB{
@@ -103,11 +233,17 @@ struct DB{
     std::vector<DBdata> chunks;
 };
 
+struct PseudoDB{
+    DBGlobalInfo info;
+    std::vector<PseudoDBdata> chunks;
+};
+
 void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const sequence_batch& batch);
 void writeGlobalDbInfo(const std::string& outputPrefix, const DBGlobalInfo& info);
 void readGlobalDbInfo(const std::string& prefix, DBGlobalInfo& info);
 
 DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq);
+PseudoDB loadPseudoDB(size_t num, size_t length, int randomseed = 42);
 
 
 
@@ -135,6 +271,18 @@ DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq);
 */
 struct DBdataView{
     DBdataView(const DBdata& parent) 
+        : firstSequence(0), 
+        lastSequence_excl(parent.numSequences()), 
+        parentChars(parent.chars()),
+        parentLengths(parent.lengths()),
+        parentOffsets(parent.offsets()),
+        parentHeaders(parent.headers()),
+        parentHeaderOffsets(parent.headerOffsets())
+    {
+
+    }
+
+    DBdataView(const PseudoDBdata& parent) 
         : firstSequence(0), 
         lastSequence_excl(parent.numSequences()), 
         parentChars(parent.chars()),
