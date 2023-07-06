@@ -27,6 +27,8 @@
 #include "hpc_helpers/nvtx_markers.cuh"
 #include "hpc_helpers/simple_allocation.cuh"
 
+#include <cuda/annotated_ptr>
+
 #include "sequence_io.h"
 
 #include <omp.h>
@@ -5445,6 +5447,9 @@ void processQueryOnGpu(
             cudaEventRecord(ws.pinnedBufferEvents[currentBuffer], H2DcopyStream); CUERR;
         }else{
             assert(batchPlan.size() == 1);
+            //can only overwrite device buffer if it is no longer in use on workstream
+            //for d_overflow_number
+            cudaStreamWaitEvent(H2DcopyStream, ws.deviceBufferEvents[currentBuffer], 0); CUERR;
         }
 
         const char* const inputChars = d_chardata_vec[currentBuffer].data();
@@ -5481,12 +5486,19 @@ void processQueryOnGpu(
                 ws.workstreamIndex = (ws.workstreamIndex + 1) % ws.numWorkStreamsWithoutTemp;
                 return (cudaStream_t)ws.workStreamsWithoutTemp[ws.workstreamIndex];
             };
-            size_t exclPs = 0;
-            for(int lp = 0; lp < int(plan.h_partitionIds.size()); lp++){
+            std::vector<int> numPerPartitionPrefixSum(plan.h_numPerPartition.size());
+            for(int i = 0; i < int(plan.h_numPerPartition.size())-1; i++){
+                numPerPartitionPrefixSum[i+1] = numPerPartitionPrefixSum[i] + plan.h_numPerPartition[i];
+            }
+            //size_t exclPs = 0;
+            //for(int lp = 0; lp < int(plan.h_partitionIds.size()); lp++){
+            for(int lp = plan.h_partitionIds.size() - 1; lp >= 0; lp--){
                 const int partId = plan.h_partitionIds[lp];
                 const int numSeq = plan.h_numPerPartition[lp];
+                const int start = numPerPartitionPrefixSum[lp];
+                //std::cout << "partId " << partId << " numSeq " << numSeq << "\n";
                 
-                const size_t* const d_selectedPositions = ws.d_selectedPositions.data() + exclPs;
+                const size_t* const d_selectedPositions = ws.d_selectedPositions.data() + start;
 
 
                 if (partId == 0){NW_local_affine_Protein_single_pass_half2<4, 16><<<(numSeq+255)/(2*8*4*4), 32*8*2, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex); CUERR }
@@ -5582,7 +5594,7 @@ void processQueryOnGpu(
                     }
                 }
 
-                exclPs += numSeq;
+                //exclPs += numSeq;
             }
         };
 
@@ -5891,6 +5903,10 @@ int main(int argc, char* argv[])
         // for(int gpu = 0; gpu < numGpus; gpu++){
         //     std::rotate(subPartitionsForGpus[gpu].rbegin(), subPartitionsForGpus[gpu].rbegin() + 1, subPartitionsForGpus[gpu].rend());
         //     std::rotate(lengthPartitionIdsForGpus[gpu].rbegin(), lengthPartitionIdsForGpus[gpu].rbegin() + 1, lengthPartitionIdsForGpus[gpu].rend());
+        // }
+        // for(int gpu = 0; gpu < numGpus; gpu++){
+        //     std::reverse(subPartitionsForGpus[gpu].begin(), subPartitionsForGpus[gpu].end());
+        //     std::reverse(lengthPartitionIdsForGpus[gpu].begin(),  lengthPartitionIdsForGpus[gpu].end());
         // }
 
         for(int i = 0; i < numGpus; i++){
@@ -6248,7 +6264,6 @@ int main(int argc, char* argv[])
 
         queryTimers[query_num]->stop();
         nvtx::pop_range();
-
     }
     cudaSetDevice(masterDeviceId);
     cudaStreamSynchronize(masterStream1); CUERR
@@ -6260,57 +6275,62 @@ int main(int argc, char* argv[])
 
     CUERR;
 
-    //sort the chunk results per query to find overall top results
-    std::vector<float> final_alignment_scores_float(numQueries * results_per_query);
-    std::vector<size_t> final_sorted_indices(numQueries * results_per_query);
-    std::vector<int> final_resultDbChunkIndices(numQueries * results_per_query);
+    const char* alignerDisableOutputString = std::getenv("ALIGNER_DISABLE_OUTPUT");
+    bool outputDisabled = std::atoi(alignerDisableOutputString);
 
-    for (int query_num=0; query_num < numQueries; query_num++) {
-        float* scores =  &alignment_scores_float[query_num * numDBChunks * results_per_query];
-        size_t* indices =  &sorted_indices[query_num * numDBChunks * results_per_query];
-        int* chunkIds =  &resultDbChunkIndices[query_num * numDBChunks * results_per_query];
+    if(!outputDisabled){
 
-        std::vector<int> permutation(results_per_query * numDBChunks);
-        std::iota(permutation.begin(), permutation.end(), 0);
-        std::sort(permutation.begin(), permutation.end(),
-            [&](const auto& l, const auto& r){
-                return scores[l] > scores[r];
+        //sort the chunk results per query to find overall top results
+        std::vector<float> final_alignment_scores_float(numQueries * results_per_query);
+        std::vector<size_t> final_sorted_indices(numQueries * results_per_query);
+        std::vector<int> final_resultDbChunkIndices(numQueries * results_per_query);
+
+        for (int query_num=0; query_num < numQueries; query_num++) {
+            float* scores =  &alignment_scores_float[query_num * numDBChunks * results_per_query];
+            size_t* indices =  &sorted_indices[query_num * numDBChunks * results_per_query];
+            int* chunkIds =  &resultDbChunkIndices[query_num * numDBChunks * results_per_query];
+
+            std::vector<int> permutation(results_per_query * numDBChunks);
+            std::iota(permutation.begin(), permutation.end(), 0);
+            std::sort(permutation.begin(), permutation.end(),
+                [&](const auto& l, const auto& r){
+                    return scores[l] > scores[r];
+                }
+            );
+
+            for(int i = 0; i < results_per_query; i++){
+                final_alignment_scores_float[query_num * results_per_query + i] = scores[permutation[i]];
+                final_sorted_indices[query_num * results_per_query + i] = indices[permutation[i]];
+                final_resultDbChunkIndices[query_num * results_per_query + i] = chunkIds[permutation[i]];
+            }        
+        }
+
+
+        for (int i=0; i<numQueries; i++) {
+            std::cout << totalOverFlowNumber << " total overflow positions \n";
+            cout << "Query Length:" << lengths[i] << " Header: ";
+            cout << batch.headers[i] << '\n';
+
+            for(int j = 0; j < 10; ++j) {
+                const int arrayIndex = i*results_per_query+j;
+                const size_t sortedIndex = final_sorted_indices[arrayIndex];
+                
+                const int dbChunkIndex = final_resultDbChunkIndices[arrayIndex];
+                
+                const auto& chunkData = fullDB.chunks[dbChunkIndex];
+
+                const char* headerBegin = chunkData.headers() + chunkData.headerOffsets()[sortedIndex];
+                const char* headerEnd = chunkData.headers() + chunkData.headerOffsets()[sortedIndex+1];
+                cout << "Result: "<< j <<", Length: " << chunkData.lengths()[sortedIndex] << " Score: " << final_alignment_scores_float[arrayIndex] << " : ";
+                std::copy(headerBegin, headerEnd,std::ostream_iterator<char>{cout});
+                //cout << "\n";
+
+                std::cout << " dbChunkIndex " << dbChunkIndex << "\n";
             }
-        );
+        }
 
-        for(int i = 0; i < results_per_query; i++){
-            final_alignment_scores_float[query_num * results_per_query + i] = scores[permutation[i]];
-            final_sorted_indices[query_num * results_per_query + i] = indices[permutation[i]];
-            final_resultDbChunkIndices[query_num * results_per_query + i] = chunkIds[permutation[i]];
-        }        
+        CUERR;
+
     }
-
-
-    for (int i=0; i<numQueries; i++) {
-	    std::cout << totalOverFlowNumber << " total overflow positions \n";
-		cout << "Query Length:" << lengths[i] << " Header: ";
-		cout << batch.headers[i] << '\n';
-
-		for(int j = 0; j < 10; ++j) {
-            const int arrayIndex = i*results_per_query+j;
-            const size_t sortedIndex = final_sorted_indices[arrayIndex];
-            
-            const int dbChunkIndex = final_resultDbChunkIndices[arrayIndex];
-            
-            const auto& chunkData = fullDB.chunks[dbChunkIndex];
-
-            const char* headerBegin = chunkData.headers() + chunkData.headerOffsets()[sortedIndex];
-            const char* headerEnd = chunkData.headers() + chunkData.headerOffsets()[sortedIndex+1];
-            cout << "Result: "<< j <<", Length: " << chunkData.lengths()[sortedIndex] << " Score: " << final_alignment_scores_float[arrayIndex] << " : ";
-            std::copy(headerBegin, headerEnd,std::ostream_iterator<char>{cout});
-            //cout << "\n";
-
-            std::cout << " dbChunkIndex " << dbChunkIndex << "\n";
-		}
-    }
-
-    CUERR;
-
-
 
 }
