@@ -367,6 +367,7 @@ int main(){
             constexpr int alignmentsPerBlock = (blocksize / groupsize) * 2; \
                 cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(__half2), stream); CUERR; \
                 cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; \
+                helpers::GpuTimer timer1(stream, "old " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
                 NW_local_affine_Protein_many_pass_half2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
                     d_subjects.data(),  \
                     d_scores_vec[0].data(),  \
@@ -383,9 +384,11 @@ int main(){
                     gop,  \
                     gex \
                 ); CUERR \
+                timer1.printGCUPS(((double(queryLength) * pseudodbSeqLength * numSubjects)));\
                 cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(__half2), stream); CUERR; \
                 cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; \
-                NW_local_affine_Protein_many_pass_half2_new<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                helpers::GpuTimer timer2(stream, "new " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
+                NW_local_affine_Protein_many_pass_half2_new2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
                     d_subjects.data(),  \
                     d_scores_vec[1].data(),  \
                     d_tempH.data(), \
@@ -401,6 +404,7 @@ int main(){
                     gop,  \
                     gex \
                 ); CUERR \
+                timer2.printGCUPS(((double(queryLength) * pseudodbSeqLength * numSubjects)));\
             checkIfEqualResultsNew(); \
         }
 
