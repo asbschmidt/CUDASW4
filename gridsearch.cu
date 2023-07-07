@@ -7,6 +7,8 @@
 #include "length_partitions.hpp"
 #include "convert.cuh"
 #include "kernels.cuh"
+#include "manypass_half2_kernel.cuh"
+
 
 #include <thrust/sequence.h>
 #include <thrust/execution_policy.h>
@@ -90,7 +92,7 @@ int main(){
     const int queryLength = 256;
     const int numSubjects = 32*1024;
 
-    const int timingLoopIters = 5;
+    const int timingLoopIters = 2;
 
     const int gop = -11;
     const int gex = -1;
@@ -231,7 +233,9 @@ int main(){
 
     std::cout << "NW_local_affine_Protein_single_pass_half2\n";
 
-    for(int pseudodbSeqLength : {1500, 2000, 2048, 3333, 4096, 6666, 7000}){
+    //for(int pseudodbSeqLength : {1500, 2000, 2048, 3333, 4096, 6666, 7000}){
+    for(int pseudodbSeqLength : {4096}){
+    //for(int pseudodbSeqLength = 1564; pseudodbSeqLength <= 5000; pseudodbSeqLength += 64){
         std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
  
         PseudoDB fullDB = loadPseudoDB(numSubjects, pseudodbSeqLength);
@@ -295,6 +299,39 @@ int main(){
             }
         };
 
+        auto checkIfEqualResultsNew = [&](){
+            const float overflowscore = 123456;
+            auto overflowiter = thrust::make_constant_iterator(overflowscore);
+            for(int i = 0; i < 2; i++){
+                int numOverflow = 0;
+                cudaMemcpyAsync(&numOverflow, d_overflow_number_vec[i].data(), sizeof(int), D2H, stream); CUERR;
+                cudaStreamSynchronize(stream); CUERR;
+                // if(i == 0){
+                //     std::cout << "Num overflows: " << numOverflow << "\n";
+                // }
+                thrust::scatter(
+                    thrust::cuda::par_nosync.on(stream),
+                    overflowiter,
+                    overflowiter + numOverflow,
+                    d_overflow_positions_vec[i].data(),
+                    d_scores_vec[i].data()
+                );
+            }
+            for(int i = 1; i < 2; i++){
+                bool equal = thrust::equal(
+                    thrust::cuda::par_nosync.on(stream),
+                    d_scores_vec[i].data(),
+                    d_scores_vec[i].data() + numSubjects,
+                    d_scores_vec[0].data()
+                );
+                if(!equal){
+                    std::cout << "i = " << i << ", scores not equal\n";
+                }else{
+                    std::cout << "ok\n";
+                }
+            }
+        };
+
         #define runManyPassHalf2(blocksize, groupsize, numRegs){ \
             assert(blocksize % groupsize == 0); \
             constexpr int alignmentsPerBlock = (blocksize / groupsize) * 2; \
@@ -323,7 +360,48 @@ int main(){
             double gcups = ((double(queryLength) * pseudodbSeqLength * numSubjects)) / 1000. / 1000. / 1000.; \
             gcups = gcups / (timer1.elapsed() / 1000); \
             gcupsVec.push_back(std::make_tuple(gcups,blocksize,groupsize, numRegs )); \
-            checkIfEqualResults(); \
+        }
+
+        #define compareManyPassHalf2New(blocksize, groupsize, numRegs){ \
+            assert(blocksize % groupsize == 0); \
+            constexpr int alignmentsPerBlock = (blocksize / groupsize) * 2; \
+                cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(__half2), stream); CUERR; \
+                cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; \
+                NW_local_affine_Protein_many_pass_half2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                    d_subjects.data(),  \
+                    d_scores_vec[0].data(),  \
+                    d_tempH.data(), \
+                    d_tempE.data(), \
+                    d_subjectOffsets.data(),  \
+                    d_subjectLengths.data(),  \
+                    d_selectedPositions.data(),  \
+                    numSubjects,  \
+                    d_overflow_positions_vec[0].data(),  \
+                    d_overflow_number_vec[0].data(),  \
+                    0,  \
+                    queryLength,  \
+                    gop,  \
+                    gex \
+                ); CUERR \
+                cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(__half2), stream); CUERR; \
+                cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; \
+                NW_local_affine_Protein_many_pass_half2_new<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                    d_subjects.data(),  \
+                    d_scores_vec[1].data(),  \
+                    d_tempH.data(), \
+                    d_tempE.data(), \
+                    d_subjectOffsets.data(),  \
+                    d_subjectLengths.data(),  \
+                    d_selectedPositions.data(),  \
+                    numSubjects,  \
+                    d_overflow_positions_vec[1].data(),  \
+                    d_overflow_number_vec[1].data(),  \
+                    0,  \
+                    queryLength,  \
+                    gop,  \
+                    gex \
+                ); CUERR \
+            checkIfEqualResultsNew(); \
         }
 
 
@@ -336,6 +414,10 @@ int main(){
             runManyPassHalf2(blocksize, 32, numRegs); \
         }
 
+        runManyPassHalf2(256, 32, 32);
+
+        compareManyPassHalf2New(256, 32, 32);
+
         // std::cout << "start 4\n"; runManyPassHalf2(256, 32, 4);
         // std::cout << "start 6\n"; runManyPassHalf2(256, 32, 6);
         // std::cout << "start 8\n"; runManyPassHalf2(256, 32, 8);
@@ -343,13 +425,13 @@ int main(){
         // std::cout << "start 12\n"; runManyPassHalf2(256, 32, 12);
         // std::cout << "start 14\n"; runManyPassHalf2(256, 32, 14);
         // std::cout << "start 16\n"; runManyPassHalf2(256, 32, 16);
-        runManyPassHalf2(256, 32, 2);
-        runManyPassHalf2(256, 32, 4);
-        runManyPassHalf2(256, 32, 6);
-        runManyPassHalf2(256, 32, 8);
-        runManyPassHalf2(256, 32, 10);
-        runManyPassHalf2(256, 32, 12);
-        runManyPassHalf2(256, 32, 14);
+        // runManyPassHalf2(256, 32, 2);
+        // runManyPassHalf2(256, 32, 4);
+        // runManyPassHalf2(256, 32, 6);
+        // runManyPassHalf2(256, 32, 8);
+        // runManyPassHalf2(256, 32, 10);
+        // runManyPassHalf2(256, 32, 12);
+        // runManyPassHalf2(256, 32, 14);
         // runManyPassHalf2(256, 32, 16);
         // runManyPassHalf2(256, 32, 18);
         // runManyPassHalf2(256, 32, 20);
@@ -358,7 +440,9 @@ int main(){
         // runManyPassHalf2(256, 32, 26);
         // runManyPassHalf2(256, 32, 28);
         // runManyPassHalf2(256, 32, 30);
-        // runManyPassHalf2(256, 32, 32);
+        //runManyPassHalf2(256, 32, 32);
+
+
         //runManyPassHalf2(256, 1, 32);
         //runManyPassHalf2_numregs(256, 32);
         // runManyPassHalf2_numregs(256, 30);
