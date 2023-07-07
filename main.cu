@@ -726,8 +726,7 @@ void processQueryOnGpu(
     cudaEventRecord(ws.forkStreamEvent, mainStream); CUERR;
     cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.forkStreamEvent, 0); CUERR;
     for(auto& stream : ws.workStreamsWithoutTemp){
-        cudaEventRecord(ws.forkStreamEvent, stream); CUERR;
-        cudaStreamWaitEvent(mainStream, ws.forkStreamEvent, 0); CUERR;
+        cudaStreamWaitEvent(stream, ws.forkStreamEvent, 0); CUERR;
     }
     cudaStreamWaitEvent(ws.hostFuncStream, ws.forkStreamEvent, 0); CUERR;
     // for(int i = 0; i < ws.numCopyBuffers; i++){
