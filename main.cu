@@ -38,6 +38,8 @@
 #include "convert.cuh"
 #include "kernels.cuh"
 
+#include "manypass_half2_kernel.cuh"
+
 template<class T>
 using MyPinnedBuffer = helpers::SimpleAllocationPinnedHost<T, 0>;
 template<class T>
@@ -153,8 +155,8 @@ struct GpuWorkingSet{
         numCopyBuffers = 2;
         // MAX_CHARDATA_BYTES = 512ull * 1024ull * 1024ull;
         // MAX_SEQ = 10'000'000;
-        MAX_CHARDATA_BYTES = 16ull *1024ull * 1024ull * 1024ull;
-        MAX_SEQ = 60'000'000;
+        MAX_CHARDATA_BYTES = 18ull *1024ull * 1024ull * 1024ull;
+        MAX_SEQ = 70'000'000;
         // MAX_CHARDATA_BYTES = 1ull*1024ull * 1024ull * 1024ull;
         // MAX_SEQ = 60'000'000;
 
@@ -957,6 +959,7 @@ void processQueryOnGpu(
                         //std::cout << "iter " << iter << " / " << numIters << " gridsize " << SDIV(num, alignmentsPerBlock) << "\n";
                         
                         NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
+                        //NW_local_affine_Protein_many_pass_half2_new2<groupsize, 32><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
                             inputChars, 
                             d_scores, 
                             d_tempHcol2, 

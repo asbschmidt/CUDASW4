@@ -640,8 +640,7 @@ struct ManyPassHalf2{
         const uint32_t thread_result = ((length-1)%(group_size*numRegs))/numRegs; 
 
         init_penalties_local(0);
-        //init_local_score_profile_BLOSUM62((passes-1)*(32*numRegs));
-        init_local_score_profile_BLOSUM62(passes > 1 ? (passes-1)*(32*numRegs) : 0);
+        init_local_score_profile_BLOSUM62((passes-1)*(32*numRegs));
         //copy_H_E_temp_in();
         if (!group_id) {
             penalty_left = H_temp_in;
@@ -1463,8 +1462,7 @@ void NW_local_affine_Protein_many_pass_half2_new(
     offset_in += group_size;
 
     init_penalties_local(0);
-    //init_local_score_profile_BLOSUM62((passes-1)*(32*numRegs));
-    init_local_score_profile_BLOSUM62(passes > 1 ? (passes-1)*(32*numRegs) : 0);
+    init_local_score_profile_BLOSUM62((passes-1)*(32*numRegs));
     //copy_H_E_temp_in();
     if (!group_id) {
         penalty_left = H_temp_in;

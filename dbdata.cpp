@@ -11,27 +11,6 @@
 
 
 void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess, bool prefetchSeq){
-    std::ifstream metadatain(inputPrefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
-    if(!metadatain) throw std::runtime_error("Cannot open file " + inputPrefix + DBdataIoConfig::metadatafilename());
-
-    int numPartitions = 0;
-    metadatain.read((char*)&numPartitions, sizeof(int));
-
-    result.metaData.lengthBoundaries.resize(numPartitions);
-    result.metaData.numSequencesPerLengthPartition.resize(numPartitions);
-    metadatain.read((char*)result.metaData.lengthBoundaries.data(), sizeof(int) * numPartitions);
-    metadatain.read((char*)result.metaData.numSequencesPerLengthPartition.data(), sizeof(size_t) * numPartitions);
-
-    //
-    auto expectedBoundaries = getLengthPartitionBoundaries();
-    if(expectedBoundaries.size() != result.metaData.lengthBoundaries.size()){
-        throw std::runtime_error("Invalid partition info in metadata.");
-    }
-    for(int i = 0; i < numPartitions; i++){
-        if(expectedBoundaries[i] != result.metaData.lengthBoundaries[i]){
-            throw std::runtime_error("Invalid partition info in metadata.");
-        }
-    }
 
 
     MappedFile::Options headerOptions;
@@ -51,6 +30,50 @@ void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess
     result.mappedFileSequences = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::sequencesfilename(), sequenceOptions);
     result.mappedFileLengths = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::sequencelengthsfilename(), sequenceOptions);
     result.mappedFileOffsets = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::sequenceoffsetsfilename(), sequenceOptions);
+
+    // std::ifstream metadatain(inputPrefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
+    // if(!metadatain) throw std::runtime_error("Cannot open file " + inputPrefix + DBdataIoConfig::metadatafilename());
+
+    // int numPartitions = 0;
+    // metadatain.read((char*)&numPartitions, sizeof(int));
+
+    // result.metaData.lengthBoundaries.resize(numPartitions);
+    // result.metaData.numSequencesPerLengthPartition.resize(numPartitions);
+    // metadatain.read((char*)result.metaData.lengthBoundaries.data(), sizeof(int) * numPartitions);
+    // metadatain.read((char*)result.metaData.numSequencesPerLengthPartition.data(), sizeof(size_t) * numPartitions);
+    //
+    // auto expectedBoundaries = getLengthPartitionBoundaries();
+    // if(expectedBoundaries.size() != result.metaData.lengthBoundaries.size()){
+    //     throw std::runtime_error("Invalid partition info in metadata.");
+    // }
+    // for(int i = 0; i < numPartitions; i++){
+    //     if(expectedBoundaries[i] != result.metaData.lengthBoundaries[i]){
+    //         throw std::runtime_error("Invalid partition info in metadata.");
+    //     }
+    // }
+
+
+    auto lengthBoundaries = getLengthPartitionBoundaries();
+    const int numPartitions = lengthBoundaries.size();
+    result.metaData.lengthBoundaries.resize(numPartitions);
+    result.metaData.numSequencesPerLengthPartition.resize(numPartitions);
+
+    auto partitionBegin = result.lengths();
+    for(int i = 0; i < numPartitions; i++){
+        //length k is in partition i if boundaries[i-1] < k <= boundaries[i]
+        int searchFor = lengthBoundaries[i];
+        if(searchFor < std::numeric_limits<int>::max()){
+            searchFor += 1;
+        }
+        auto partitionEnd = std::lower_bound(
+            partitionBegin, 
+            result.lengths() + result.numSequences(), 
+            searchFor
+        );
+        result.metaData.lengthBoundaries[i] = lengthBoundaries[i];
+        result.metaData.numSequencesPerLengthPartition[i] = std::distance(partitionBegin, partitionEnd);
+        partitionBegin = partitionEnd;
+    }
 }
 
 //write vector to file, overwrites existing file
