@@ -12,6 +12,7 @@ ARTIFACT     = align
 
 MAKEDB = makedb
 MODIFYDB = modifydb
+GRIDSEARCH = gridsearch
 
 # make targets
 .PHONY: clean
@@ -38,8 +39,11 @@ $(MAKEDB): makedb.o sequence_io.o dbdata.o
 $(MODIFYDB): modifydb.o sequence_io.o dbdata.o
 	$(COMPILER) $^ -o $(MODIFYDB) $(LDFLAGS)
 
+$(GRIDSEARCH): gridsearch.o sequence_io.o dbdata.o
+	$(COMPILER) $^ -o $(GRIDSEARCH) $(LDFLAGS)
+
 # compile CUDA files
-main.o : main.cu sequence_io.h length_partitions.hpp
+main.o : main.cu sequence_io.h length_partitions.hpp kernels.cuh dbdata.hpp
 	$(COMPILE)
 
 # compile pure C++ files
@@ -57,4 +61,6 @@ makedb.o : makedb.cpp dbdata.hpp sequence_io.h
 modifydb.o : modifydb.cpp dbdata.hpp sequence_io.h
 	$(COMPILE)
 
+gridsearch.o : gridsearch.cu length_partitions.hpp kernels.cuh dbdata.hpp
+	$(COMPILE)
 
