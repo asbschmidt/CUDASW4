@@ -841,7 +841,9 @@ void NW_local_affine_many_pass_s16_DPX(
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int group_size, int numRegs, class PositionsIterator> __global__
+template <int group_size, int numRegs, class PositionsIterator> 
+__launch_bounds__(256,2)
+__global__
 void NW_local_affine_Protein_many_pass_half2(
     const char * devChars,
     float * devAlignmentScores,
@@ -891,6 +893,9 @@ void NW_local_affine_Protein_many_pass_half2(
 
 	int length_S1 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)+1]];
 	size_t base_S1 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size)+1]]-devOffsets[0];
+
+    // printf("tid %d, %lu, %lu\n", threadIdx.x, base_S0, base_S1);
+    //__syncthreads();
 
 
     //int check_blid = 0;
@@ -956,7 +961,8 @@ void NW_local_affine_Protein_many_pass_half2(
     __half2 * devTempHcol = (half2*)(&devTempHcol2[base_3]);
     __half2 * devTempEcol = (half2*)(&devTempEcol2[base_3]);
 
-    auto checkHEindex = [&](auto x){
+    auto checkHEindex = [&](auto x, int line){
+        // if(x < 0){printf("line %d\n", line);}
         // assert(x >= 0); //positive index
         // assert(2*(blockDim.x/group_size)*blid * length_2 <= base_3 + x);
         // assert(base_3+x < 2*(blockDim.x/group_size)*(blid+1) * length_2);
@@ -970,6 +976,7 @@ void NW_local_affine_Protein_many_pass_half2(
         E = NEGINFINITY2;
         #pragma unroll
         for (int i=0; i<numRegs; i++) penalty_here_array[i] = NEGINFINITY2;
+        //#pragma unroll //UNROLLHERE
         for (int i=0; i<numRegs; i++) F_here_array[i] = NEGINFINITY2;
         if (thid % group_size == 0) {
             penalty_left = __floats2half2_rn(0,0);
@@ -995,10 +1002,14 @@ void NW_local_affine_Protein_many_pass_half2(
         }
         __syncthreads();
 	   }
+       //#pragma unroll //UNROLLHERE
        for (int i=0; i<numRegs; i++) {
 
            if (offset_isc+numRegs*(thid%group_size)+i >= length_S0) subject[i] = 1; // 20;
-           else subject[i] = devChars[offset_isc+base_S0+numRegs*(thid%group_size)+i];
+           else{
+                //printf("tid %d, i %d, offset_isc %d, base_S0 %lu, total %d\n", threadIdx.x, i, offset_isc, base_S0, offset_isc+base_S0+numRegs*(thid%group_size)+i);
+            subject[i] = devChars[offset_isc+base_S0+numRegs*(thid%group_size)+i];
+           }
 
            if (offset_isc+numRegs*(thid%group_size)+i >= length_S1) subject[i] += 1*21; // 20*21;
            else subject[i] += 21*devChars[offset_isc+base_S1+numRegs*(thid%group_size)+i];
@@ -1056,6 +1067,7 @@ void NW_local_affine_Protein_many_pass_half2(
 
         penalty_here31 = penalty_here_array[numRegs-1];
         E = __hmax2(E+gap_extend2, penalty_here31+gap_open2);
+        //#pragma unroll //UNROLLHERE
         for (int i=0; i<numRegs; i++) F_here_array[i] = __hmax2(__hadd2(F_here_array[i],gap_extend2), __hadd2(penalty_here_array[i],gap_open2));
     };
 
@@ -1217,7 +1229,7 @@ void NW_local_affine_Protein_many_pass_half2(
 
         set_H_E_temp_out();
         if (counter%8 == 0 && counter > 8) {
-            checkHEindex(offset_out);
+            checkHEindex(offset_out, __LINE__);
             devTempHcol[offset_out]=H_temp_out;
             devTempEcol[offset_out]=E_temp_out;
             offset_out += group_size;
@@ -1275,8 +1287,9 @@ void NW_local_affine_Protein_many_pass_half2(
     int final_out = length_2 % 32;
     int from_thread_id = 32 - final_out;
 
+    //printf("tid %d, offset_out %d, from_thread_id %d\n", threadIdx.x, offset_out, from_thread_id);
     if (thid>=from_thread_id) {
-        checkHEindex(offset_out-from_thread_id);
+        checkHEindex(offset_out-from_thread_id, __LINE__);
         devTempHcol[offset_out-from_thread_id]=H_temp_out;
         devTempEcol[offset_out-from_thread_id]=E_temp_out;
     }
@@ -1304,7 +1317,7 @@ void NW_local_affine_Protein_many_pass_half2(
         offset = group_id + group_size;
         offset_out = group_id;
         offset_in = group_id;
-        checkHEindex(offset_in);
+        checkHEindex(offset_in, __LINE__);
         H_temp_in = devTempHcol[offset_in];
         E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
@@ -1369,7 +1382,7 @@ void NW_local_affine_Protein_many_pass_half2(
             calc32_local_affine_float();
             set_H_E_temp_out();
             if (counter%8 == 0 && counter > 8) {
-                checkHEindex(offset_out);
+                checkHEindex(offset_out, __LINE__);
                 devTempHcol[offset_out]=H_temp_out;
                 devTempEcol[offset_out]=E_temp_out;
                 offset_out += group_size;
@@ -1384,7 +1397,7 @@ void NW_local_affine_Protein_many_pass_half2(
             }
             shuffle_H_E_temp_in();
             if (counter%8 == 0) {
-                checkHEindex(offset_in);
+                checkHEindex(offset_in, __LINE__);
                 H_temp_in = devTempHcol[offset_in];
                 E_temp_in = devTempEcol[offset_in];
                 offset_in += group_size;
@@ -1438,7 +1451,7 @@ void NW_local_affine_Protein_many_pass_half2(
         int from_thread_id = 32 - final_out;
 
         if (thid>=from_thread_id) {
-            checkHEindex(offset_out-from_thread_id);
+            checkHEindex(offset_out-from_thread_id, __LINE__);
             devTempHcol[offset_out-from_thread_id]=H_temp_out;
             devTempEcol[offset_out-from_thread_id]=E_temp_out;
         }
@@ -1473,13 +1486,14 @@ void NW_local_affine_Protein_many_pass_half2(
 
     offset = group_id + group_size;
     offset_in = group_id;
-    checkHEindex(offset_in);
+    checkHEindex(offset_in, __LINE__);
     H_temp_in = devTempHcol[offset_in];
     E_temp_in = devTempEcol[offset_in];
     offset_in += group_size;
 
     init_penalties_local(0);
-    init_local_score_profile_BLOSUM62((passes-1)*(32*numRegs));
+    //init_local_score_profile_BLOSUM62((passes-1)*(32*numRegs));
+    init_local_score_profile_BLOSUM62(passes > 1 ? (passes-1)*(32*numRegs) : 0);
     //copy_H_E_temp_in();
     if (!group_id) {
         penalty_left = H_temp_in;
@@ -1547,7 +1561,7 @@ void NW_local_affine_Protein_many_pass_half2(
             }
             shuffle_H_E_temp_in();
             if (counter%8 == 0) {
-                checkHEindex(offset_in);
+                checkHEindex(offset_in, __LINE__);
                 H_temp_in = devTempHcol[offset_in];
                 E_temp_in = devTempEcol[offset_in];
                 offset_in += group_size;

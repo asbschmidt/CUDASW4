@@ -127,7 +127,7 @@ struct PseudoDBdata{
         for(size_t i = 0; i < length; i++){
             dummyseq[i] = letters[dist(gen)];
         }
-        std::cout << "PseudoDBdata: num " << num << ", length " << length << ", sequence " << dummyseq << "\n";
+        //std::cout << "PseudoDBdata: num " << num << ", length " << length << ", sequence " << dummyseq << "\n";
 
         for(size_t i = 0; i < num; i++){
             offsetvec[i] = i * lengthRounded;

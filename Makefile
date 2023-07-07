@@ -17,7 +17,7 @@ GRIDSEARCH = gridsearch
 # make targets
 .PHONY: clean
 
-release: $(ARTIFACT) $(MAKEDB) $(MODIFYDB)
+release: $(ARTIFACT) $(MAKEDB) $(MODIFYDB) $(GRIDSEARCH)
 
 clean :
 	rm -f *.o
@@ -43,7 +43,7 @@ $(GRIDSEARCH): gridsearch.o sequence_io.o dbdata.o
 	$(COMPILER) $^ -o $(GRIDSEARCH) $(LDFLAGS)
 
 # compile CUDA files
-main.o : main.cu sequence_io.h length_partitions.hpp kernels.cuh dbdata.hpp
+main.o : main.cu sequence_io.h length_partitions.hpp  dbdata.hpp
 	$(COMPILE)
 
 # compile pure C++ files

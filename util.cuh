@@ -3,6 +3,18 @@
 #include <thrust/execution_policy.h>
 #include <thrust/device_malloc_allocator.h>
 
+#include <thrust/copy.h>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/iterator/constant_iterator.h>
+#include <thrust/iterator/transform_iterator.h>
+#include <thrust/scatter.h>
+#include <thrust/device_vector.h>
+#include <thrust/host_vector.h>
+#include <thrust/sort.h>
+#include <thrust/execution_policy.h>
+#include <thrust/count.h>
+#include <thrust/equal.h>
+
 
 using pinned_mr = thrust::system::cuda::universal_host_pinned_memory_resource;
 template<class T>
