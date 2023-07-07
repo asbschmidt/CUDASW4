@@ -1,7 +1,10 @@
 #ifndef KERNELS_CUH
 #define KERNELS_CUH
 
+
 #include "convert.cuh"
+
+#include <cuda_fp16.h>
 
 #define MAX_ACC_HALF2 2048.0 // 1024 ??
 
