@@ -222,7 +222,7 @@ int main(){
 
         for(int i = 0; i < std::min(3, int(gcupsVec.size())); i++){
             GCUPSstats data = gcupsVec[i];
-            std::cout << std::get<0>(data) << " GCUPSstats, " << std::get<1>(data) << " " << std::get<2>(data) << " " << std::get<3>(data) << "\n";
+            std::cout << std::get<0>(data) << " GCUPS, " << std::get<1>(data) << " " << std::get<2>(data) << " " << std::get<3>(data) << "\n";
         }
     }
 
@@ -486,7 +486,7 @@ int main(){
         //for(int i = 0; i < std::min(3, int(gcupsVec.size())); i++){
         for(int i = 0; i < int(gcupsVec.size()); i++){
             GCUPSstats data = gcupsVec[i];
-            std::cout << std::get<0>(data) << " GCUPSstats, " << std::get<1>(data) << " " << std::get<2>(data) << " " << std::get<3>(data) << "\n";
+            std::cout << std::get<0>(data) << " GCUPS, " << std::get<1>(data) << " " << std::get<2>(data) << " " << std::get<3>(data) << "\n";
         }
         std::cout << "\n";
         gcupsVec.clear();
@@ -511,7 +511,7 @@ int main(){
         //for(int i = 0; i < std::min(3, int(gcupsVec.size())); i++){
         for(int i = 0; i < int(gcupsVec.size()); i++){
             GCUPSstats data = gcupsVec[i];
-            std::cout << std::get<0>(data) << " GCUPSstats, " << std::get<1>(data) << " " << std::get<2>(data) << " " << std::get<3>(data) << "\n";
+            std::cout << std::get<0>(data) << " GCUPS, " << std::get<1>(data) << " " << std::get<2>(data) << " " << std::get<3>(data) << "\n";
         }
         std::cout << "\n";
         gcupsVec.clear();
