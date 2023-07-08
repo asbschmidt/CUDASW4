@@ -47,8 +47,6 @@ struct ManyPassHalf2{
     size_t base_S0;
 	int length_S1;
 	size_t base_S1;
-    __half2* devTempHcol;
-    __half2* devTempEcol;
 
     __device__
     ManyPassHalf2(
@@ -83,7 +81,6 @@ struct ManyPassHalf2{
         gap_open(gap_open_),
         gap_extend(gap_extend_)
     {
-        const unsigned int blid = blockIdx.x;
         group_id = threadIdx.x%group_size;
 
         int check_last;
@@ -92,7 +89,7 @@ struct ManyPassHalf2{
 
         check_last = blockDim.x/group_size;
         check_last2 = 0;
-        if (blid == gridDim.x-1) {
+        if (blockIdx.x == gridDim.x-1) {
             if (numSelected % (2*blockDim.x/group_size)) {
                 check_last = (numSelected/2) % (blockDim.x/group_size);
                 check_last2 = numSelected%2;
@@ -101,11 +98,11 @@ struct ManyPassHalf2{
         }
         check_last = check_last * group_size;
 
-        length_S0 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((threadIdx.x%check_last)/group_size)]];
-        base_S0 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((threadIdx.x%check_last)/group_size)]]-devOffsets[0];
-        length_S1 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((threadIdx.x%check_last)/group_size)+1]];
-        base_S1 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((threadIdx.x%check_last)/group_size)+1]]-devOffsets[0];
-        if (blid == gridDim.x-1){
+        length_S0 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]];
+        base_S0 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]]-devOffsets[0];
+        length_S1 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]];
+        base_S1 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]]-devOffsets[0];
+        if (blockIdx.x == gridDim.x-1){
             if (check_last2){
                 if (((threadIdx.x%check_last) >= check_last-group_size) && ((threadIdx.x%check_last) < check_last)) {
                     length_S1 = length_S0;
@@ -119,19 +116,14 @@ struct ManyPassHalf2{
         // if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
         
 
-        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blid)+2*((threadIdx.x%check_last)/group_size))*size_t(length_2);
         maximum = __float2half2_rn(0.0);
-        devTempHcol = (half2*)(&devTempHcol2[base_3]);
-        devTempEcol = (half2*)(&devTempEcol2[base_3]);
-
     }
 
     __device__ 
     void computeCheckLast(int& check_last, int& check_last2) const{
-        const unsigned int blid = blockIdx.x;
         check_last = blockDim.x/group_size;
         check_last2 = 0;
-        if (blid == gridDim.x-1) {
+        if (blockIdx.x == gridDim.x-1) {
             if (numSelected % (2*blockDim.x/group_size)) {
                 check_last = (numSelected/2) % (blockDim.x/group_size);
                 check_last2 = numSelected%2;
@@ -145,8 +137,8 @@ struct ManyPassHalf2{
     void checkHEindex(int x, int line){
         // if(x < 0){printf("line %d\n", line);}
         // assert(x >= 0); //positive index
-        // assert(2*(blockDim.x/group_size)*blid * length_2 <= base_3 + x);
-        // assert(base_3+x < 2*(blockDim.x/group_size)*(blid+1) * length_2);
+        // assert(2*(blockDim.x/group_size)*blockIdx.x * length_2 <= base_3 + x);
+        // assert(base_3+x < 2*(blockDim.x/group_size)*(blockIdx.x+1) * length_2);
     };
 
     __device__
@@ -354,6 +346,13 @@ struct ManyPassHalf2{
         char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
+        int check_last;
+        int check_last2;
+        computeCheckLast(check_last, check_last2);
+        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x%check_last)/group_size))*size_t(length_2);
+        __half2* const devTempHcol = (&devTempHcol2[base_3]);
+        __half2* const devTempEcol = (&devTempEcol2[base_3]);
+
         int offset = group_id + group_size;
         int offset_out = group_id;
 
@@ -364,6 +363,7 @@ struct ManyPassHalf2{
         __half2 penalty_left;
         __half2 H_temp_out;
         __half2 E_temp_out;
+
         
         init_penalties_local(0, penalty_diag, penalty_left);
         init_local_score_profile_BLOSUM62(0);
@@ -485,6 +485,13 @@ struct ManyPassHalf2{
         char query_letter = 20;
         char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
+
+        int check_last;
+        int check_last2;
+        computeCheckLast(check_last, check_last2);
+        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x%check_last)/group_size))*size_t(length_2);
+        __half2* const devTempHcol = (&devTempHcol2[base_3]);
+        __half2* const devTempEcol = (&devTempEcol2[base_3]);
 
         int offset = group_id + group_size;
         int offset_out = group_id;
@@ -643,6 +650,13 @@ struct ManyPassHalf2{
         char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
+        int check_last;
+        int check_last2;
+        computeCheckLast(check_last, check_last2);
+        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x%check_last)/group_size))*size_t(length_2);
+        __half2* const devTempHcol = (&devTempHcol2[base_3]);
+        __half2* const devTempEcol = (&devTempEcol2[base_3]);
+
         int offset = group_id + group_size;
         int offset_in = group_id;
         checkHEindex(offset_in, __LINE__);
@@ -782,17 +796,16 @@ struct ManyPassHalf2{
         }
 
         if (!group_id) {
-            const unsigned int blid = blockIdx.x;
             int check_last;
             int check_last2;
             computeCheckLast(check_last, check_last2);
 
-            if (blid < gridDim.x-1) {
-                devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*(threadIdx.x/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-                devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*(threadIdx.x/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+            if (blockIdx.x < gridDim.x-1) {
+                devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+                devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
             } else {
-                devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((threadIdx.x%check_last)/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-                if (!check_last2 || (threadIdx.x%check_last) < check_last-group_size) devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((threadIdx.x%check_last)/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+                devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+                if (!check_last2 || (threadIdx.x%check_last) < check_last-group_size) devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
             }
 
             // check for overflow
@@ -800,12 +813,12 @@ struct ManyPassHalf2{
                 half max_half2 = __float2half_rn(MAX_ACC_HALF2);
                 if (maximum.y >= max_half2) {
                     int pos_overflow = atomicAdd(d_overflow_number,1);
-                    int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((threadIdx.x%check_last)/group_size)];
+                    int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)];
                     //printf("Overflow_S0 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S0, __half2float(maximum.y));
                 }
                 if (maximum.x >= max_half2) {
                     int pos_overflow = atomicAdd(d_overflow_number,1);
-                    int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*((threadIdx.x%check_last)/group_size)+1];
+                    int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1];
                     //printf("Overflow_S1 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S1, __half2float(maximum.x));
                 }
             }
