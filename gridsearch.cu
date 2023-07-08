@@ -420,7 +420,7 @@ int main(){
                     gop,  \
                     gex \
                 ); CUERR \
-                timer1.printGCUPS(timingCups);\
+                timer1.printGCUPS(((double(queryLength) * pseudodbSeqLength * numSubjects)));\
                 cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(__half2), stream); CUERR; \
                 cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; \
                 helpers::GpuTimer timer2(stream, "new " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
@@ -440,7 +440,7 @@ int main(){
                     gop,  \
                     gex \
                 ); CUERR \
-                timer2.printGCUPS(timingCups);\
+                timer2.printGCUPS(((double(queryLength) * pseudodbSeqLength * numSubjects)));\
             checkIfEqualResultsNew(); \
         }
 

@@ -42,10 +42,10 @@ struct ManyPassHalf2{
     // __half2 H_temp_in;
     // __half2 E_temp_in;
 
-    int length_S0;
-    size_t base_S0;
-	int length_S1;
-	size_t base_S1;
+    // int length_S0;
+    // size_t base_S0;
+	// int length_S1;
+	// size_t base_S1;
 
     __device__
     ManyPassHalf2(
@@ -81,22 +81,7 @@ struct ManyPassHalf2{
         gap_extend(gap_extend_)
     {
 
-        int check_last;
-        int check_last2;
-        computeCheckLast(check_last, check_last2);
 
-        length_S0 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]];
-        base_S0 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]]-devOffsets[0];
-        length_S1 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]];
-        base_S1 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]]-devOffsets[0];
-        if (blockIdx.x == gridDim.x-1){
-            if (check_last2){
-                if (((threadIdx.x%check_last) >= check_last-group_size) && ((threadIdx.x%check_last) < check_last)) {
-                    length_S1 = length_S0;
-                    base_S1 = base_S0;
-                }
-            }
-        }
 
     }
 
@@ -252,7 +237,9 @@ struct ManyPassHalf2{
     };
 
     __device__
-    void init_local_score_profile_BLOSUM62(int offset_isc, int (&subject)[numRegs]) {
+    void init_local_score_profile_BLOSUM62(int offset_isc, int (&subject)[numRegs], 
+        const char* const devS0, const int length_S0, 
+        const char* const devS1, const int length_S1) {
         if (!offset_isc) {
             for (int i=threadIdx.x; i<21*21; i+=blockDim.x) {
                 __half2 temp0;
@@ -270,11 +257,11 @@ struct ManyPassHalf2{
            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S0) subject[i] = 1; // 20;
            else{
                 //printf("tid %d, i %d, offset_isc %d, base_S0 %lu, total %d\n", threadIdx.x, i, offset_isc, base_S0, offset_isc+base_S0+numRegs*(threadIdx.x%group_size)+i);
-            subject[i] = devChars[offset_isc+base_S0+numRegs*(threadIdx.x%group_size)+i];
+            subject[i] = devS0[offset_isc+numRegs*(threadIdx.x%group_size)+i]; //devChars[offset_isc+base_S0+numRegs*(threadIdx.x%group_size)+i];
            }
 
            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S1) subject[i] += 1*21; // 20*21;
-           else subject[i] += 21*devChars[offset_isc+base_S1+numRegs*(threadIdx.x%group_size)+i];
+           else subject[i] += 21* devS1[offset_isc+numRegs*(threadIdx.x%group_size)+i]; //devChars[offset_isc+base_S1+numRegs*(threadIdx.x%group_size)+i];
        }
     };
 
@@ -331,7 +318,8 @@ struct ManyPassHalf2{
     };
 
     __device__
-    void computeFirstPass(__half2& maximum){
+    void computeFirstPass(__half2& maximum, const char* const devS0, const int length_S0, 
+        const char* const devS1, const int length_S1){
         // FIRST PASS (of many passes)
         // Note first pass has always full seqeunce length
 
@@ -364,7 +352,7 @@ struct ManyPassHalf2{
 
         
         init_penalties_local(0, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile_BLOSUM62(0, subject);
+        init_local_score_profile_BLOSUM62(0, subject, devS0, length_S0, devS1, length_S1);
         initial_calc32_local_affine_float(0, query_letter, E, penalty_here31, penalty_diag, penalty_left, maximum, subject, penalty_here_array, F_here_array);
         query_letter = shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
@@ -478,7 +466,8 @@ struct ManyPassHalf2{
     }
 
     __device__
-    void computeMiddlePass(int pass, __half2& maximum){
+    void computeMiddlePass(int pass, __half2& maximum, const char* const devS0, const int length_S0, 
+        const char* const devS1, const int length_S1){
         int counter = 1;
         char query_letter = 20;
         char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
@@ -511,7 +500,7 @@ struct ManyPassHalf2{
         __half2 F_here_array[numRegs];
 
         init_penalties_local(0, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile_BLOSUM62(pass*(32*numRegs), subject);
+        init_local_score_profile_BLOSUM62(pass*(32*numRegs), subject, devS0, length_S0, devS1, length_S1);
 
         if (!group_id) {
             penalty_left = H_temp_in;
@@ -646,7 +635,8 @@ struct ManyPassHalf2{
     }
 
     __device__ 
-    void computeFinalPass(int passes, __half2& maximum){
+    void computeFinalPass(int passes, __half2& maximum, const char* const devS0, const int length_S0, 
+        const char* const devS1, const int length_S1){
         int counter = 1;
         char query_letter = 20;
         char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
@@ -679,7 +669,7 @@ struct ManyPassHalf2{
         __half2 F_here_array[numRegs];
 
         init_penalties_local(0, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile_BLOSUM62((passes-1)*(32*numRegs), subject);
+        init_local_score_profile_BLOSUM62((passes-1)*(32*numRegs), subject, devS0, length_S0, devS1, length_S1);
         //copy_H_E_temp_in();
         if (!group_id) {
             penalty_left = H_temp_in;
@@ -784,6 +774,26 @@ struct ManyPassHalf2{
 
     __device__
     void compute(){
+        int check_last;
+        int check_last2;
+        computeCheckLast(check_last, check_last2);
+
+        const int length_S0 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]];
+        const size_t base_S0 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]]-devOffsets[0];
+        int length_S1 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]];
+        size_t base_S1 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]]-devOffsets[0];
+        if (blockIdx.x == gridDim.x-1){
+            if (check_last2){
+                if (((threadIdx.x%check_last) >= check_last-group_size) && ((threadIdx.x%check_last) < check_last)) {
+                    length_S1 = length_S0;
+                    base_S1 = base_S0;
+                }
+            }
+        }
+
+        const char* const devS0 = &devChars[base_S0];
+        const char* const devS1 = &devChars[base_S1];
+
         const int length = max(length_S0, length_S1);
         const int passes = (length + (group_size*numRegs) - 1) / (group_size*numRegs);
         // constexpr int length = 4096;
@@ -791,13 +801,13 @@ struct ManyPassHalf2{
 
         __half2 maximum = __float2half2_rn(0.0);
 
-        computeFirstPass(maximum);
+        computeFirstPass(maximum, devS0, length_S0, devS1, length_S1);
 
         for (int pass = 1; pass < passes-1; pass++) {
-            computeMiddlePass(pass, maximum);
+            computeMiddlePass(pass, maximum, devS0, length_S0, devS1, length_S1);
         }
 
-        computeFinalPass(passes, maximum);
+        computeFinalPass(passes, maximum, devS0, length_S0, devS1, length_S1);
 
         for (int offset=group_size/2; offset>0; offset/=2){
             maximum = __hmax2(maximum,__shfl_down_sync(0xFFFFFFFF,maximum,offset,group_size));
@@ -842,7 +852,7 @@ struct ManyPassHalf2{
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
 template <int group_size, int numRegs, class PositionsIterator> 
-__launch_bounds__(256,1)
+__launch_bounds__(256,2)
 //__launch_bounds__(128,1)
 __global__
 void NW_local_affine_Protein_many_pass_half2_new2(
