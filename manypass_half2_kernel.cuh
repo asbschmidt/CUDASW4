@@ -42,7 +42,6 @@ struct ManyPassHalf2{
     // __half2 H_temp_in;
     // __half2 E_temp_in;
 
-    int group_id;
     int length_S0;
     size_t base_S0;
 	int length_S1;
@@ -81,22 +80,10 @@ struct ManyPassHalf2{
         gap_open(gap_open_),
         gap_extend(gap_extend_)
     {
-        group_id = threadIdx.x%group_size;
 
         int check_last;
         int check_last2;
         computeCheckLast(check_last, check_last2);
-
-        check_last = blockDim.x/group_size;
-        check_last2 = 0;
-        if (blockIdx.x == gridDim.x-1) {
-            if (numSelected % (2*blockDim.x/group_size)) {
-                check_last = (numSelected/2) % (blockDim.x/group_size);
-                check_last2 = numSelected%2;
-                check_last = check_last + check_last2;
-            }
-        }
-        check_last = check_last * group_size;
 
         length_S0 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]];
         base_S0 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]]-devOffsets[0];
@@ -289,6 +276,7 @@ struct ManyPassHalf2{
     __device__
     char shuffle_query(char new_letter, char query_letter) {
         query_letter = __shfl_up_sync(0xFFFFFFFF, query_letter, 1, 32);
+        const int group_id = threadIdx.x % group_size;
         if (!group_id) query_letter = new_letter;
         return query_letter;
     };
@@ -305,6 +293,7 @@ struct ManyPassHalf2{
         penalty_diag = penalty_left;
         penalty_left = __shfl_up_sync(0xFFFFFFFF, penalty_here31, 1, 32);
         E = __shfl_up_sync(0xFFFFFFFF, E, 1, 32);
+        const int group_id = threadIdx.x % group_size;
         if (!group_id) {
             penalty_left = new_penalty_left;
             E = new_E_left;
@@ -353,6 +342,7 @@ struct ManyPassHalf2{
         __half2* const devTempHcol = (&devTempHcol2[base_3]);
         __half2* const devTempEcol = (&devTempEcol2[base_3]);
 
+        const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
         int offset_out = group_id;
 
@@ -493,6 +483,7 @@ struct ManyPassHalf2{
         __half2* const devTempHcol = (&devTempHcol2[base_3]);
         __half2* const devTempEcol = (&devTempEcol2[base_3]);
 
+        const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
         int offset_out = group_id;
         int offset_in = group_id;
@@ -657,6 +648,7 @@ struct ManyPassHalf2{
         __half2* const devTempHcol = (&devTempHcol2[base_3]);
         __half2* const devTempEcol = (&devTempEcol2[base_3]);
 
+        const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
         int offset_in = group_id;
         checkHEindex(offset_in, __LINE__);
@@ -795,6 +787,7 @@ struct ManyPassHalf2{
             maximum = __hmax2(maximum,__shfl_down_sync(0xFFFFFFFF,maximum,offset,group_size));
         }
 
+        const int group_id = threadIdx.x % group_size;
         if (!group_id) {
             int check_last;
             int check_last2;
