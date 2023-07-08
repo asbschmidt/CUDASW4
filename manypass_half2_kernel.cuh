@@ -37,9 +37,9 @@ struct ManyPassHalf2{
     //__half2 penalty_here31;
     //__half2 E;
     __half2 maximum;
-    __half2 H_temp_out;
+    // __half2 H_temp_out;
+    // __half2 E_temp_out;
     __half2 H_temp_in;
-    __half2 E_temp_out;
     __half2 E_temp_in;
 
     int group_id;
@@ -320,7 +320,7 @@ struct ManyPassHalf2{
     };
 
     __device__
-    void shuffle_H_E_temp_out() {
+    void shuffle_H_E_temp_out(__half2& H_temp_out, __half2& E_temp_out) {
         const uint32_t temp = __shfl_down_sync(0xFFFFFFFF, *((int*)(&H_temp_out)), 1, 32);
         H_temp_out = *((half2*)(&temp));
         const uint32_t temp2 = __shfl_down_sync(0xFFFFFFFF, *((int*)(&E_temp_out)), 1, 32);
@@ -337,7 +337,7 @@ struct ManyPassHalf2{
     };
 
     __device__
-    void set_H_E_temp_out(__half2 E, __half2 penalty_here31) {
+    void set_H_E_temp_out(__half2 E, __half2 penalty_here31, __half2& H_temp_out, __half2& E_temp_out) {
         if (threadIdx.x % group_size == 31) {
             H_temp_out = penalty_here31;
             E_temp_out = E;
@@ -362,6 +362,8 @@ struct ManyPassHalf2{
         __half2 penalty_here31;
         __half2 penalty_diag;
         __half2 penalty_left;
+        __half2 H_temp_out;
+        __half2 E_temp_out;
         
         init_penalties_local(0, penalty_diag, penalty_left);
         init_local_score_profile_BLOSUM62(0);
@@ -384,24 +386,24 @@ struct ManyPassHalf2{
         for (int k = 4; k <= length_2+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
-            shuffle_H_E_temp_out();
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
+            shuffle_H_E_temp_out(H_temp_out, E_temp_out);
 
             query_letter = shuffle_query(new_query_letter4.x, query_letter);
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
 
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
-            shuffle_H_E_temp_out();
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
+            shuffle_H_E_temp_out(H_temp_out, E_temp_out);
 
             query_letter = shuffle_query(new_query_letter4.y, query_letter);
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
 
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
-            shuffle_H_E_temp_out();
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
+            shuffle_H_E_temp_out(H_temp_out, E_temp_out);
 
             query_letter = shuffle_query(new_query_letter4.z, query_letter);
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
@@ -409,14 +411,14 @@ struct ManyPassHalf2{
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
 
-            set_H_E_temp_out(E, penalty_here31);
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
             if (counter%8 == 0 && counter > 8) {
                 checkHEindex(offset_out, __LINE__);
                 devTempHcol[offset_out]=H_temp_out;
                 devTempEcol[offset_out]=E_temp_out;
                 offset_out += group_size;
             }
-            if (k != length_2+28) shuffle_H_E_temp_out();
+            if (k != length_2+28) shuffle_H_E_temp_out(H_temp_out, E_temp_out);
             query_letter = shuffle_query(new_query_letter4.w, query_letter);
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
             new_query_letter4 = shuffle_new_query(new_query_letter4);
@@ -435,36 +437,36 @@ struct ManyPassHalf2{
         if (length_2%4 == 1) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
         }
 
         if (length_2%4 == 2) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
-            shuffle_H_E_temp_out();
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
+            shuffle_H_E_temp_out(H_temp_out, E_temp_out);
             query_letter = shuffle_query(new_query_letter4.x, query_letter);
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
         }
         if (length_2%4 == 3) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
-            shuffle_H_E_temp_out();
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
+            shuffle_H_E_temp_out(H_temp_out, E_temp_out);
             query_letter = shuffle_query(new_query_letter4.x, query_letter);
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
-            shuffle_H_E_temp_out();
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
+            shuffle_H_E_temp_out(H_temp_out, E_temp_out);
             query_letter = shuffle_query(new_query_letter4.y, query_letter);
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
         }
         const int final_out = length_2 % 32;
         const int from_thread_id = 32 - final_out;
@@ -496,6 +498,8 @@ struct ManyPassHalf2{
         __half2 penalty_here31;
         __half2 penalty_diag;
         __half2 penalty_left;
+        __half2 H_temp_out;
+        __half2 E_temp_out;
 
         init_penalties_local(0, penalty_diag, penalty_left);
         init_local_score_profile_BLOSUM62(pass*(32*numRegs));
@@ -528,8 +532,8 @@ struct ManyPassHalf2{
         for (int k = 4; k <= length_2+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
-            shuffle_H_E_temp_out();
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
+            shuffle_H_E_temp_out(H_temp_out, E_temp_out);
 
             query_letter = shuffle_query(new_query_letter4.x, query_letter);
             shuffle_affine_penalty(H_temp_in, E_temp_in, E, penalty_here31, penalty_diag, penalty_left);
@@ -537,8 +541,8 @@ struct ManyPassHalf2{
 
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
-            shuffle_H_E_temp_out();
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
+            shuffle_H_E_temp_out(H_temp_out, E_temp_out);
 
             query_letter = shuffle_query(new_query_letter4.y, query_letter);
             shuffle_affine_penalty(H_temp_in, E_temp_in, E, penalty_here31, penalty_diag, penalty_left);
@@ -546,8 +550,8 @@ struct ManyPassHalf2{
 
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
-            shuffle_H_E_temp_out();
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
+            shuffle_H_E_temp_out(H_temp_out, E_temp_out);
 
             query_letter = shuffle_query(new_query_letter4.z, query_letter);
             shuffle_affine_penalty(H_temp_in, E_temp_in, E, penalty_here31, penalty_diag, penalty_left);
@@ -555,14 +559,14 @@ struct ManyPassHalf2{
 
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
             if (counter%8 == 0 && counter > 8) {
                 checkHEindex(offset_out, __LINE__);
                 devTempHcol[offset_out]=H_temp_out;
                 devTempEcol[offset_out]=E_temp_out;
                 offset_out += group_size;
             }
-            if (k != length_2+28) shuffle_H_E_temp_out();
+            if (k != length_2+28) shuffle_H_E_temp_out(H_temp_out, E_temp_out);
             query_letter = shuffle_query(new_query_letter4.w, query_letter);
             shuffle_affine_penalty(H_temp_in, E_temp_in, E, penalty_here31, penalty_diag, penalty_left);
             new_query_letter4 = shuffle_new_query(new_query_letter4);
@@ -588,39 +592,39 @@ struct ManyPassHalf2{
         if (length_2%4 == 1) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
         }
 
         if (length_2%4 == 2) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
-            shuffle_H_E_temp_out();
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
+            shuffle_H_E_temp_out(H_temp_out, E_temp_out);
             query_letter = shuffle_query(new_query_letter4.x, query_letter);
             shuffle_affine_penalty(H_temp_in, E_temp_in, E, penalty_here31, penalty_diag, penalty_left);
             shuffle_H_E_temp_in();
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
         }
         if (length_2%4 == 3) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
-            shuffle_H_E_temp_out();
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
+            shuffle_H_E_temp_out(H_temp_out, E_temp_out);
             query_letter = shuffle_query(new_query_letter4.x, query_letter);
             shuffle_affine_penalty(H_temp_in, E_temp_in, E, penalty_here31, penalty_diag, penalty_left);
             shuffle_H_E_temp_in();
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
-            shuffle_H_E_temp_out();
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
+            shuffle_H_E_temp_out(H_temp_out, E_temp_out);
             query_letter = shuffle_query(new_query_letter4.y, query_letter);
             shuffle_affine_penalty(H_temp_in, E_temp_in, E, penalty_here31, penalty_diag, penalty_left);
             shuffle_H_E_temp_in();
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag);
-            set_H_E_temp_out(E, penalty_here31);
+            set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
         }
         const int final_out = length_2 % 32;
         const int from_thread_id = 32 - final_out;
