@@ -54,6 +54,10 @@ void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess
 
 
     auto lengthBoundaries = getLengthPartitionBoundaries();
+    // std::vector<int> lengthBoundaries;
+    // for(int l = 64; l <= 8192; l += 64){
+    //     lengthBoundaries.push_back(l);
+    // }
     const int numPartitions = lengthBoundaries.size();
     result.metaData.lengthBoundaries.resize(numPartitions);
     result.metaData.numSequencesPerLengthPartition.resize(numPartitions);
