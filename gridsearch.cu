@@ -104,7 +104,7 @@ int main(){
 
     const char* letters = "ARNDCQEGHILKMFPSTWYV";
 
-    std::mt19937 gen(42);
+    std::mt19937 gen(424242);
     std::uniform_int_distribution<> dist(0,19);
     std::string querySeq(queryLength, ' ');
     for(size_t i = 0; i < queryLength; i++){
@@ -368,36 +368,6 @@ int main(){
             gcupsVec.push_back(std::make_tuple(gcups,blocksize,groupsize, numRegs )); \
         }
 
-        #define runManyPassHalf2_new(blocksize, groupsize, numRegs){ \
-            assert(blocksize % groupsize == 0); \
-            constexpr int alignmentsPerBlock = (blocksize / groupsize) * 2; \
-            helpers::GpuTimer timer1(stream, "Timer_" + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-            for(int i = 0; i < timingLoopIters; i++){ \
-                cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(__half2), stream); CUERR; \
-                cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; \
-                NW_local_affine_Protein_many_pass_half2_new<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
-                    d_subjects.data(),  \
-                    d_scores_vec[i].data(),  \
-                    d_tempH.data(), \
-                    d_tempE.data(), \
-                    d_subjectOffsets.data(),  \
-                    d_subjectLengths.data(),  \
-                    d_selectedPositions.data(),  \
-                    numSubjects,  \
-                    d_overflow_positions_vec[i].data(),  \
-                    d_overflow_number_vec[i].data(),  \
-                    0,  \
-                    queryLength,  \
-                    gop,  \
-                    gex \
-                ); CUERR \
-            } \
-            timer1.stop(); \
-            double gcups = timingCups / 1000. / 1000. / 1000.; \
-            gcups = gcups / (timer1.elapsed() / 1000); \
-            gcupsVec.push_back(std::make_tuple(gcups,blocksize,groupsize, numRegs )); \
-        }
-
         #define runManyPassHalf2_new2(blocksize, groupsize, numRegs){ \
             assert(blocksize % groupsize == 0); \
             constexpr int alignmentsPerBlock = (blocksize / groupsize) * 2; \
@@ -521,29 +491,6 @@ int main(){
         std::cout << "\n";
         gcupsVec.clear();
 
-        // runManyPassHalf2_new(256, 32, 6);
-        // runManyPassHalf2_new(256, 32, 8);
-        // runManyPassHalf2_new(256, 32, 10);
-        // runManyPassHalf2_new(256, 32, 12);
-        // runManyPassHalf2_new(256, 32, 14);
-        // runManyPassHalf2_new(256, 32, 16);
-        // runManyPassHalf2_new(256, 32, 18);
-        // runManyPassHalf2_new(256, 32, 20);
-        // runManyPassHalf2_new(256, 32, 22);
-        // runManyPassHalf2_new(256, 32, 24);
-        // runManyPassHalf2_new(256, 32, 26);
-        // runManyPassHalf2_new(256, 32, 28);
-        // runManyPassHalf2_new(256, 32, 30);
-        //runManyPassHalf2_new(256, 32, 32);
-
-        std::sort(gcupsVec.begin(), gcupsVec.end(), [](const auto& l, const auto& r){ return std::get<0>(l) > std::get<0>(r);});
-        //for(int i = 0; i < std::min(3, int(gcupsVec.size())); i++){
-        for(int i = 0; i < int(gcupsVec.size()); i++){
-            GCUPSstats data = gcupsVec[i];
-            std::cout << std::get<0>(data) << " GCUPSstats, " << std::get<1>(data) << " " << std::get<2>(data) << " " << std::get<3>(data) << "\n";
-        }
-        std::cout << "\n";
-        gcupsVec.clear();
 
         // runManyPassHalf2_new2(256, 32, 6);
         // runManyPassHalf2_new2(256, 32, 8);
