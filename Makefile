@@ -61,6 +61,6 @@ makedb.o : makedb.cpp dbdata.hpp sequence_io.h
 modifydb.o : modifydb.cpp dbdata.hpp sequence_io.h
 	$(COMPILE)
 
-gridsearch.o : gridsearch.cu length_partitions.hpp kernels.cuh dbdata.hpp
+gridsearch.o : gridsearch.cu length_partitions.hpp kernels.cuh dbdata.hpp manypass_half2_kernel.cuh
 	$(COMPILE)
 

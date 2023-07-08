@@ -28,7 +28,6 @@ struct ManyPassHalf2{
     float gap_extend;
 
     int thid;
-    int blid;
 
     //variables
     int subject[numRegs];
@@ -46,30 +45,16 @@ struct ManyPassHalf2{
     __half2 E_temp_in;
 
     int group_id;
-	int offset;
-    int check_last;
-    int check_last2;
     int length_S0;
     size_t base_S0;
 	int length_S1;
 	size_t base_S1;
-    // char query_letter;
-    // char4 new_query_letter4;
-    int offset_out;
-    int offset_in;
-    int base_3;
     __half2* devTempHcol;
     __half2* devTempEcol;
-
-    int length;
-    int passes;
-
 
     __device__
     ManyPassHalf2(
         BLOSUM62_SMEM& shared_BLOSUM62_,
-        int thid_,
-        int blid_,
         const char* devChars_,
         float* devAlignmentScores_,
         __half2* devTempHcol2_,
@@ -99,14 +84,14 @@ struct ManyPassHalf2{
         length_2(length_2_),
         gap_open(gap_open_),
         gap_extend(gap_extend_),
-        thid(thid_),
-        blid(blid_)
+        thid(threadIdx.x)
     {
-
+        const unsigned int blid = blockIdx.x;
         group_id = thid%group_size;
-        offset = group_id + group_size;
-        offset_out = group_id;
-        offset_in = group_id;
+
+        int check_last;
+        int check_last2;
+        computeCheckLast(check_last, check_last2);
 
         check_last = blockDim.x/group_size;
         check_last2 = 0;
@@ -137,13 +122,26 @@ struct ManyPassHalf2{
         // if (thid % group_size== 0) query_letter = new_query_letter4.x;
         
 
-        base_3 = (2*(blockDim.x/group_size)*blid+2*((thid%check_last)/group_size))*length_2;
+        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blid)+2*((thid%check_last)/group_size))*size_t(length_2);
         maximum = __float2half2_rn(0.0);
         devTempHcol = (half2*)(&devTempHcol2[base_3]);
         devTempEcol = (half2*)(&devTempEcol2[base_3]);
 
-        length = max(length_S0, length_S1);
-        passes = ceil((1.0*length)/(group_size*numRegs));
+    }
+
+    __device__ 
+    void computeCheckLast(int& check_last, int& check_last2) const{
+        const unsigned int blid = blockIdx.x;
+        check_last = blockDim.x/group_size;
+        check_last2 = 0;
+        if (blid == gridDim.x-1) {
+            if (numSelected % (2*blockDim.x/group_size)) {
+                check_last = (numSelected/2) % (blockDim.x/group_size);
+                check_last2 = numSelected%2;
+                check_last = check_last + check_last2;
+            }
+        }
+        check_last = check_last * group_size;
     }
 
     __device__
@@ -354,6 +352,8 @@ struct ManyPassHalf2{
         // FIRST PASS (of many passes)
         // Note first pass has always full seqeunce length
 
+        int offset = group_id + group_size;
+        int offset_out = group_id;
         int counter = 1;
         char query_letter = 20;
         char4 new_query_letter4 = constantQuery4[thid%group_size];
@@ -480,9 +480,9 @@ struct ManyPassHalf2{
         char4 new_query_letter4 = constantQuery4[thid%group_size];
         if (thid % group_size== 0) query_letter = new_query_letter4.x;
 
-        offset = group_id + group_size;
-        offset_out = group_id;
-        offset_in = group_id;
+        int offset = group_id + group_size;
+        int offset_out = group_id;
+        int offset_in = group_id;
         checkHEindex(offset_in, __LINE__);
         H_temp_in = devTempHcol[offset_in];
         E_temp_in = devTempEcol[offset_in];
@@ -630,13 +630,14 @@ struct ManyPassHalf2{
         char4 new_query_letter4 = constantQuery4[thid%group_size];
         if (thid % group_size== 0) query_letter = new_query_letter4.x;
 
-        offset = group_id + group_size;
-        offset_in = group_id;
+        int offset = group_id + group_size;
+        int offset_in = group_id;
         checkHEindex(offset_in, __LINE__);
         H_temp_in = devTempHcol[offset_in];
         E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
 
+        const int length = max(length_S0, length_S1);
         const uint32_t thread_result = ((length-1)%(group_size*numRegs))/numRegs; 
 
         init_penalties_local(0);
@@ -745,6 +746,11 @@ struct ManyPassHalf2{
 
     __device__
     void compute(){
+        const int length = max(length_S0, length_S1);
+        const int passes = (length + (group_size*numRegs) - 1) / (group_size*numRegs);
+        // constexpr int length = 4096;
+        // constexpr int passes = (length + (group_size*numRegs) - 1) / (group_size*numRegs);
+
         computeFirstPass();
 
         for (int pass = 1; pass < passes-1; pass++) {
@@ -758,6 +764,11 @@ struct ManyPassHalf2{
         }
 
         if (!group_id) {
+            const unsigned int blid = blockIdx.x;
+            int check_last;
+            int check_last2;
+            computeCheckLast(check_last, check_last2);
+
             if (blid < gridDim.x-1) {
                 devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*(thid/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
                 devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blid+2*(thid/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
@@ -1094,6 +1105,9 @@ void NW_local_affine_Protein_many_pass_half2_new(
     //const int passes_S1 = ceil((1.0*length_S1)/(group_size*numRegs));
 
     const int passes = ceil((1.0*length)/(group_size*numRegs));
+
+    assert(passes > 1);
+
     //constexpr int passes = 4;
 
     //if (passes < 3) {
@@ -1620,7 +1634,7 @@ void NW_local_affine_Protein_many_pass_half2_new(
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
 template <int group_size, int numRegs, class PositionsIterator> 
-__launch_bounds__(256,1)
+__launch_bounds__(256,2)
 //__launch_bounds__(128,1)
 __global__
 void NW_local_affine_Protein_many_pass_half2_new2(
@@ -1658,8 +1672,6 @@ void NW_local_affine_Protein_many_pass_half2_new2(
 
     ManyPassHalf2<group_size, numRegs, PositionsIterator> processor(
         shared_BLOSUM62,
-        threadIdx.x,
-        blockIdx.x,
         devChars,
         devAlignmentScores,
         devTempHcol2,
