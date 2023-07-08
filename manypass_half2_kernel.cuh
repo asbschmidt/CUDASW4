@@ -11,71 +11,38 @@ struct ManyPassHalf2{
 
     BLOSUM62_SMEM& shared_BLOSUM62;
 
-    //input params
+    int numSelected;
+    int length_2;
+    float gap_open;
+    float gap_extend;
+    PositionsIterator d_positions_of_selected_lengths;
     const char* devChars;
-    float* devAlignmentScores;
     __half2* devTempHcol2;
     __half2* devTempEcol2;
     const size_t* devOffsets;
     const size_t* devLengths;
-    PositionsIterator d_positions_of_selected_lengths;
-    int numSelected;
-    size_t* d_overflow_positions;
-    int* d_overflow_number;
-    bool overflow_check;
-    int length_2;
-    float gap_open;
-    float gap_extend;
-
-    //variables
-    //int subject[numRegs];
-    // __half2 penalty_here_array[numRegs];
-    // __half2 F_here_array[numRegs];
-
-    //__half2 penalty_diag;
-    //__half2 penalty_left;
-    //__half2 penalty_here31;
-    //__half2 E;
-    //__half2 maximum;
-    // __half2 H_temp_out;
-    // __half2 E_temp_out;
-    // __half2 H_temp_in;
-    // __half2 E_temp_in;
-
-    // int length_S0;
-    // size_t base_S0;
-	// int length_S1;
-	// size_t base_S1;
 
     __device__
     ManyPassHalf2(
         BLOSUM62_SMEM& shared_BLOSUM62_,
         const char* devChars_,
-        float* devAlignmentScores_,
         __half2* devTempHcol2_,
         __half2* devTempEcol2_,
         const size_t* devOffsets_,
         const size_t* devLengths_,
         PositionsIterator d_positions_of_selected_lengths_,
         int numSelected_,
-        size_t* d_overflow_positions_,
-        int* d_overflow_number_,
-        bool overflow_check_,
         int length_2_,
         float gap_open_,
         float gap_extend_
     ) : shared_BLOSUM62(shared_BLOSUM62_),
         devChars(devChars_),
-        devAlignmentScores(devAlignmentScores_),
         devTempHcol2(devTempHcol2_),
         devTempEcol2(devTempEcol2_),
         devOffsets(devOffsets_),
         devLengths(devLengths_),
         d_positions_of_selected_lengths(d_positions_of_selected_lengths_),
         numSelected(numSelected_),
-        d_overflow_positions(d_overflow_positions_),
-        d_overflow_number(d_overflow_number_),
-        overflow_check(overflow_check_),
         length_2(length_2_),
         gap_open(gap_open_),
         gap_extend(gap_extend_)
@@ -100,7 +67,7 @@ struct ManyPassHalf2{
     }
 
     __device__
-    void checkHEindex(int x, int line){
+    void checkHEindex(int x, int line) const{
         // if(x < 0){printf("line %d\n", line);}
         // assert(x >= 0); //positive index
         // assert(2*(blockDim.x/group_size)*blockIdx.x * length_2 <= base_3 + x);
@@ -112,7 +79,7 @@ struct ManyPassHalf2{
         int (&subject)[numRegs], 
         __half2 (&penalty_here_array)[numRegs],
         __half2 (&F_here_array)[numRegs]
-    ){
+    ) const{
         const __half2* const sbt_row = shared_BLOSUM62[query_letter];
 
         const __half2 score2_0 = sbt_row[subject[0]];
@@ -165,7 +132,7 @@ struct ManyPassHalf2{
         int (&subject)[numRegs],
         __half2 (&penalty_here_array)[numRegs],
         __half2 (&F_here_array)[numRegs]
-    ){
+    ) const{
         const __half2* const sbt_row = shared_BLOSUM62[query_letter];
 
         const __half2 score2_0 = sbt_row[subject[0]];
@@ -210,13 +177,13 @@ struct ManyPassHalf2{
         //for (int i=0; i<numRegs/4; i++)
 		 //   maximum = __hmax2(maximum,__hmax2(__hmax2(penalty_here_array[4*i],penalty_here_array[4*i+1]),__hmax2(penalty_here_array[4*i+2],penalty_here_array[4*i+3])));
         penalty_here31 = penalty_here_array[numRegs-1];
-    };
+    }
 
     __device__    
     void init_penalties_local(int value, __half2& penalty_diag, __half2& penalty_left, 
         __half2 (&penalty_here_array)[numRegs], 
         __half2 (&F_here_array)[numRegs]
-    ) {
+    ) const{
         //ZERO = __float2half2_rn(negInftyFloat);
         penalty_left = __float2half2_rn(negInftyFloat);
         penalty_diag = __float2half2_rn(negInftyFloat);
@@ -234,12 +201,13 @@ struct ManyPassHalf2{
         if (threadIdx.x % group_size == 1) {
             penalty_left = __floats2half2_rn(0,0);
         }
-    };
+    }
 
     __device__
     void init_local_score_profile_BLOSUM62(int offset_isc, int (&subject)[numRegs], 
         const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1) {
+        const char* const devS1, const int length_S1
+    ) const{
         if (!offset_isc) {
             for (int i=threadIdx.x; i<21*21; i+=blockDim.x) {
                 __half2 temp0;
@@ -263,25 +231,28 @@ struct ManyPassHalf2{
            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S1) subject[i] += 1*21; // 20*21;
            else subject[i] += 21* devS1[offset_isc+numRegs*(threadIdx.x%group_size)+i]; //devChars[offset_isc+base_S1+numRegs*(threadIdx.x%group_size)+i];
        }
-    };
+    }
 
     __device__
-    char shuffle_query(char new_letter, char query_letter) {
+    char shuffle_query(char new_letter, char query_letter) const{
         query_letter = __shfl_up_sync(0xFFFFFFFF, query_letter, 1, 32);
         const int group_id = threadIdx.x % group_size;
         if (!group_id) query_letter = new_letter;
         return query_letter;
-    };
+    }
 
     __device__
-    char4 shuffle_new_query(char4 new_query_letter4) {
+    char4 shuffle_new_query(char4 new_query_letter4) const{
         const int temp = __shfl_down_sync(0xFFFFFFFF, *((int*)(&new_query_letter4)), 1, 32);
         new_query_letter4 = *((char4*)(&temp));
         return new_query_letter4;
-    };
+    }
 
     __device__
-    void shuffle_affine_penalty(__half2 new_penalty_left, __half2 new_E_left, __half2& E, __half2 penalty_here31, __half2& penalty_diag, __half2& penalty_left) {
+    void shuffle_affine_penalty(
+        __half2 new_penalty_left, __half2 new_E_left, __half2& E, 
+        __half2 penalty_here31, __half2& penalty_diag, __half2& penalty_left
+    ) const{
         penalty_diag = penalty_left;
         penalty_left = __shfl_up_sync(0xFFFFFFFF, penalty_here31, 1, 32);
         E = __shfl_up_sync(0xFFFFFFFF, E, 1, 32);
@@ -290,36 +261,36 @@ struct ManyPassHalf2{
             penalty_left = new_penalty_left;
             E = new_E_left;
         }
-    };
+    }
 
     __device__
-    void shuffle_H_E_temp_out(__half2& H_temp_out, __half2& E_temp_out) {
+    void shuffle_H_E_temp_out(__half2& H_temp_out, __half2& E_temp_out) const{
         const uint32_t temp = __shfl_down_sync(0xFFFFFFFF, *((int*)(&H_temp_out)), 1, 32);
         H_temp_out = *((half2*)(&temp));
         const uint32_t temp2 = __shfl_down_sync(0xFFFFFFFF, *((int*)(&E_temp_out)), 1, 32);
         E_temp_out = *((half2*)(&temp2));
-    };
+    }
 
     __device__
-    void shuffle_H_E_temp_in(__half2& H_temp_in, __half2& E_temp_in) {
+    void shuffle_H_E_temp_in(__half2& H_temp_in, __half2& E_temp_in) const{
         const uint32_t temp = __shfl_down_sync(0xFFFFFFFF, *((int*)(&H_temp_in)), 1, 32);
         H_temp_in = *((half2*)(&temp));
         const uint32_t temp2 = __shfl_down_sync(0xFFFFFFFF, *((int*)(&E_temp_in)), 1, 32);
         E_temp_in = *((half2*)(&temp2));
-
-    };
+    }
 
     __device__
-    void set_H_E_temp_out(__half2 E, __half2 penalty_here31, __half2& H_temp_out, __half2& E_temp_out) {
+    void set_H_E_temp_out(__half2 E, __half2 penalty_here31, __half2& H_temp_out, __half2& E_temp_out) const{
         if (threadIdx.x % group_size == 31) {
             H_temp_out = penalty_here31;
             E_temp_out = E;
         }
-    };
+    }
 
     __device__
     void computeFirstPass(__half2& maximum, const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1){
+        const char* const devS1, const int length_S1
+    ) const{
         // FIRST PASS (of many passes)
         // Note first pass has always full seqeunce length
 
@@ -467,7 +438,8 @@ struct ManyPassHalf2{
 
     __device__
     void computeMiddlePass(int pass, __half2& maximum, const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1){
+        const char* const devS1, const int length_S1
+    ) const{
         int counter = 1;
         char query_letter = 20;
         char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
@@ -636,7 +608,8 @@ struct ManyPassHalf2{
 
     __device__ 
     void computeFinalPass(int passes, __half2& maximum, const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1){
+        const char* const devS1, const int length_S1
+    ) const{
         int counter = 1;
         char query_letter = 20;
         char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
@@ -773,7 +746,12 @@ struct ManyPassHalf2{
     }
 
     __device__
-    void compute(){
+    void compute(
+        float* const devAlignmentScores,
+        const bool overflow_check, 
+        int* const d_overflow_number, 
+        size_t* const d_overflow_positions
+    ) const{
         int check_last;
         int check_last2;
         computeCheckLast(check_last, check_last2);
@@ -852,24 +830,10 @@ struct ManyPassHalf2{
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
 template <int group_size, int numRegs, class PositionsIterator> 
-__launch_bounds__(256,2)
+__launch_bounds__(256,1)
 //__launch_bounds__(128,1)
 __global__
 void NW_local_affine_Protein_many_pass_half2_new2(
-    // const char * devChars,
-    // float * devAlignmentScores,
-    // __half2 * devTempHcol2,
-    // __half2 * devTempEcol2,
-    // const size_t* devOffsets,
-    // const size_t* devLengths,
-    // PositionsIterator d_positions_of_selected_lengths,
-    // const int numSelected,
-	// size_t* d_overflow_positions,
-	// int* d_overflow_number,
-	// const bool overflow_check,
-    // const int length_2,
-    // const float gap_open,
-    // const float gap_extend
     __grid_constant__ const char * const devChars,
     __grid_constant__ float * const devAlignmentScores,
     __grid_constant__ __half2 * const devTempHcol2,
@@ -891,22 +855,18 @@ void NW_local_affine_Protein_many_pass_half2_new2(
     ManyPassHalf2<group_size, numRegs, PositionsIterator> processor(
         shared_BLOSUM62,
         devChars,
-        devAlignmentScores,
         devTempHcol2,
         devTempEcol2,
         devOffsets,
         devLengths,
         d_positions_of_selected_lengths,
         numSelected,
-        d_overflow_positions,
-        d_overflow_number,
-        overflow_check,
         length_2,
         gap_open,
         gap_extend
     );
 
-    processor.compute();
+    processor.compute(devAlignmentScores, overflow_check, d_overflow_number, d_overflow_positions);
 }
 
 #endif
