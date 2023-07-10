@@ -950,7 +950,7 @@ void processQueryOnGpu(
 
                 #endif
 
-                if (partId == 16){
+                if (partId > 15 && partId < 44){
                     constexpr int blocksize = 32 * 8;
                     constexpr int groupsize = 32;
                     constexpr int groupsPerBlock = blocksize / groupsize;
@@ -999,7 +999,7 @@ void processQueryOnGpu(
                     }
                 }
 
-                if (partId == 17){
+                if (partId == 44){
                     const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
                     const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 

@@ -327,7 +327,7 @@ int main(){
         // runSinglePassHalf2_numregs(256, 14);
         // runSinglePassHalf2_numregs(256, 12);
         // runSinglePassHalf2_numregs(256, 10);
-        runSinglePassHalf2_numregs(256, 8);
+        //runSinglePassHalf2_numregs(256, 8);
         // runSinglePassHalf2_numregs(256, 6);
         // runSinglePassHalf2_numregs(256, 4);
         // runSinglePassHalf2_numregs(256, 2);
@@ -341,22 +341,22 @@ int main(){
         }
         gcupsVec.clear();
 
-        //runSinglePassHalf2_numregs_new(256, 32);
-        // runSinglePassHalf2_numregs_new(256, 30);
-        // runSinglePassHalf2_numregs_new(256, 28);
-        // runSinglePassHalf2_numregs_new(256, 26);
-        // runSinglePassHalf2_numregs_new(256, 24);
-        // runSinglePassHalf2_numregs_new(256, 22);
-        // runSinglePassHalf2_numregs_new(256, 20);
-        // runSinglePassHalf2_numregs_new(256, 18);
-        // runSinglePassHalf2_numregs_new(256, 16);
-        // runSinglePassHalf2_numregs_new(256, 14);
-        // runSinglePassHalf2_numregs_new(256, 12);
-        // runSinglePassHalf2_numregs_new(256, 10);
+        runSinglePassHalf2_numregs_new(256, 32);
+        runSinglePassHalf2_numregs_new(256, 30);
+        runSinglePassHalf2_numregs_new(256, 28);
+        runSinglePassHalf2_numregs_new(256, 26);
+        runSinglePassHalf2_numregs_new(256, 24);
+        runSinglePassHalf2_numregs_new(256, 22);
+        runSinglePassHalf2_numregs_new(256, 20);
+        runSinglePassHalf2_numregs_new(256, 18);
+        runSinglePassHalf2_numregs_new(256, 16);
+        runSinglePassHalf2_numregs_new(256, 14);
+        runSinglePassHalf2_numregs_new(256, 12);
+        runSinglePassHalf2_numregs_new(256, 10);
          runSinglePassHalf2_numregs_new(256, 8);
-        // runSinglePassHalf2_numregs_new(256, 6);
-        // runSinglePassHalf2_numregs_new(256, 4);
-        // runSinglePassHalf2_numregs_new(256, 2);
+        runSinglePassHalf2_numregs_new(256, 6);
+        runSinglePassHalf2_numregs_new(256, 4);
+        runSinglePassHalf2_numregs_new(256, 2);
 
         std::sort(gcupsVec.begin(), gcupsVec.end(), [](const auto& l, const auto& r){ return std::get<0>(l) > std::get<0>(r);});
 
@@ -380,8 +380,8 @@ int main(){
     std::cout << "NW_local_affine_Protein_many_pass_half2\n";
 
     //for(int pseudodbSeqLength : {1500, 2000, 2048, 3333, 4096, 6666, 7000}){
-    for(int pseudodbSeqLength : {4096}){
-    //for(int pseudodbSeqLength = 1024+64; pseudodbSeqLength <= 8192; pseudodbSeqLength += 64){
+    //for(int pseudodbSeqLength : {4096}){
+    for(int pseudodbSeqLength = 1024+256; pseudodbSeqLength <= 8192; pseudodbSeqLength += 256){
         std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
  
         PseudoDB fullDB = loadPseudoDB(numSubjects, pseudodbSeqLength);
@@ -598,7 +598,7 @@ int main(){
 
         //runManyPassHalf2(256, 32, 32);
 
-        compareManyPassHalf2New(256, 32, 32);
+        //compareManyPassHalf2New(256, 32, 32);
 
         // std::cout << "start 4\n"; runManyPassHalf2(256, 32, 4);
         // std::cout << "start 6\n"; runManyPassHalf2(256, 32, 6);
@@ -634,19 +634,19 @@ int main(){
         gcupsVec.clear();
 
 
-        // runManyPassHalf2_new(256, 32, 6);
-        // runManyPassHalf2_new(256, 32, 8);
-        // runManyPassHalf2_new(256, 32, 10);
+        runManyPassHalf2_new(256, 32, 6);
+        runManyPassHalf2_new(256, 32, 8);
+        runManyPassHalf2_new(256, 32, 10);
         runManyPassHalf2_new(256, 32, 12);
-        // runManyPassHalf2_new(256, 32, 14);
+        runManyPassHalf2_new(256, 32, 14);
         runManyPassHalf2_new(256, 32, 16);
-        // runManyPassHalf2_new(256, 32, 18);
-        // runManyPassHalf2_new(256, 32, 20);
-        // runManyPassHalf2_new(256, 32, 22);
+        runManyPassHalf2_new(256, 32, 18);
+        runManyPassHalf2_new(256, 32, 20);
+        runManyPassHalf2_new(256, 32, 22);
         runManyPassHalf2_new(256, 32, 24);
-        // runManyPassHalf2_new(256, 32, 26);
-        // runManyPassHalf2_new(256, 32, 28);
-        // runManyPassHalf2_new(256, 32, 30);
+        runManyPassHalf2_new(256, 32, 26);
+        runManyPassHalf2_new(256, 32, 28);
+        runManyPassHalf2_new(256, 32, 30);
         runManyPassHalf2_new(256, 32, 32);
 
         std::sort(gcupsVec.begin(), gcupsVec.end(), [](const auto& l, const auto& r){ return std::get<0>(l) > std::get<0>(r);});
