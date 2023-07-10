@@ -228,18 +228,16 @@ struct SinglePassHalf2{
     }
 
     __device__
-    char shuffle_query(char new_letter, char query_letter) const{
+    void shuffle_query(char new_letter, char& query_letter) const{
         query_letter = __shfl_up_sync(0xFFFFFFFF, query_letter, 1, 32);
         const int group_id = threadIdx.x % group_size;
         if (!group_id) query_letter = new_letter;
-        return query_letter;
     }
 
     __device__
-    char4 shuffle_new_query(char4 new_query_letter4) const{
+    void shuffle_new_query(char4& new_query_letter4) const{
         const int temp = __shfl_down_sync(0xFFFFFFFF, *((int*)(&new_query_letter4)), 1, 32);
         new_query_letter4 = *((char4*)(&temp));
-        return new_query_letter4;
     }
 
     __device__
@@ -284,22 +282,22 @@ struct SinglePassHalf2{
         init_local_score_profile_BLOSUM62(0, subject, devS0, length_S0, devS1, length_S1);
 
         initial_calc32_local_affine_float(0, query_letter, E, penalty_here31, penalty_diag, penalty_left, maximum, subject, penalty_here_array, F_here_array);
-        query_letter = shuffle_query(new_query_letter4.y, query_letter);
+        shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
 
         if (length_2+thread_result >=2) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
-            query_letter = shuffle_query(new_query_letter4.z, query_letter);
+            shuffle_query(new_query_letter4.z, query_letter);
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
         }
 
         if (length_2+thread_result >=3) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
-            query_letter = shuffle_query(new_query_letter4.w, query_letter);
+            shuffle_query(new_query_letter4.w, query_letter);
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
-            new_query_letter4 = shuffle_new_query(new_query_letter4);
+            shuffle_new_query(new_query_letter4);
             counter++;
         }
         if (length_2+thread_result >=4) {
@@ -309,24 +307,24 @@ struct SinglePassHalf2{
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
 
-                query_letter = shuffle_query(new_query_letter4.x, query_letter);
+                shuffle_query(new_query_letter4.x, query_letter);
                 shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
 
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
-                query_letter = shuffle_query(new_query_letter4.y, query_letter);
+                shuffle_query(new_query_letter4.y, query_letter);
                 shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
 
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
-                query_letter = shuffle_query(new_query_letter4.z, query_letter);
+                shuffle_query(new_query_letter4.z, query_letter);
                 shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
 
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
-                query_letter = shuffle_query(new_query_letter4.w, query_letter);
+                shuffle_query(new_query_letter4.w, query_letter);
                 shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
-                new_query_letter4 = shuffle_new_query(new_query_letter4);
+                shuffle_new_query(new_query_letter4);
                 if (counter%group_size == 0) {
                     new_query_letter4 = constantQuery4[offset];
                     offset += group_size;
@@ -337,7 +335,7 @@ struct SinglePassHalf2{
             if ((k-1)-(length_2+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
-                query_letter = shuffle_query(new_query_letter4.x, query_letter);
+                shuffle_query(new_query_letter4.x, query_letter);
                 shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
                 k++;
             }
@@ -346,7 +344,7 @@ struct SinglePassHalf2{
             if ((k-1)-(length_2+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
-                query_letter = shuffle_query(new_query_letter4.y, query_letter);
+                shuffle_query(new_query_letter4.y, query_letter);
                 shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
                 k++;
             }

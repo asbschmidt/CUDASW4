@@ -91,7 +91,7 @@ int main(){
     const int deviceId = 0;
     cudaStream_t stream = 0;
     const int queryLength = 256;
-    const int numSubjects = 4914465; //32*1024;
+    const int numSubjects = 64*1024;
 
     const int timingLoopIters = 5;
 
@@ -135,12 +135,12 @@ int main(){
 
     // SINGLE PASS BENCHMARKS
 
-    #if 1
+    #if 0
     std::cout << "NW_local_affine_Protein_single_pass_half2\n";
 
-    //for(int pseudodbSeqLength : {64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960, 1024}){
+    for(int pseudodbSeqLength : {64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960, 1024}){
     //for(int pseudodbSeqLength : {64}){
-    for(int pseudodbSeqLength = 11; pseudodbSeqLength <= 64; pseudodbSeqLength++){
+    //for(int pseudodbSeqLength = 11; pseudodbSeqLength <= 64; pseudodbSeqLength++){
         std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
  
         PseudoDB fullDB = loadPseudoDB(numSubjects, pseudodbSeqLength);
@@ -375,13 +375,13 @@ int main(){
 
     // MANY PASS BENCHMARKS
 
-    #if 0
+    #if 1
 
     std::cout << "NW_local_affine_Protein_many_pass_half2\n";
 
     //for(int pseudodbSeqLength : {1500, 2000, 2048, 3333, 4096, 6666, 7000}){
-    //for(int pseudodbSeqLength : {4096}){
-    for(int pseudodbSeqLength = 1024+64; pseudodbSeqLength <= 8192; pseudodbSeqLength += 64){
+    for(int pseudodbSeqLength : {4096}){
+    //for(int pseudodbSeqLength = 1024+64; pseudodbSeqLength <= 8192; pseudodbSeqLength += 64){
         std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
  
         PseudoDB fullDB = loadPseudoDB(numSubjects, pseudodbSeqLength);
@@ -598,7 +598,7 @@ int main(){
 
         //runManyPassHalf2(256, 32, 32);
 
-        //compareManyPassHalf2New(256, 32, 32);
+        compareManyPassHalf2New(256, 32, 32);
 
         // std::cout << "start 4\n"; runManyPassHalf2(256, 32, 4);
         // std::cout << "start 6\n"; runManyPassHalf2(256, 32, 6);
@@ -609,20 +609,20 @@ int main(){
         // std::cout << "start 16\n"; runManyPassHalf2(256, 32, 16);
         // runManyPassHalf2(256, 32, 2);
         // runManyPassHalf2(256, 32, 4);
-        // runManyPassHalf2(256, 32, 6);
-        // runManyPassHalf2(256, 32, 8);
-        // runManyPassHalf2(256, 32, 10);
-        // runManyPassHalf2(256, 32, 12);
-        // runManyPassHalf2(256, 32, 14);
-        // runManyPassHalf2(256, 32, 16);
-        // runManyPassHalf2(256, 32, 18);
-        // runManyPassHalf2(256, 32, 20);
-        // runManyPassHalf2(256, 32, 22);
-        // runManyPassHalf2(256, 32, 24);
-        // runManyPassHalf2(256, 32, 26);
-        // runManyPassHalf2(256, 32, 28);
-        // runManyPassHalf2(256, 32, 30);
-        // runManyPassHalf2(256, 32, 32);
+        runManyPassHalf2(256, 32, 6);
+        runManyPassHalf2(256, 32, 8);
+        runManyPassHalf2(256, 32, 10);
+        runManyPassHalf2(256, 32, 12);
+        runManyPassHalf2(256, 32, 14);
+        runManyPassHalf2(256, 32, 16);
+        runManyPassHalf2(256, 32, 18);
+        runManyPassHalf2(256, 32, 20);
+        runManyPassHalf2(256, 32, 22);
+        runManyPassHalf2(256, 32, 24);
+        runManyPassHalf2(256, 32, 26);
+        runManyPassHalf2(256, 32, 28);
+        runManyPassHalf2(256, 32, 30);
+        runManyPassHalf2(256, 32, 32);
 
         std::sort(gcupsVec.begin(), gcupsVec.end(), [](const auto& l, const auto& r){ return std::get<0>(l) > std::get<0>(r);});
         //for(int i = 0; i < std::min(3, int(gcupsVec.size())); i++){
@@ -650,8 +650,8 @@ int main(){
         runManyPassHalf2_new(256, 32, 32);
 
         std::sort(gcupsVec.begin(), gcupsVec.end(), [](const auto& l, const auto& r){ return std::get<0>(l) > std::get<0>(r);});
-        for(int i = 0; i < std::min(3, int(gcupsVec.size())); i++){
-        //for(int i = 0; i < int(gcupsVec.size()); i++){
+        //for(int i = 0; i < std::min(3, int(gcupsVec.size())); i++){
+        for(int i = 0; i < int(gcupsVec.size()); i++){
             GCUPSstats data = gcupsVec[i];
             std::cout << std::get<0>(data) << " GCUPS, " << std::get<1>(data) << " " << std::get<2>(data) << " " << std::get<3>(data) << "\n";
         }
