@@ -259,7 +259,7 @@ struct SinglePassHalf2{
 
     __device__ 
     void computeSinglePass(__half2& maximum, const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1
+        const char* const devS1, const int length_S1, const int warpMaxLength
     ) const{
         int counter = 1;
         char query_letter = 20;
@@ -270,8 +270,7 @@ struct SinglePassHalf2{
         const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
 
-        const int length = max(length_S0, length_S1);
-        const uint32_t thread_result = ((length-1)%(group_size*numRegs))/numRegs; 
+        const uint32_t thread_result = ((warpMaxLength-1)%(group_size*numRegs))/numRegs; 
 
         __half2 E = __float2half2_rn(negInftyFloat);
         __half2 penalty_here31;
@@ -390,12 +389,12 @@ struct SinglePassHalf2{
         const char* const devS1 = &devChars[base_S1];
 
         const int temp_length = max(length_S0, length_S1);
-        const int length = warp_max_reduce_broadcast(0xFFFFFFFF, temp_length);
-        const int passes = (length + (group_size*numRegs) - 1) / (group_size*numRegs);
+        const int warpMaxLength = warp_max_reduce_broadcast(0xFFFFFFFF, temp_length);
+        const int passes = (warpMaxLength + (group_size*numRegs) - 1) / (group_size*numRegs);
         if(passes == 1){
             __half2 maximum = __float2half2_rn(0.0);
 
-            computeSinglePass(maximum, devS0, length_S0, devS1, length_S1);
+            computeSinglePass(maximum, devS0, length_S0, devS1, length_S1, warpMaxLength);
 
             for (int offset=group_size/2; offset>0; offset/=2){
                 maximum = __hmax2(maximum,__shfl_down_sync(0xFFFFFFFF,maximum,offset,group_size));
