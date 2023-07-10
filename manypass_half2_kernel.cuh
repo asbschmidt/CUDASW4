@@ -218,19 +218,57 @@ struct ManyPassHalf2{
                 }
             }
             __syncthreads();
-	   }
-       #pragma unroll //UNROLLHERE
-       for (int i=0; i<numRegs; i++) {
+        }
+        #if 1
+        #pragma unroll //UNROLLHERE
+        for (int i=0; i<numRegs; i++) {
 
-           if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S0) subject[i] = 1; // 20;
-           else{
-                //printf("tid %d, i %d, offset_isc %d, base_S0 %lu, total %d\n", threadIdx.x, i, offset_isc, base_S0, offset_isc+base_S0+numRegs*(threadIdx.x%group_size)+i);
-            subject[i] = devS0[offset_isc+numRegs*(threadIdx.x%group_size)+i]; //devChars[offset_isc+base_S0+numRegs*(threadIdx.x%group_size)+i];
-           }
+            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S0) subject[i] = 1; // 20;
+            else{
+                
+                subject[i] = devS0[offset_isc+numRegs*(threadIdx.x%group_size)+i];
+            }
 
-           if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S1) subject[i] += 1*21; // 20*21;
-           else subject[i] += 21* devS1[offset_isc+numRegs*(threadIdx.x%group_size)+i]; //devChars[offset_isc+base_S1+numRegs*(threadIdx.x%group_size)+i];
-       }
+            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S1) subject[i] += 1*21; // 20*21;
+            else subject[i] += 21* devS1[offset_isc+numRegs*(threadIdx.x%group_size)+i];
+        }
+        #endif
+
+        #if 0
+        #pragma unroll
+        for(int f = 0; f < numRegs; f += 4){
+            const int currentRegs = numRegs - f < 4 ? numRegs-f : 4; //min(4, numRegs - f);
+            //load S0 to subject
+            if (offset_isc+numRegs*(threadIdx.x%group_size)+(f+3) >= length_S0){
+                #pragma unroll
+                for(int i = 0; i < currentRegs; i++){
+                    subject[f+i] = 1;
+                }
+            }else{
+                alignas(4) char temp[4];
+                *((int*)&temp[0]) = *((int*)&devS0[offset_isc+numRegs*(threadIdx.x%group_size) + f]);
+                #pragma unroll
+                for(int i = 0; i < currentRegs; i++){
+                    subject[f+i] = temp[i];
+                }
+            }
+
+            //load S1 to subject
+            if (offset_isc+numRegs*(threadIdx.x%group_size)+(f+3) >= length_S1){
+                #pragma unroll
+                for(int i = 0; i < currentRegs; i++){
+                    subject[f+i] += 1*21; // 20*21;
+                }
+            }else{
+                alignas(4) char temp[4];
+                *((int*)&temp[0]) = *((int*)&devS1[offset_isc+numRegs*(threadIdx.x%group_size) + f]);
+                #pragma unroll
+                for(int i = 0; i < currentRegs; i++){
+                    subject[f+i] += 21 * temp[i];
+                }
+            }
+        }
+        #endif
     }
 
     __device__
