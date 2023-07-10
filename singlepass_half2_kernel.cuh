@@ -473,4 +473,43 @@ void NW_local_affine_Protein_single_pass_half2_new(
     processor.compute(devAlignmentScores, overflow_check, d_overflow_number, d_overflow_positions);
 }
 
+
+template <int blocksize, int group_size, int numRegs, class PositionsIterator> 
+void call_NW_local_affine_Protein_single_pass_half2_new(
+    const char * const devChars,
+    float * const devAlignmentScores,
+    const size_t* const devOffsets,
+    const size_t* const devLengths,
+    PositionsIterator const d_positions_of_selected_lengths,
+    const int numSelected,
+	size_t* const d_overflow_positions,
+	int* const d_overflow_number,
+	const bool overflow_check,
+    const int length_2,
+    const float gap_open,
+    const float gap_extend,
+    cudaStream_t stream
+){
+
+    constexpr int groupsPerBlock = blocksize / group_size;
+    constexpr int alignmentsPerGroup = 2;
+    constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
+    dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;
+    NW_local_affine_Protein_single_pass_half2_new<group_size, numRegs><<<grid, blocksize, 0, stream>>>(
+        devChars,
+        devAlignmentScores,
+        devOffsets,
+        devLengths,
+        d_positions_of_selected_lengths,
+        numSelected,
+        d_overflow_positions,
+        d_overflow_number,
+        overflow_check,
+        length_2,
+        gap_open,
+        gap_extend
+    );
+
+}
+
 #endif
