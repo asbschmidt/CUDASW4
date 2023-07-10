@@ -833,7 +833,7 @@ template <int group_size, int numRegs, class PositionsIterator>
 __launch_bounds__(256,2)
 //__launch_bounds__(128,1)
 __global__
-void NW_local_affine_Protein_many_pass_half2_new2(
+void NW_local_affine_Protein_many_pass_half2_new(
     __grid_constant__ const char * const devChars,
     __grid_constant__ float * const devAlignmentScores,
     __grid_constant__ __half2 * const devTempHcol2,

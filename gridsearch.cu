@@ -91,7 +91,7 @@ int main(){
     const int deviceId = 0;
     cudaStream_t stream = 0;
     const int queryLength = 256;
-    const int numSubjects = 32*1024;
+    const int numSubjects = 4914465; //32*1024;
 
     const int timingLoopIters = 5;
 
@@ -138,7 +138,9 @@ int main(){
     #if 1
     std::cout << "NW_local_affine_Protein_single_pass_half2\n";
 
-    for(int pseudodbSeqLength : {64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960, 1024}){
+    //for(int pseudodbSeqLength : {64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960, 1024}){
+    //for(int pseudodbSeqLength : {64}){
+    for(int pseudodbSeqLength = 11; pseudodbSeqLength <= 64; pseudodbSeqLength++){
         std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
  
         PseudoDB fullDB = loadPseudoDB(numSubjects, pseudodbSeqLength);
@@ -218,7 +220,7 @@ int main(){
                         numSubjects,  \
                         d_overflow_positions_vec[i].data(),  \
                         d_overflow_number_vec[i].data(),  \
-                        0,  \
+                        1,  \
                         queryLength,  \
                         gop,  \
                         gex \
@@ -313,22 +315,22 @@ int main(){
 
        // compareSinglePassHalf2New(256, 32, 32);
 
-        runSinglePassHalf2_numregs(256, 32);
-        runSinglePassHalf2_numregs(256, 30);
-        runSinglePassHalf2_numregs(256, 28);
-        runSinglePassHalf2_numregs(256, 26);
-        runSinglePassHalf2_numregs(256, 24);
-        runSinglePassHalf2_numregs(256, 22);
-        runSinglePassHalf2_numregs(256, 20);
-        runSinglePassHalf2_numregs(256, 18);
-        runSinglePassHalf2_numregs(256, 16);
-        runSinglePassHalf2_numregs(256, 14);
-        runSinglePassHalf2_numregs(256, 12);
-        runSinglePassHalf2_numregs(256, 10);
+        // runSinglePassHalf2_numregs(256, 32);
+        // runSinglePassHalf2_numregs(256, 30);
+        // runSinglePassHalf2_numregs(256, 28);
+        // runSinglePassHalf2_numregs(256, 26);
+        // runSinglePassHalf2_numregs(256, 24);
+        // runSinglePassHalf2_numregs(256, 22);
+        // runSinglePassHalf2_numregs(256, 20);
+        // runSinglePassHalf2_numregs(256, 18);
+        // runSinglePassHalf2_numregs(256, 16);
+        // runSinglePassHalf2_numregs(256, 14);
+        // runSinglePassHalf2_numregs(256, 12);
+        // runSinglePassHalf2_numregs(256, 10);
         runSinglePassHalf2_numregs(256, 8);
-        runSinglePassHalf2_numregs(256, 6);
-        runSinglePassHalf2_numregs(256, 4);
-        runSinglePassHalf2_numregs(256, 2);
+        // runSinglePassHalf2_numregs(256, 6);
+        // runSinglePassHalf2_numregs(256, 4);
+        // runSinglePassHalf2_numregs(256, 2);
 
         std::sort(gcupsVec.begin(), gcupsVec.end(), [](const auto& l, const auto& r){ return std::get<0>(l) > std::get<0>(r);});
 
@@ -339,22 +341,22 @@ int main(){
         }
         gcupsVec.clear();
 
-        runSinglePassHalf2_numregs_new(256, 32);
-        runSinglePassHalf2_numregs_new(256, 30);
-        runSinglePassHalf2_numregs_new(256, 28);
-        runSinglePassHalf2_numregs_new(256, 26);
-        runSinglePassHalf2_numregs_new(256, 24);
-        runSinglePassHalf2_numregs_new(256, 22);
-        runSinglePassHalf2_numregs_new(256, 20);
-        runSinglePassHalf2_numregs_new(256, 18);
-        runSinglePassHalf2_numregs_new(256, 16);
-        runSinglePassHalf2_numregs_new(256, 14);
-        runSinglePassHalf2_numregs_new(256, 12);
-        runSinglePassHalf2_numregs_new(256, 10);
-        runSinglePassHalf2_numregs_new(256, 8);
-        runSinglePassHalf2_numregs_new(256, 6);
-        runSinglePassHalf2_numregs_new(256, 4);
-        runSinglePassHalf2_numregs_new(256, 2);
+        //runSinglePassHalf2_numregs_new(256, 32);
+        // runSinglePassHalf2_numregs_new(256, 30);
+        // runSinglePassHalf2_numregs_new(256, 28);
+        // runSinglePassHalf2_numregs_new(256, 26);
+        // runSinglePassHalf2_numregs_new(256, 24);
+        // runSinglePassHalf2_numregs_new(256, 22);
+        // runSinglePassHalf2_numregs_new(256, 20);
+        // runSinglePassHalf2_numregs_new(256, 18);
+        // runSinglePassHalf2_numregs_new(256, 16);
+        // runSinglePassHalf2_numregs_new(256, 14);
+        // runSinglePassHalf2_numregs_new(256, 12);
+        // runSinglePassHalf2_numregs_new(256, 10);
+         runSinglePassHalf2_numregs_new(256, 8);
+        // runSinglePassHalf2_numregs_new(256, 6);
+        // runSinglePassHalf2_numregs_new(256, 4);
+        // runSinglePassHalf2_numregs_new(256, 2);
 
         std::sort(gcupsVec.begin(), gcupsVec.end(), [](const auto& l, const auto& r){ return std::get<0>(l) > std::get<0>(r);});
 
@@ -508,14 +510,14 @@ int main(){
             gcupsVec.push_back(std::make_tuple(gcups,blocksize,groupsize, numRegs )); \
         }
 
-        #define runManyPassHalf2_new2(blocksize, groupsize, numRegs){ \
+        #define runManyPassHalf2_new(blocksize, groupsize, numRegs){ \
             assert(blocksize % groupsize == 0); \
             constexpr int alignmentsPerBlock = (blocksize / groupsize) * 2; \
             helpers::GpuTimer timer1(stream, "Timer_" + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
             for(int i = 0; i < timingLoopIters; i++){ \
                 cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(__half2), stream); CUERR; \
                 cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; \
-                NW_local_affine_Protein_many_pass_half2_new2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                NW_local_affine_Protein_many_pass_half2_new<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
                     d_subjects.data(),  \
                     d_scores_vec[i].data(),  \
                     d_tempH.data(), \
@@ -564,7 +566,7 @@ int main(){
                 cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(__half2), stream); CUERR; \
                 cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; \
                 helpers::GpuTimer timer2(stream, "new " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-                NW_local_affine_Protein_many_pass_half2_new2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                NW_local_affine_Protein_many_pass_half2_new<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
                     d_subjects.data(),  \
                     d_scores_vec[1].data(),  \
                     d_tempH.data(), \
@@ -632,20 +634,20 @@ int main(){
         gcupsVec.clear();
 
 
-        runManyPassHalf2_new2(256, 32, 6);
-        runManyPassHalf2_new2(256, 32, 8);
-        runManyPassHalf2_new2(256, 32, 10);
-        runManyPassHalf2_new2(256, 32, 12);
-        runManyPassHalf2_new2(256, 32, 14);
-        runManyPassHalf2_new2(256, 32, 16);
-        runManyPassHalf2_new2(256, 32, 18);
-        runManyPassHalf2_new2(256, 32, 20);
-        runManyPassHalf2_new2(256, 32, 22);
-        runManyPassHalf2_new2(256, 32, 24);
-        runManyPassHalf2_new2(256, 32, 26);
-        runManyPassHalf2_new2(256, 32, 28);
-        runManyPassHalf2_new2(256, 32, 30);
-        runManyPassHalf2_new2(256, 32, 32);
+        runManyPassHalf2_new(256, 32, 6);
+        runManyPassHalf2_new(256, 32, 8);
+        runManyPassHalf2_new(256, 32, 10);
+        runManyPassHalf2_new(256, 32, 12);
+        runManyPassHalf2_new(256, 32, 14);
+        runManyPassHalf2_new(256, 32, 16);
+        runManyPassHalf2_new(256, 32, 18);
+        runManyPassHalf2_new(256, 32, 20);
+        runManyPassHalf2_new(256, 32, 22);
+        runManyPassHalf2_new(256, 32, 24);
+        runManyPassHalf2_new(256, 32, 26);
+        runManyPassHalf2_new(256, 32, 28);
+        runManyPassHalf2_new(256, 32, 30);
+        runManyPassHalf2_new(256, 32, 32);
 
         std::sort(gcupsVec.begin(), gcupsVec.end(), [](const auto& l, const auto& r){ return std::get<0>(l) > std::get<0>(r);});
         for(int i = 0; i < std::min(3, int(gcupsVec.size())); i++){
