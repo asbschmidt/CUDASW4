@@ -376,7 +376,7 @@ int main(){
 
     // MANY PASS HALF2 BENCHMARKS
 
-    #if 0
+    #if 1
 
     std::cout << "NW_local_affine_Protein_many_pass_half2\n";
 
@@ -600,7 +600,7 @@ int main(){
 
         //runManyPassHalf2(256, 32, 32);
 
-        compareManyPassHalf2New(256, 32, 32);
+        //compareManyPassHalf2New(256, 32, 32);
 
         // std::cout << "start 4\n"; runManyPassHalf2(256, 32, 4);
         // std::cout << "start 6\n"; runManyPassHalf2(256, 32, 6);
@@ -615,9 +615,9 @@ int main(){
         // runManyPassHalf2(256, 32, 8);
         // runManyPassHalf2(256, 32, 10);
         // runManyPassHalf2(256, 32, 12);
-        // runManyPassHalf2(256, 32, 14);
-        // runManyPassHalf2(256, 32, 16);
-        // runManyPassHalf2(256, 32, 18);
+        runManyPassHalf2(256, 32, 14);
+        runManyPassHalf2(256, 32, 16);
+        runManyPassHalf2(256, 32, 18);
         // runManyPassHalf2(256, 32, 20);
         // runManyPassHalf2(256, 32, 22);
         // runManyPassHalf2(256, 32, 24);
@@ -640,9 +640,9 @@ int main(){
         // runManyPassHalf2_new(256, 32, 8);
         // runManyPassHalf2_new(256, 32, 10);
         // runManyPassHalf2_new(256, 32, 12);
-        // runManyPassHalf2_new(256, 32, 14);
-        // runManyPassHalf2_new(256, 32, 16);
-        // runManyPassHalf2_new(256, 32, 18);
+        runManyPassHalf2_new(256, 32, 14);
+        runManyPassHalf2_new(256, 32, 16);
+        runManyPassHalf2_new(256, 32, 18);
         // runManyPassHalf2_new(256, 32, 20);
         // runManyPassHalf2_new(256, 32, 22);
         // runManyPassHalf2_new(256, 32, 24);
@@ -668,9 +668,9 @@ int main(){
 
 
 
-    // MANY PASS HALF2 BENCHMARKS
+    // MANY PASS FLOAT BENCHMARKS
 
-    #if 1
+    #if 0
 
     std::cout << "NW_local_affine_read4_float_query_Protein\n";
 
