@@ -380,7 +380,7 @@ std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlan(
     return result;
 }
 
-
+#if 0
 std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlanMaybeOptimized1(
     const std::vector<DBdataView>& dbPartitions,
     const std::vector<int>& lengthPartitionIds,
@@ -550,7 +550,7 @@ std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlanMaybeOptimized1(
 
     return result;
 }
-
+#endif
 
 
 
@@ -615,43 +615,12 @@ void executePinnedCopyPlanCallback(void* args){
     auto& dbPartitions = *callbackData->dbPartitionsPtr;
     
 
-    auto& h_chardata_vec = ws.h_chardata_vec;
-    auto& h_lengthdata_vec = ws.h_lengthdata_vec;
-    auto& h_offsetdata_vec = ws.h_offsetdata_vec;
-    auto& d_chardata_vec = ws.d_chardata_vec;
-    auto& d_lengthdata_vec = ws.d_lengthdata_vec;
-    auto& d_offsetdata_vec = ws.d_offsetdata_vec;
-    auto& copyStreams = ws.copyStreams;
-
-    size_t usedBytes = 0;
-    size_t usedSeq = 0;
-    for(const auto& copyRange : plan.copyRanges){
-        const auto& dbPartition = dbPartitions[copyRange.currentCopyPartition];
-        const auto& firstSeq = copyRange.currentCopySeqInPartition;
-        const auto& numToCopy = copyRange.numToCopy;
-        size_t numBytesToCopy = dbPartition.offsets()[firstSeq + numToCopy] - dbPartition.offsets()[firstSeq];
-
-        auto end = std::copy(
-            dbPartition.chars() + dbPartition.offsets()[firstSeq],
-            dbPartition.chars() + dbPartition.offsets()[firstSeq + numToCopy],
-            h_chardata_vec[currentBuffer].data() + usedBytes
-        );
-        std::copy(
-            dbPartition.lengths() + firstSeq,
-            dbPartition.lengths() + firstSeq+numToCopy,
-            h_lengthdata_vec[currentBuffer].data() + usedSeq
-        );
-        std::transform(
-            dbPartition.offsets() + firstSeq,
-            dbPartition.offsets() + firstSeq + (numToCopy+1),
-            h_offsetdata_vec[currentBuffer].data() + usedSeq,
-            [&](size_t off){
-                return off - dbPartition.offsets()[firstSeq] + usedBytes;
-            }
-        );
-        usedBytes += std::distance(h_chardata_vec[currentBuffer].data() + usedBytes, end);
-        usedSeq += numToCopy;
-    }
+    executePinnedCopyPlanSerial(
+        plan, 
+        ws, 
+        currentBuffer, 
+        dbPartitions
+    );
 
     delete callbackData;
 }
