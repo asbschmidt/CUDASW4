@@ -40,6 +40,7 @@
 
 #include "manypass_half2_kernel.cuh"
 #include "singlepass_half2_kernel.cuh"
+#include "manypass_float_kernel.cuh"
 
 template<class T>
 using MyPinnedBuffer = helpers::SimpleAllocationPinnedHost<T, 0>;
@@ -140,9 +141,21 @@ const int BLOSUM62[21][21] = {
 
 
 struct CudaSW4Options{
-    size_t maxTempBytes;
-    size_t maxBatchBytes;
-    size_t maxBatchSubjects;
+    /*
+        if loadFullDBToGpu == false, create a double buffer for maxBatchBytes and maxBatchSubjects
+        in both gpu mem and pinned host mem to stream the DB to the gpu for each query.
+        if loadFullDBToGpu == true, attempt to allocate enough gpu memory to store the full db. if
+        this fails, fall back to double buffer mode
+    */
+    bool loadFullDBToGpu = false;
+    int gop = -1;
+    int gex = -11;
+    size_t maxBatchBytes = 32ull * 1024ull * 1024ull;
+    size_t maxBatchSubjects = 10'000'000;
+    size_t maxTempBytes = 4ull * 1024ull * 1024ull * 1024ull;
+
+    std::string queryFile;
+    std::string dbPrefix;
 };
 
 
@@ -903,7 +916,9 @@ void processQueryOnGpu(
                 if (partId == 10){NW_local_affine_Protein_single_pass_half2<32, 24><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 if (partId == 11){NW_local_affine_Protein_single_pass_half2<32, 28><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
                 if (partId == 12){NW_local_affine_Protein_single_pass_half2<32, 32><<<(numSeq+15)/(2*8), 32*8, 0, nextWorkStreamNoTemp()>>>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex); CUERR }
-                #else
+                #endif
+
+                #if 0
                 if (partId == 0){call_NW_local_affine_Protein_single_pass_half2_new<256, 4, 16>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
                 if (partId == 1){call_NW_local_affine_Protein_single_pass_half2_new<256, 4, 32>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
                 if (partId == 2){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 12>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
@@ -923,8 +938,37 @@ void processQueryOnGpu(
 
                 #endif
 
+                #if 1
+                if (partId == 0){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 8>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 1){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 12>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 2){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 16>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 3){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 20>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 4){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 24>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 5){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 28>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 6){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 32>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 7){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 18>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 8){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 20>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 9){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 22>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 10){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 24>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 11){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 26>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 12){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 28>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 13){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 30>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 14){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 32>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 15){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 18>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 16){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 20>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 17){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 22>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 18){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 24>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 19){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 26>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 20){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 28>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 21){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 30>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 22){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 32>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 23){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 34>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                if (partId == 24){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 36>(inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                #endif
+
                 //if (partId > 15 && partId < 44){
-                if (partId == 16){
+                //if (partId == 16){
+                if(partId == numLengthPartitions - 2){
                     constexpr int blocksize = 32 * 8;
                     constexpr int groupsize = 32;
                     constexpr int groupsPerBlock = blocksize / groupsize;
@@ -954,7 +998,7 @@ void processQueryOnGpu(
                         //std::cout << "iter " << iter << " / " << numIters << " gridsize " << SDIV(num, alignmentsPerBlock) << "\n";
                         
                         //NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
-                        NW_local_affine_Protein_many_pass_half2_new<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
+                        NW_local_affine_Protein_many_pass_half2_new<groupsize, 22><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
                             inputChars, 
                             d_scores, 
                             d_tempHcol2, 
@@ -974,7 +1018,8 @@ void processQueryOnGpu(
                 }
 
                 //if (partId == 44){
-                if (partId == 17){
+                //if (partId == 17){
+                if(partId == numLengthPartitions - 1){
                     const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
                     const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
@@ -990,7 +1035,8 @@ void processQueryOnGpu(
 
                         cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, ws.workStreamForTempUsage); CUERR;
 
-                        NW_local_affine_read4_float_query_Protein<32, 12><<<num, 32, 0, ws.workStreamForTempUsage>>>(
+                        //NW_local_affine_read4_float_query_Protein<32, 32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
+                        NW_local_affine_read4_float_query_Protein_new<32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
                             inputChars, 
                             d_scores, 
                             d_tempHcol2, 
@@ -1169,10 +1215,11 @@ int main(int argc, char* argv[])
 	TIMERSTOP_CUDA(READ_DB)
     {
     #else
-    for(int pseudodbSeqLength : {64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 768, 896, 1024}){
+    //for(int pseudodbSeqLength : {64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 768, 896, 1024}){
+    for(int pseudodbSeqLength : {256, 512, 1024, 1536}){
        std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
 
-    PseudoDB fullDB = loadPseudoDB(256*1024, pseudodbSeqLength);
+    PseudoDB fullDB = loadPseudoDB(1024*1024, pseudodbSeqLength);
     #endif
 
     

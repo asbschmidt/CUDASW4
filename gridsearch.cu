@@ -136,7 +136,7 @@ int main(){
 
     // SINGLE PASS BENCHMARKS
 
-    #if 0
+    #if 1
     std::cout << "NW_local_affine_Protein_single_pass_half2\n";
 
     for(int pseudodbSeqLength : {64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960, 1024}){
@@ -376,7 +376,7 @@ int main(){
 
     // MANY PASS HALF2 BENCHMARKS
 
-    #if 1
+    #if 0
 
     std::cout << "NW_local_affine_Protein_many_pass_half2\n";
 
