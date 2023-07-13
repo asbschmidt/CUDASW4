@@ -139,7 +139,11 @@ const int BLOSUM62[21][21] = {
 
 
 
-
+struct CudaSW4Options{
+    size_t maxTempBytes;
+    size_t maxBatchBytes;
+    size_t maxBatchSubjects;
+};
 
 
 struct GpuWorkingSet{
@@ -1138,10 +1142,10 @@ int main(int argc, char* argv[])
 
     // chars   = concatenation of all sequences
     // offsets = starting indices of individual sequences (1st: 0, last: one behind end of 'chars')
-    char*   chars       = batch.chars.data();
-    const size_t* offsets     = batch.offsets.data();
-    const size_t* lengths      = batch.lengths.data();
-    const size_t  charBytes   = batch.chars.size();
+    char*   queryChars       = batch.chars.data();
+    const size_t* queryOffsets     = batch.offsets.data();
+    const size_t* queryLengths      = batch.lengths.data();
+    const size_t  totalNumQueryBytes   = batch.chars.size();
     int numQueries = batch.offsets.size() - 1;
     const char* maxNumQueriesString = std::getenv("ALIGNER_MAX_NUM_QUERIES");
     if(maxNumQueriesString != nullptr){
@@ -1153,7 +1157,7 @@ int main(int argc, char* argv[])
 
 
     cout << "Number of input sequences Query-File:  " << numQueries<< '\n';
-    cout << "Number of input characters Query-File: " << charBytes << '\n';
+    cout << "Number of input characters Query-File: " << totalNumQueryBytes << '\n';
     int64_t dp_cells = 0;
 
     #if 1
@@ -1199,9 +1203,9 @@ int main(int argc, char* argv[])
     int64_t max_length = 0, min_length = 10000, avg_length = 0;
     int64_t max_length_2 = 0, min_length_2 = 10000, avg_length_2 = 0;
     for (int i=0; i<numQueries; i++) {
-        if (lengths[i] > max_length) max_length = lengths[i];
-        if (lengths[i] < min_length) min_length = lengths[i];
-        avg_length += lengths[i];
+        if (queryLengths[i] > max_length) max_length = queryLengths[i];
+        if (queryLengths[i] < min_length) min_length = queryLengths[i];
+        avg_length += queryLengths[i];
     }
 
     for(int i = 0; i < numDBChunks; i++){
@@ -1221,18 +1225,6 @@ int main(int argc, char* argv[])
     cout << "Max Length 1: " << max_length << ", Max Length 2: " << max_length_2 <<"\n";
     cout << "Min Length 1: " << min_length << ", Min Length 2: " << min_length_2 <<"\n";
     cout << "Avg Length 1: " << avg_length/numQueries << ", Avg Length 2: " << avg_length_2/totalNumberOfSequencesInDB <<"\n";
-
-
-    for(int i = 0; i < 0; ++i) {
-            cout << "Query: "<< i <<" , " << lengths[i] << " : ";
-			cout << batch.headers[i] << '\n';
-			//cout << i <<" - "<< offsets[i] << " "<< (offsets[i] % ALIGN) <<" "<< lengths[i] <<" ";
-			const auto first = chars + offsets[i];
-			std::copy(first, first + lengths[i], std::ostream_iterator<char>{cout});
-			cout << '\n';
-            //for (int j=0; j<lengths[i]; j++) cout << *(chars+offsets[i]+j);
-            //cout << '\n';
-    }
 
 
     // Partition dbData
@@ -1394,32 +1386,32 @@ int main(int argc, char* argv[])
     for(int i = 0; i < numGpus; i++){
         cudaSetDevice(deviceIds[i]);
 
-        size_t max_batch_char_bytes = 0;
-        size_t max_batch_num_sequences = 0;
+        // size_t max_batch_char_bytes = 0;
+        // size_t max_batch_num_sequences = 0;
 
-        for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
-            const size_t max_batch_char_bytes_chunk = std::max_element(subPartitionsForGpus_perDBchunk[chunkId][i].begin(), subPartitionsForGpus_perDBchunk[chunkId][i].end(),
-                [](const auto& l, const auto& r){ return l.numChars() < r.numChars(); }
-            )->numChars();
+        // for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
+        //     const size_t max_batch_char_bytes_chunk = std::max_element(subPartitionsForGpus_perDBchunk[chunkId][i].begin(), subPartitionsForGpus_perDBchunk[chunkId][i].end(),
+        //         [](const auto& l, const auto& r){ return l.numChars() < r.numChars(); }
+        //     )->numChars();
 
-            max_batch_char_bytes = std::max(max_batch_char_bytes, max_batch_char_bytes_chunk);
+        //     max_batch_char_bytes = std::max(max_batch_char_bytes, max_batch_char_bytes_chunk);
 
-            const size_t max_batch_num_sequences_chunk = std::max_element(subPartitionsForGpus_perDBchunk[chunkId][i].begin(), subPartitionsForGpus_perDBchunk[chunkId][i].end(),
-                [](const auto& l, const auto& r){ return l.numSequences() < r.numSequences(); }
-            )->numSequences();
+        //     const size_t max_batch_num_sequences_chunk = std::max_element(subPartitionsForGpus_perDBchunk[chunkId][i].begin(), subPartitionsForGpus_perDBchunk[chunkId][i].end(),
+        //         [](const auto& l, const auto& r){ return l.numSequences() < r.numSequences(); }
+        //     )->numSequences();
 
-            max_batch_num_sequences = std::max(max_batch_num_sequences, max_batch_num_sequences_chunk);
-        }
+        //     max_batch_num_sequences = std::max(max_batch_num_sequences, max_batch_num_sequences_chunk);
+        // }
 
-        const size_t max_batch_offset_bytes = sizeof(size_t) * max_batch_num_sequences;
+        // const size_t max_batch_offset_bytes = sizeof(size_t) * max_batch_num_sequences;
 
-        std::cout << "max_batch_char_bytes " << max_batch_char_bytes << "\n";
-        std::cout << "max_batch_num_sequences " << max_batch_num_sequences << "\n";
-        std::cout << "max_batch_offset_bytes " << max_batch_offset_bytes << "\n";
+        // std::cout << "max_batch_char_bytes " << max_batch_char_bytes << "\n";
+        // std::cout << "max_batch_num_sequences " << max_batch_num_sequences << "\n";
+        // std::cout << "max_batch_offset_bytes " << max_batch_offset_bytes << "\n";
 
         workingSets[i] = std::make_unique<GpuWorkingSet>(
             numQueries,
-            charBytes,
+            totalNumQueryBytes,
             numSequencesPerGpu_total[i]
         );
 
@@ -1473,37 +1465,44 @@ int main(int argc, char* argv[])
             const int currentBuffer = 0;
 
             cudaStream_t H2DcopyStream = ws.copyStreams[currentBuffer];
+
+            executePinnedCopyPlanSerial(
+                plan,
+                ws,
+                currentBuffer,
+                subPartitionsForGpus_perDBchunk[chunkId][gpu]
+            );
             
-            size_t usedBytes = 0;
-            size_t usedSeq = 0;
-            for(const auto& copyRange : plan.copyRanges){
-                const auto& dbPartition = subPartitionsForGpus_perDBchunk[chunkId][gpu][copyRange.currentCopyPartition];
-                const auto& firstSeq = copyRange.currentCopySeqInPartition;
-                const auto& numToCopy = copyRange.numToCopy;
-                size_t numBytesToCopy = dbPartition.offsets()[firstSeq + numToCopy] - dbPartition.offsets()[firstSeq];
+            // size_t usedBytes = 0;
+            // size_t usedSeq = 0;
+            // for(const auto& copyRange : plan.copyRanges){
+            //     const auto& dbPartition = subPartitionsForGpus_perDBchunk[chunkId][gpu][copyRange.currentCopyPartition];
+            //     const auto& firstSeq = copyRange.currentCopySeqInPartition;
+            //     const auto& numToCopy = copyRange.numToCopy;
+            //     size_t numBytesToCopy = dbPartition.offsets()[firstSeq + numToCopy] - dbPartition.offsets()[firstSeq];
 
-                auto end = std::copy(
-                    dbPartition.chars() + dbPartition.offsets()[firstSeq],
-                    dbPartition.chars() + dbPartition.offsets()[firstSeq + numToCopy],
-                    h_chardata_vec[currentBuffer].data() + usedBytes
-                );
-                std::copy(
-                    dbPartition.lengths() + firstSeq,
-                    dbPartition.lengths() + firstSeq+numToCopy,
-                    h_lengthdata_vec[currentBuffer].data() + usedSeq
-                );
-                std::transform(
-                    dbPartition.offsets() + firstSeq,
-                    dbPartition.offsets() + firstSeq + (numToCopy+1),
-                    h_offsetdata_vec[currentBuffer].data() + usedSeq,
-                    [&](size_t off){
-                        return off - dbPartition.offsets()[firstSeq] + usedBytes;
-                    }
-                );
+            //     auto end = std::copy(
+            //         dbPartition.chars() + dbPartition.offsets()[firstSeq],
+            //         dbPartition.chars() + dbPartition.offsets()[firstSeq + numToCopy],
+            //         h_chardata_vec[currentBuffer].data() + usedBytes
+            //     );
+            //     std::copy(
+            //         dbPartition.lengths() + firstSeq,
+            //         dbPartition.lengths() + firstSeq+numToCopy,
+            //         h_lengthdata_vec[currentBuffer].data() + usedSeq
+            //     );
+            //     std::transform(
+            //         dbPartition.offsets() + firstSeq,
+            //         dbPartition.offsets() + firstSeq + (numToCopy+1),
+            //         h_offsetdata_vec[currentBuffer].data() + usedSeq,
+            //         [&](size_t off){
+            //             return off - dbPartition.offsets()[firstSeq] + usedBytes;
+            //         }
+            //     );
 
-                usedBytes += std::distance(h_chardata_vec[currentBuffer].data() + usedBytes, end);
-                usedSeq += numToCopy;
-            }            
+            //     usedBytes += std::distance(h_chardata_vec[currentBuffer].data() + usedBytes, end);
+            //     usedSeq += numToCopy;
+            // }            
             cudaMemcpyAsync(
                 d_chardata_vec[currentBuffer].data(),
                 h_chardata_vec[currentBuffer].data(),
@@ -1562,9 +1561,9 @@ int main(int argc, char* argv[])
     for(int i = 0; i < numGpus; i++){
         cudaSetDevice(deviceIds[i]);
         auto& ws = *workingSets[i];
-        cudaMemcpyAsync(ws.devChars.data(), chars, charBytes, cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
-        cudaMemcpyAsync(ws.devOffsets.data(), offsets, sizeof(size_t) * (numQueries+1), cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
-        cudaMemcpyAsync(ws.devLengths.data(), lengths, sizeof(size_t) * (numQueries), cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
+        cudaMemcpyAsync(ws.devChars.data(), queryChars, totalNumQueryBytes, cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
+        cudaMemcpyAsync(ws.devOffsets.data(), queryOffsets, sizeof(size_t) * (numQueries+1), cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
+        cudaMemcpyAsync(ws.devLengths.data(), queryLengths, sizeof(size_t) * (numQueries), cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
         NW_convert_protein<<<numQueries, 128, 0, gpuStreams[i]>>>(ws.devChars.data(), ws.devOffsets.data()); CUERR
     }
 
@@ -1575,7 +1574,7 @@ int main(int argc, char* argv[])
 
 	for(int query_num = FIRST_QUERY_NUM; query_num < numQueries; ++query_num) {
         //if(query_num != 6) continue;
-        dp_cells = avg_length_2 * lengths[query_num];
+        dp_cells = avg_length_2 * queryLengths[query_num];
 
         const bool useExtraThreadForBatchTransfer = numGpus > 1;
 
@@ -1612,8 +1611,8 @@ int main(int argc, char* argv[])
                     subPartitionsForGpus_perDBchunk[chunkId][gpu],
                     lengthPartitionIdsForGpus_perDBchunk[chunkId][gpu],
                     batchPlans_perChunk[chunkId][gpu],
-                    ws.devChars.data() + offsets[query_num],
-                    lengths[query_num],
+                    ws.devChars.data() + queryOffsets[query_num],
+                    queryLengths[query_num],
                     (query_num == FIRST_QUERY_NUM),
                     query_num,
                     avg_length_2,
@@ -1678,14 +1677,14 @@ int main(int argc, char* argv[])
         }
 
         queryTimers[query_num]->stop();
-        //queryTimers[query_num]->printGCUPS(avg_length_2 * lengths[query_num]);
+        //queryTimers[query_num]->printGCUPS(avg_length_2 * queryLengths[query_num]);
         //nvtx::pop_range();
     }
     cudaSetDevice(masterDeviceId);
     cudaStreamSynchronize(masterStream1); CUERR
 
     for(int i = 0; i < numQueries; i++){
-        queryTimers[i]->printGCUPS(avg_length_2 * lengths[i]);
+        queryTimers[i]->printGCUPS(avg_length_2 * queryLengths[i]);
     }
     fullscanTimer.printGCUPS(avg_length_2 * avg_length);
 
@@ -1724,7 +1723,7 @@ int main(int argc, char* argv[])
 
         for (int i=0; i<numQueries; i++) {
             std::cout << totalOverFlowNumber << " total overflow positions \n";
-            cout << "Query Length:" << lengths[i] << " Header: ";
+            cout << "Query Length:" << queryLengths[i] << " Header: ";
             cout << batch.headers[i] << '\n';
 
             for(int j = 0; j < 10; ++j) {
