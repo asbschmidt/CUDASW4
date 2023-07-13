@@ -10,7 +10,7 @@
 #include "manypass_half2_kernel.cuh"
 #include "singlepass_half2_kernel.cuh"
 #include "manypass_float_kernel.cuh"
-
+//#include "singlepass_dpx_kernel.cuh"
 
 #include <thrust/sequence.h>
 #include <thrust/execution_policy.h>
