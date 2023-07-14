@@ -841,18 +841,58 @@ struct ManyPassHalf2{
                 if (!check_last2 || (threadIdx.x%check_last) < check_last-group_size) devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
             }
 
-            // check for overflow
             if (overflow_check){
-                half max_half2 = __float2half_rn(MAX_ACC_HALF2);
-                if (maximum.y >= max_half2) {
-                    int pos_overflow = atomicAdd(d_overflow_number,1);
-                    int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)];
-                    //printf("Overflow_S0 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S0, __half2float(maximum.y));
-                }
-                if (maximum.x >= max_half2) {
-                    int pos_overflow = atomicAdd(d_overflow_number,1);
-                    int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1];
-                    //printf("Overflow_S1 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S1, __half2float(maximum.x));
+                if (blockIdx.x < gridDim.x-1) {
+                    //both group alignments are valid
+                    half max_half2 = __float2half_rn(MAX_ACC_HALF2);
+                    if (maximum.y >= max_half2) {
+                        int pos_overflow = atomicAdd(d_overflow_number,1);
+                        // printf("bid %d, tid %d, group_id %d, alignmentIndex %d, write %lu to overflow array index %d\n", blockIdx.x, threadIdx.x, group_id,
+                        //     2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size),
+                        //     d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)],
+                        //     pos_overflow
+                        // );
+                        int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)];
+                        //printf("Overflow_S0 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S0, __half2float(maximum.y));
+                    }
+                    if (maximum.x >= max_half2) {
+                        int pos_overflow = atomicAdd(d_overflow_number,1);
+                        // printf("bid %d, tid %d, group_id %d, alignmentIndex %d, write %lu to overflow array index %d\n", blockIdx.x, threadIdx.x, group_id,
+                        //     2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1,
+                        //     d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1],
+                        //     pos_overflow
+                        // );
+                        int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1];
+                        //printf("Overflow_S1 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S1, __half2float(maximum.x));
+                    }
+                } else {
+                    //second alignment of group may be invalid
+                    half max_half2 = __float2half_rn(MAX_ACC_HALF2);
+                    
+                    if(2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size) < numSelected){
+                        if (maximum.y >= max_half2) {
+                            int pos_overflow = atomicAdd(d_overflow_number,1);
+                            // printf("bid %d, tid %d, group_id %d, alignmentIndex %d, write %lu to overflow array index %d\n", blockIdx.x, threadIdx.x, group_id,
+                            //     2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size),
+                            //     d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)],
+                            //     pos_overflow
+                            // );
+                            int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)];
+                            //printf("Overflow_S0 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S0, __half2float(maximum.y));
+                        }
+                    }
+                    if(2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1 < numSelected){
+                        if (maximum.x >= max_half2) {
+                            int pos_overflow = atomicAdd(d_overflow_number,1);
+                            // printf("bid %d, tid %d, group_id %d, alignmentIndex %d, write %lu to overflow array index %d\n", blockIdx.x, threadIdx.x, group_id,
+                            //     2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1,
+                            //     d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1],
+                            //     pos_overflow
+                            // );
+                            int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1];
+                            //printf("Overflow_S1 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S1, __half2float(maximum.x));
+                        }
+                    }
                 }
             }
         }
