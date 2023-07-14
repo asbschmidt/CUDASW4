@@ -852,6 +852,8 @@ struct ManyPassHalf2{
                         //     d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)],
                         //     pos_overflow
                         // );
+                        //printf("y pos_overflow %d score %f, index %d %lu\n", pos_overflow, float(maximum.y), 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size),
+                        //d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)]);
                         int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)];
                         //printf("Overflow_S0 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S0, __half2float(maximum.y));
                     }
@@ -862,6 +864,8 @@ struct ManyPassHalf2{
                         //     d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1],
                         //     pos_overflow
                         // );
+                        //printf("x pos_overflow %d score %f, index %d %lu\n", pos_overflow, float(maximum.x), 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1,
+                        //d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1]);
                         int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1];
                         //printf("Overflow_S1 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S1, __half2float(maximum.x));
                     }

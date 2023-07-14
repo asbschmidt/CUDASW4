@@ -394,6 +394,13 @@ struct SinglePassHalf2{
 
             computeSinglePass(maximum, devS0, length_S0, devS1, length_S1, warpMaxLength);
 
+            // if(length_S0 == 251){
+            //     printf("251 y, %f\n", float(maximum.y));
+            // }
+            // if(length_S1 == 251){
+            //     printf("251 x, %f\n", float(maximum.x));
+            // }
+
             for (int offset=group_size/2; offset>0; offset/=2){
                 maximum = __hmax2(maximum,__shfl_down_sync(0xFFFFFFFF,maximum,offset,group_size));
             }
@@ -475,7 +482,26 @@ void NW_local_affine_Protein_single_pass_half2_new(
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ) {
+    // if(threadIdx.x == 0 && blockIdx.x == 0){
+    //     printf("constantquery\n");
+    //     for(int i = 0; i < 2048; i++){
+    //         printf("%d %d %d %d", int(constantQuery4[i].x), int(constantQuery4[i].y), int(constantQuery4[i].z), int(constantQuery4[i].w));
+    //     }
+    //     printf("\n");
+    //     printf("constantblosum\n");
+    //     for(int i = 0; i < 21*21; i++){
+    //         printf("%d %d %d %d", int(cBLOSUM62_dev[i]));
+    //     }
+    //     printf("\n");
 
+    //     printf("offset %lu\n", devOffsets[0]);
+    //     printf("length %lu\n", devLengths[0]);
+    //     printf("d_positions_of_selected_lengths %lu\n", d_positions_of_selected_lengths[0]);
+    //     printf("length_2 %d\n", length_2);
+    //     printf("gap_open %f\n", gap_open);
+    //     printf("gap_extend %f\n", gap_extend);
+    // }
+    
     __shared__ __half2 shared_BLOSUM62[21][21*21];
 
     SinglePassHalf2<group_size, numRegs, PositionsIterator> processor(

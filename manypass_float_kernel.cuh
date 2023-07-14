@@ -903,6 +903,7 @@ struct ManyPassFloat{
 // every groupsize threads computes an alignmen score
 template <int numRegs, class PositionsIterator> 
 __launch_bounds__(32,16)
+//__launch_bounds__(32)
 __global__
 void NW_local_affine_read4_float_query_Protein_new(
     __grid_constant__ const char * const devChars,
@@ -934,6 +935,78 @@ void NW_local_affine_read4_float_query_Protein_new(
     );
 
     processor.compute(devAlignmentScores);
+}
+
+
+template <int numRegs> 
+__launch_bounds__(1,1)
+__global__
+void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new(
+    const int* d_overflow_number,
+    short2* d_temp,
+    size_t maxTempBytes,
+    const char * devChars,
+    float * devAlignmentScores,
+    const size_t* devOffsets,
+    const size_t* devLengths,
+    const size_t* d_positions_of_selected_lengths,
+    const int queryLength,
+    const float gap_open,
+    const float gap_extend
+){
+    const int numOverflow = *d_overflow_number;
+    if(numOverflow > 0){
+        // printf("numOverflow %d\n", numOverflow);
+        // for(int i = 0; i < numOverflow; i++){
+        //     printf("%lu ", d_positions_of_selected_lengths[i]);
+
+        //     size_t p = d_positions_of_selected_lengths[i];
+        //     size_t offset = devOffsets[p];
+        //     int length = devLengths[p];
+        //     printf("length %d\n", length);
+        //     for(int k = 0; k < length; k++){
+        //         printf("%d ", int(devChars[offset + k]));
+        //     }
+        //     printf("\n");
+        // }
+        // printf("\n");
+        // printf("next 5");
+        // for(int i = numOverflow; i < numOverflow + 5; i++){
+        //     printf("%lu ", d_positions_of_selected_lengths[i]);
+        // }
+        // printf("\n");
+    
+        const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * queryLength;
+        const size_t maxSubjectsPerIteration = std::min(size_t(numOverflow), maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
+
+        short2* d_tempHcol2 = d_temp;
+        short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+
+        const int numIters =  SDIV(numOverflow, maxSubjectsPerIteration);
+        for(int iter = 0; iter < numIters; iter++){
+            const size_t begin = iter * maxSubjectsPerIteration;
+            const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numOverflow;
+            const size_t num = end - begin;
+
+            cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, 0);
+
+            // cudaMemsetAsync(d_tempHcol2, 0, tempBytesPerSubjectPerBuffer * num, 0);
+            // cudaMemsetAsync(d_tempEcol2, 0, tempBytesPerSubjectPerBuffer * num, 0);
+
+            NW_local_affine_read4_float_query_Protein_new<12><<<num, 32>>>(
+                devChars, 
+                devAlignmentScores,
+                d_tempHcol2, 
+                d_tempEcol2, 
+                devOffsets, 
+                devLengths, 
+                d_positions_of_selected_lengths + begin, 
+                queryLength, 
+                gap_open, 
+                gap_extend
+            );
+        }
+    }
 }
 
 #endif
