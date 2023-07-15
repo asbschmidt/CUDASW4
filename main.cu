@@ -1579,8 +1579,8 @@ void processQueryOnGpu(
 
                         //cudaDeviceSynchronize(); CUERR;
 
-                        NW_local_affine_read4_float_query_Protein<32, 32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
-                        //NW_local_affine_read4_float_query_Protein_new<12><<<num, 32, 0, ws.workStreamForTempUsage>>>(
+                        //NW_local_affine_read4_float_query_Protein<32, 32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
+                        NW_local_affine_read4_float_query_Protein_new<32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
                             inputChars, 
                             d_scores, 
                             d_tempHcol2, 
@@ -1652,8 +1652,8 @@ void processQueryOnGpu(
             //std::cerr << "overflow processing\n";
             short2* d_temp = (short2*)ws.d_tempStorageHE.data();
 
-            launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32,32><<<1,1,0, ws.workStreamForTempUsage>>>(
-            //launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<12><<<1,1,0, ws.workStreamForTempUsage>>>(
+            //launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32,32><<<1,1,0, ws.workStreamForTempUsage>>>(
+            launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<32><<<1,1,0, ws.workStreamForTempUsage>>>(
                 d_overflow_number,
                 d_temp, 
                 ws.numTempBytes,
