@@ -308,6 +308,7 @@ struct DoMinus_size_t{
 
 struct DeviceBatchCopyToPinnedPlan{
     struct CopyRange{
+        int lengthPartitionId;
         int currentCopyPartition;
         int currentCopySeqInPartition;
         int numToCopy;
@@ -376,6 +377,7 @@ std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlan(
 
             if(numToCopy > 0){
                 DeviceBatchCopyToPinnedPlan::CopyRange copyRange;
+                copyRange.lengthPartitionId = lengthPartitionIds[currentCopyPartition];
                 copyRange.currentCopyPartition = currentCopyPartition;
                 copyRange.currentCopySeqInPartition = currentCopySeqInPartition;
                 copyRange.numToCopy = numToCopy;
@@ -407,6 +409,29 @@ std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlan(
                 break;
             }
         }
+
+        // {
+        //     std::sort(plan.copyRanges.begin(), plan.copyRanges.end(), [](const auto& l, const auto& r){
+        //         return l.lengthPartitionId > r.lengthPartitionId;
+        //     });
+        //     plan.h_partitionIds.clear();
+        //     plan.h_numPerPartition.clear();
+        //     for(size_t i = 0; i < plan.copyRanges.size(); i++){
+        //         const auto& r = plan.copyRanges[i];
+        //         if(i == 0){
+        //             plan.h_partitionIds.push_back(r.lengthPartitionId);
+        //             plan.h_numPerPartition.push_back(r.numToCopy);
+        //         }else{
+        //             if(plan.h_partitionIds.back() == r.lengthPartitionId){
+        //                 plan.h_numPerPartition.back() += r.numToCopy;
+        //             }else{
+        //                 //new length partition
+        //                 plan.h_partitionIds.push_back(r.lengthPartitionId);
+        //                 plan.h_numPerPartition.push_back(r.numToCopy);
+        //             }
+        //         }
+        //     }
+        // }
 
         plan.usedBytes = usedBytes;
         plan.usedSeq = usedSeq;
@@ -637,6 +662,101 @@ void executePinnedCopyPlanSerial(
         usedBytes += std::distance(h_chardata_vec[currentBuffer].data() + usedBytes, end);
         usedSeq += numToCopy;
     }
+};
+
+void executePinnedCopyPlanSerialAndTransferToGpu(
+    const DeviceBatchCopyToPinnedPlan& plan, 
+    GpuWorkingSet& ws, 
+    int currentBuffer, 
+    const std::vector<DBdataView>& dbPartitions,
+    cudaStream_t H2DcopyStream
+){
+    auto& h_chardata_vec = ws.h_chardata_vec;
+    auto& h_lengthdata_vec = ws.h_lengthdata_vec;
+    auto& h_offsetdata_vec = ws.h_offsetdata_vec;
+
+    auto& d_chardata_vec = ws.d_chardata_vec;
+    auto& d_lengthdata_vec = ws.d_lengthdata_vec;
+    auto& d_offsetdata_vec = ws.d_offsetdata_vec;
+
+    size_t usedBytes = 0;
+    size_t usedSeq = 0;
+    for(const auto& copyRange : plan.copyRanges){
+        const auto& dbPartition = dbPartitions[copyRange.currentCopyPartition];
+        const auto& firstSeq = copyRange.currentCopySeqInPartition;
+        const auto& numToCopy = copyRange.numToCopy;
+        size_t numBytesToCopy = dbPartition.offsets()[firstSeq + numToCopy] - dbPartition.offsets()[firstSeq];
+
+        auto end = std::copy(
+            dbPartition.chars() + dbPartition.offsets()[firstSeq],
+            dbPartition.chars() + dbPartition.offsets()[firstSeq + numToCopy],
+            h_chardata_vec[currentBuffer].data() + usedBytes
+        );
+        // cudaMemcpyAsync(
+        //     d_chardata_vec[currentBuffer].data() + usedBytes,
+        //     h_chardata_vec[currentBuffer].data() + usedBytes,
+        //     numBytesToCopy,
+        //     H2D,
+        //     H2DcopyStream
+        // ); CUERR;
+
+        std::copy(
+            dbPartition.lengths() + firstSeq,
+            dbPartition.lengths() + firstSeq+numToCopy,
+            h_lengthdata_vec[currentBuffer].data() + usedSeq
+        );
+        // cudaMemcpyAsync(
+        //     d_lengthdata_vec[currentBuffer].data() + usedSeq,
+        //     h_lengthdata_vec[currentBuffer].data() + usedSeq,
+        //     sizeof(size_t) * numToCopy,
+        //     H2D,
+        //     H2DcopyStream
+        // ); CUERR;
+
+        std::transform(
+            dbPartition.offsets() + firstSeq,
+            dbPartition.offsets() + firstSeq + (numToCopy+1),
+            h_offsetdata_vec[currentBuffer].data() + usedSeq,
+            [&](size_t off){
+                return off - dbPartition.offsets()[firstSeq] + usedBytes;
+            }
+        );
+        // cudaMemcpyAsync(
+        //     d_offsetdata_vec[currentBuffer].data() + usedSeq,
+        //     h_offsetdata_vec[currentBuffer].data() + usedSeq,
+        //     sizeof(size_t) * (numToCopy+1),
+        //     H2D,
+        //     H2DcopyStream
+        // ); CUERR;
+
+        usedBytes += numBytesToCopy;
+        usedSeq += numToCopy;
+    }
+
+    assert(plan.usedBytes == usedBytes);
+    assert(plan.usedSeq == usedSeq);
+
+    cudaMemcpyAsync(
+        d_chardata_vec[currentBuffer].data(),
+        h_chardata_vec[currentBuffer].data(),
+        plan.usedBytes,
+        H2D,
+        H2DcopyStream
+    ); CUERR;
+    cudaMemcpyAsync(
+        d_lengthdata_vec[currentBuffer].data(),
+        h_lengthdata_vec[currentBuffer].data(),
+        sizeof(size_t) * plan.usedSeq,
+        H2D,
+        H2DcopyStream
+    ); CUERR;
+    cudaMemcpyAsync(
+        d_offsetdata_vec[currentBuffer].data(),
+        h_offsetdata_vec[currentBuffer].data(),
+        sizeof(size_t) * (plan.usedSeq+1),
+        H2D,
+        H2DcopyStream
+    ); CUERR;
 };
 
 struct ExecutePinnedCopyCallbackData{
@@ -1193,33 +1313,59 @@ void processQueryOnGpu(
                 executePinnedCopyPlanWithHostCallback(plan, ws, currentBuffer, dbPartitions, ws.hostFuncStream);
                 cudaEventRecord(ws.forkStreamEvent, ws.hostFuncStream); CUERR;
                 cudaStreamWaitEvent(H2DcopyStream, ws.forkStreamEvent, 0);
+
+                cudaMemcpyAsync(
+                    d_chardata_vec[currentBuffer].data(),
+                    h_chardata_vec[currentBuffer].data(),
+                    plan.usedBytes,
+                    H2D,
+                    H2DcopyStream
+                ); CUERR;
+                cudaMemcpyAsync(
+                    d_lengthdata_vec[currentBuffer].data(),
+                    h_lengthdata_vec[currentBuffer].data(),
+                    sizeof(size_t) * plan.usedSeq,
+                    H2D,
+                    H2DcopyStream
+                ); CUERR;
+                cudaMemcpyAsync(
+                    d_offsetdata_vec[currentBuffer].data(),
+                    h_offsetdata_vec[currentBuffer].data(),
+                    sizeof(size_t) * (plan.usedSeq+1),
+                    H2D,
+                    H2DcopyStream
+                ); CUERR;
             }else{
                 //synchronize to avoid overwriting pinned buffer of target before it has been fully transferred
                 cudaEventSynchronize(ws.pinnedBufferEvents[currentBuffer]); CUERR;
-                executePinnedCopyPlanSerial(plan, ws, currentBuffer, dbPartitions);
+                //executePinnedCopyPlanSerial(plan, ws, currentBuffer, dbPartitions);
+
+                executePinnedCopyPlanSerialAndTransferToGpu(
+                    plan, ws, currentBuffer, dbPartitions, H2DcopyStream
+                );
             }
             
-            cudaMemcpyAsync(
-                d_chardata_vec[currentBuffer].data(),
-                h_chardata_vec[currentBuffer].data(),
-                plan.usedBytes,
-                H2D,
-                H2DcopyStream
-            ); CUERR;
-            cudaMemcpyAsync(
-                d_lengthdata_vec[currentBuffer].data(),
-                h_lengthdata_vec[currentBuffer].data(),
-                sizeof(size_t) * plan.usedSeq,
-                H2D,
-                H2DcopyStream
-            ); CUERR;
-            cudaMemcpyAsync(
-                d_offsetdata_vec[currentBuffer].data(),
-                h_offsetdata_vec[currentBuffer].data(),
-                sizeof(size_t) * (plan.usedSeq+1),
-                H2D,
-                H2DcopyStream
-            ); CUERR;
+            // cudaMemcpyAsync(
+            //     d_chardata_vec[currentBuffer].data(),
+            //     h_chardata_vec[currentBuffer].data(),
+            //     plan.usedBytes,
+            //     H2D,
+            //     H2DcopyStream
+            // ); CUERR;
+            // cudaMemcpyAsync(
+            //     d_lengthdata_vec[currentBuffer].data(),
+            //     h_lengthdata_vec[currentBuffer].data(),
+            //     sizeof(size_t) * plan.usedSeq,
+            //     H2D,
+            //     H2DcopyStream
+            // ); CUERR;
+            // cudaMemcpyAsync(
+            //     d_offsetdata_vec[currentBuffer].data(),
+            //     h_offsetdata_vec[currentBuffer].data(),
+            //     sizeof(size_t) * (plan.usedSeq+1),
+            //     H2D,
+            //     H2DcopyStream
+            // ); CUERR;
             cudaEventRecord(ws.pinnedBufferEvents[currentBuffer], H2DcopyStream); CUERR;
         }else{
             assert(batchPlan.size() == 1);
@@ -1851,7 +1997,8 @@ int main(int argc, char* argv[])
             dbPartitionsByLengthPartitioning.emplace_back(dbChunk, begin, end);        
         }
 
-        
+        std::vector<std::vector<int>> numSubPartitionsPerLengthPerGpu(numGpus, std::vector<int>(numLengthPartitions, 0));
+       
         for(int lengthPartitionId = 0; lengthPartitionId < numLengthPartitions; lengthPartitionId++){
             const auto& lengthPartition = dbPartitionsByLengthPartitioning[lengthPartitionId];
     
@@ -1871,11 +2018,54 @@ int main(int argc, char* argv[])
             //         lengthPartitionIdsForGpus[gpu].push_back(lengthPartitionId);
             //     }
             // }
+
+            // for(int gpu = 0; gpu < int(partitionedByGpu.size()); gpu++){
+            //     const auto partitionedBySeq = partitionDBdata_by_numberOfChars(partitionedByGpu[gpu], 32*1024 * 1024);        
+            //     subPartitionsForGpus[gpu].insert(subPartitionsForGpus[gpu].end(), partitionedBySeq.begin(), partitionedBySeq.end());    
+            //     for(size_t x = 0; x < partitionedBySeq.size(); x++){
+            //         lengthPartitionIdsForGpus[gpu].push_back(lengthPartitionId);
+            //     }
+            //     numSubPartitionsPerLengthPerGpu[gpu][lengthPartitionId] = partitionedBySeq.size();
+            // }
+
             for(int gpu = 0; gpu < int(partitionedByGpu.size()); gpu++){     
                 subPartitionsForGpus[gpu].push_back(partitionedByGpu[gpu]);
                 lengthPartitionIdsForGpus[gpu].push_back(lengthPartitionId);
             }
         }
+
+        // for(int gpu = 0; gpu < numGpus; gpu++){
+        //     // std::vector<int> indices(lengthPartitionIdsForGpus_perDBchunk[chunkId][gpu].size());
+        //     // std::iota(indices.begin(), indices.end(), 0);
+        //     // std::sort(indices.begin(), indices.end(), [](const auto& l, const auto& r){
+        //     //     return lengthPartitionIdsForGpus[gpu][l] > lengthPartitionIdsForGpus[gpu][r];
+        //     // });
+        //     std::vector<int> numSubPartitionsPerLengthPrefixSum(numLengthPartitions, 0);
+        //     for(int i = 1; i < numLengthPartitions; i++){
+        //         numSubPartitionsPerLengthPrefixSum[i] = numSubPartitionsPerLengthPrefixSum[i-1] + numSubPartitionsPerLengthPerGpu[gpu][i-1];
+        //     }
+
+        //     std::vector<DBdataView> newSubPartitions;
+        //     newSubPartitions.reserve(subPartitionsForGpus[gpu].size());
+        //     std::vector<int> newLengthPartitionIds;
+        //     newLengthPartitionIds.reserve(subPartitionsForGpus[gpu].size());
+
+        //     int numRemaining = subPartitionsForGpus[gpu].size();
+        //     while(numRemaining > 0){
+        //         for(int lengthPartitionId = numLengthPartitions-1; lengthPartitionId >= 0; lengthPartitionId--){
+        //             if(numSubPartitionsPerLengthPerGpu[gpu][lengthPartitionId] > 0){
+        //                 const int k = numSubPartitionsPerLengthPrefixSum[lengthPartitionId] + numSubPartitionsPerLengthPerGpu[gpu][lengthPartitionId] - 1;
+        //                 newSubPartitions.push_back(subPartitionsForGpus[gpu][k]);
+        //                 newLengthPartitionIds.push_back(lengthPartitionIdsForGpus[gpu][k]);
+        //                 numSubPartitionsPerLengthPerGpu[gpu][lengthPartitionId]--;
+        //                 numRemaining--;
+        //             }
+        //         }
+        //     }
+
+        //     std::swap(newSubPartitions, subPartitionsForGpus[gpu]);
+        //     std::swap(newLengthPartitionIds, lengthPartitionIdsForGpus[gpu]);
+        // }
 
         // for(int gpu = 0; gpu < numGpus; gpu++){
         //     std::rotate(subPartitionsForGpus[gpu].rbegin(), subPartitionsForGpus[gpu].rbegin() + 1, subPartitionsForGpus[gpu].rend());
@@ -2184,6 +2374,8 @@ int main(int argc, char* argv[])
             );
             thrust::sort_by_key(
                 thrust::cuda::par_nosync(thrust_async_allocator<char>(masterStream1)).on(masterStream1),
+                // thrust::cuda::par_nosync(thrust_preallocated_single_allocator<char>((void*)workingSets[0]->d_tempStorageHE, 
+                //     workingSets[0]->numTempBytes)).on(masterStream1),
                 devAllAlignmentScoresFloat.begin(),
                 devAllAlignmentScoresFloat.end(),
                 dev_sorted_indices.begin(),
@@ -2214,14 +2406,14 @@ int main(int argc, char* argv[])
         }
 
         queryTimers[query_num]->stop();
-        queryTimers[query_num]->printGCUPS(avg_length_2 * queryLengths[query_num]);
+        //queryTimers[query_num]->printGCUPS(avg_length_2 * queryLengths[query_num]);
         //nvtx::pop_range();
     }
     cudaSetDevice(masterDeviceId);
     cudaStreamSynchronize(masterStream1); CUERR
 
     for(int i = 0; i < numQueries; i++){
-        //queryTimers[i]->printGCUPS(avg_length_2 * queryLengths[i]);
+        queryTimers[i]->printGCUPS(avg_length_2 * queryLengths[i]);
     }
     fullscanTimer.printGCUPS(avg_length_2 * avg_length);
 
