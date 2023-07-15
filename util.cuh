@@ -34,7 +34,7 @@ public:
     thrust_async_allocator(cudaStream_t stream_) : stream{stream_} {}
 
     pointer allocate(size_type num){
-        std::cout << "allocate " << num << "\n";
+        //std::cout << "allocate " << num << "\n";
         T* result = nullptr;
         cudaError_t status = cudaMallocAsync(&result, sizeof(T) * num, stream);
         if(status != cudaSuccess){
@@ -44,7 +44,7 @@ public:
     }
 
     void deallocate(pointer ptr, size_type /*num*/){
-        std::cout << "deallocate \n";
+        //std::cout << "deallocate \n";
         cudaError_t status = cudaFreeAsync(thrust::raw_pointer_cast(ptr), stream);
         if(status != cudaSuccess){
             throw std::runtime_error("thrust_async_allocator error deallocate");

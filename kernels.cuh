@@ -4671,6 +4671,41 @@ void NW_convert_protein(
     }
 }
 
+__global__
+void NW_convert_protein_single(
+    char * devChars,
+    int length) {
+
+    const int tid = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (tid < length) {
+        char AA = devChars[tid];
+        // ORDER of AminoAcids (NCBI): A  R  N  D  C  Q  E  G  H  I  L  K  M  F  P  S  T  W  Y  V
+        if (AA == 'A') AA = 0;
+        else if (AA == 'R') AA = 1;
+        else if (AA == 'N') AA = 2;
+        else if (AA == 'D') AA = 3;
+        else if (AA == 'C') AA = 4;
+        else if (AA == 'Q') AA = 5;
+        else if (AA == 'E') AA = 6;
+        else if (AA == 'G') AA = 7;
+        else if (AA == 'H') AA = 8;
+        else if (AA == 'I') AA = 9;
+        else if (AA == 'L') AA = 10;
+        else if (AA == 'K') AA = 11;
+        else if (AA == 'M') AA = 12;
+        else if (AA == 'F') AA = 13;
+        else if (AA == 'P') AA = 14;
+        else if (AA == 'S') AA = 15;
+        else if (AA == 'T') AA = 16;
+        else if (AA == 'W') AA = 17;
+        else if (AA == 'Y') AA = 18;
+        else if (AA == 'V') AA = 19;
+        else AA = 20;
+        devChars[tid] = AA;
+    }
+}
+
 void perumte_columns_BLOSUM(
 	const char BLOSUM_in[],
 	const int alphabet_size,
