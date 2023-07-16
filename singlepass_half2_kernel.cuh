@@ -408,17 +408,6 @@ struct SinglePassHalf2{
 
             const int group_id = threadIdx.x % group_size;
             if (!group_id) {
-                int check_last;
-                int check_last2;
-                computeCheckLast(check_last, check_last2);
-
-                if (blockIdx.x < gridDim.x-1) {
-                    devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-                    devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-                } else {
-                    devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-                    if (!check_last2 || (threadIdx.x%check_last) < check_last-group_size) devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-                }
 
                 // check for overflow
                 if (overflow_check){
@@ -426,34 +415,37 @@ struct SinglePassHalf2{
                     const int alignmentNumber0 = 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size);
                     if(alignmentNumber0 < numSelected){
                         if (maximum.y >= max_half2) {
-                            int pos_overflow = atomicAdd(d_overflow_number,1);
-                            int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[alignmentNumber0];
-                            //printf("Overflow_S0 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S0, __half2float(maximum.y));
+                            //overflow happened
+                            const int pos_overflow = atomicAdd(d_overflow_number,1);
+                            d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[alignmentNumber0];
+                        }else{
+                            //no overflow happened, update score
+                            devAlignmentScores[alignmentNumber0] =  maximum.y;
                         }
                     }
                     const int alignmentNumber1 = 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1;
                     if(alignmentNumber1 < numSelected){
                         if (maximum.x >= max_half2) {
-                            int pos_overflow = atomicAdd(d_overflow_number,1);
-                            int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[alignmentNumber1];
-                            //printf("Overflow_S1 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S1, __half2float(maximum.x));
+                            const int pos_overflow = atomicAdd(d_overflow_number,1);
+                            d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[alignmentNumber1];
+                        }else{
+                            //no overflow happened, update score
+                            devAlignmentScores[alignmentNumber1] =  maximum.x;
                         }
                     }
+                }else{
+                    //update all computed scores without checking for overflow
+                    int check_last;
+                    int check_last2;
+                    computeCheckLast(check_last, check_last2);
+                    if (blockIdx.x < gridDim.x-1) {
+                        devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+                        devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+                    } else {
+                        devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+                        if (!check_last2 || (threadIdx.x%check_last) < check_last-group_size) devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+                    }
                 }
-
-                // if (overflow_check){
-                //     half max_half2 = __float2half_rn(MAX_ACC_HALF2);
-                //     if (maximum.y >= max_half2) {
-                //         int pos_overflow = atomicAdd(d_overflow_number,1);
-                //         int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)];
-                //         //printf("Overflow_S0 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S0, __half2float(maximum.y));
-                //     }
-                //     if (maximum.x >= max_half2) {
-                //         int pos_overflow = atomicAdd(d_overflow_number,1);
-                //         int pos = d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1];
-                //         //printf("Overflow_S1 %d, SeqID: %d, Length: %d, score: %f\n", pos_overflow, pos, length_S1, __half2float(maximum.x));
-                //     }
-                // }
             }
         }
     }

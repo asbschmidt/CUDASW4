@@ -149,12 +149,16 @@ struct TopNMaximaArray{
         size_t* d_indices;
 
         __device__
-        Ref& operator=(float newscore){
-            //printf("Ref operator=(%f), index %lu\n", score, index);
+        Ref& operator=(float newscore){            
 
             const size_t slot = (indexOffset + index) % size;
 
-            int* lock = &d_locks[slot];
+            // if(index + indexOffset == 51766021){
+            //     printf("Ref operator=(%f), index %lu indexOffset %lu, slot %lu, griddimx %d, blockdimx %d, blockIdxx %d, threadidxx %d\n", 
+            //         newscore, index, indexOffset, slot, gridDim.x, blockDim.x, blockIdx.x, threadIdx.x);
+            // }
+
+            int* const lock = &d_locks[slot];
 
             while (0 != (atomicCAS(lock, 0, 1))) {}
 
