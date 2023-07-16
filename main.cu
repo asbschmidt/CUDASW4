@@ -707,7 +707,62 @@ std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlanMaybeOptimized1(
 #endif
 
 
+void executeCopyPlanH2DDirect(
+    const DeviceBatchCopyToPinnedPlan& plan, 
+    GpuWorkingSet& ws, 
+    int currentBuffer, 
+    const std::vector<DBdataView>& dbPartitions,
+    cudaStream_t stream
+){
+    auto& d_chardata_vec = ws.d_chardata_vec;
+    auto& d_lengthdata_vec = ws.d_lengthdata_vec;
+    auto& d_offsetdata_vec = ws.d_offsetdata_vec;
 
+    size_t usedBytes = 0;
+    size_t usedSeq = 0;
+    for(const auto& copyRange : plan.copyRanges){
+        const auto& dbPartition = dbPartitions[copyRange.currentCopyPartition];
+        const auto& firstSeq = copyRange.currentCopySeqInPartition;
+        const auto& numToCopy = copyRange.numToCopy;
+        size_t numBytesToCopy = dbPartition.offsets()[firstSeq + numToCopy] - dbPartition.offsets()[firstSeq];
+
+        cudaMemcpyAsync(
+            d_chardata_vec[currentBuffer].data() + usedBytes,
+            dbPartition.chars() + dbPartition.offsets()[firstSeq],
+            numBytesToCopy,
+            H2D,
+            stream
+        ); CUERR;
+        cudaMemcpyAsync(
+            d_lengthdata_vec[currentBuffer].data() + usedSeq,
+            dbPartition.lengths() + firstSeq,
+            sizeof(size_t) * numToCopy,
+            H2D,
+            stream
+        ); CUERR;
+        cudaMemcpyAsync(
+            d_offsetdata_vec[currentBuffer].data() + usedSeq,
+            dbPartition.offsets() + firstSeq,
+            sizeof(size_t) * (numToCopy+1),
+            H2D,
+            stream
+        ); CUERR;
+        thrust::for_each(
+            thrust::cuda::par_nosync.on(stream),
+            d_offsetdata_vec[currentBuffer].data() + usedSeq,
+            d_offsetdata_vec[currentBuffer].data() + usedSeq + (numToCopy+1),
+            [
+                usedBytes,
+                firstOffset = dbPartition.offsets()[firstSeq]
+            ] __device__ (size_t& off){
+                off = off - firstOffset + usedBytes;
+            }
+        );
+
+        usedBytes += numBytesToCopy;
+        usedSeq += numToCopy;
+    }
+};
 
 void executePinnedCopyPlanSerial(
     const DeviceBatchCopyToPinnedPlan& plan, 
@@ -2802,6 +2857,7 @@ int main(int argc, char* argv[])
 
     
     for(int gpu = 0; gpu < numGpus; gpu++){
+        cudaSetDevice(deviceIds[gpu]);
         const int chunkId = 0;
         if(true && batchPlans_perChunk[chunkId][gpu].size() == 1){
             auto& ws = *workingSets[gpu];
@@ -2819,34 +2875,14 @@ int main(int argc, char* argv[])
 
             cudaStream_t H2DcopyStream = ws.copyStreams[currentBuffer];
 
-            executePinnedCopyPlanSerial(
+            executeCopyPlanH2DDirect(
                 plan,
                 ws,
                 currentBuffer,
-                subPartitionsForGpus_perDBchunk[chunkId][gpu]
+                subPartitionsForGpus_perDBchunk[chunkId][gpu],
+                H2DcopyStream
             );
-                   
-            cudaMemcpyAsync(
-                d_chardata_vec[currentBuffer].data(),
-                h_chardata_vec[currentBuffer].data(),
-                plan.usedBytes,
-                H2D,
-                H2DcopyStream
-            ); CUERR;
-            cudaMemcpyAsync(
-                d_lengthdata_vec[currentBuffer].data(),
-                h_lengthdata_vec[currentBuffer].data(),
-                sizeof(size_t) * plan.usedSeq,
-                H2D,
-                H2DcopyStream
-            ); CUERR;
-            cudaMemcpyAsync(
-                d_offsetdata_vec[currentBuffer].data(),
-                h_offsetdata_vec[currentBuffer].data(),
-                sizeof(size_t) * (plan.usedSeq+1),
-                H2D,
-                H2DcopyStream
-            ); CUERR;
+            
             cudaStreamSynchronize(H2DcopyStream); CUERR;
             copyTimer.print();
             //ws.singleBatchDBisOnGpu = true;
@@ -2986,6 +3022,8 @@ int main(int argc, char* argv[])
                 //     cudaMemcpyDeviceToDevice,
                 //     gpuStreams[gpu]
                 // ); CUERR;
+
+                //we could sort the maxReduceArray here as well and only send the best results_per_query entries
 
                 cudaMemcpyAsync(
                     devAllAlignmentScoresFloat.data() + 512*1024*gpu,
