@@ -3034,10 +3034,11 @@ void NW_local_affine_single_pass_s32_DPX(
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int group_size, int numRegs, class PositionsIterator> __global__
+template <int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
+__global__
 void NW_local_affine_read4_float_query_Protein(
     const char * devChars,
-    float * devAlignmentScores,
+    ScoreOutputIterator devAlignmentScores,
     short2 * devTempHcol2,
     short2 * devTempEcol2,
     const size_t* devOffsets,
@@ -4784,14 +4785,14 @@ int affine_local_DP_host_protein(
 }
 
 
-template <int group_size, int numRegs> 
+template <int group_size, int numRegs, class ScoreOutputIterator> 
 __global__
 void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein(
     const int* d_overflow_number,
     short2* d_temp,
     size_t maxTempBytes,
     const char * devChars,
-    float * devAlignmentScores,
+    ScoreOutputIterator devAlignmentScores,
     const size_t* devOffsets,
     const size_t* devLengths,
     const size_t* d_positions_of_selected_lengths,

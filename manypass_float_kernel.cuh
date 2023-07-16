@@ -856,9 +856,10 @@ struct ManyPassFloat{
         }
     }
 
+    template<class ScoreOutputIterator>
     __device__
     void compute(
-        float* const devAlignmentScores
+        ScoreOutputIterator const devAlignmentScores
     ) const{
 
 
@@ -901,13 +902,13 @@ struct ManyPassFloat{
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int numRegs, class PositionsIterator> 
+template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
 __launch_bounds__(32,16)
 //__launch_bounds__(32)
 __global__
 void NW_local_affine_read4_float_query_Protein_new(
     __grid_constant__ const char * const devChars,
-    __grid_constant__ float * const devAlignmentScores,
+    __grid_constant__ ScoreOutputIterator const devAlignmentScores,
     __grid_constant__ short2 * const devTempHcol2,
     __grid_constant__ short2 * const devTempEcol2,
     __grid_constant__ const size_t* const devOffsets,
@@ -938,21 +939,21 @@ void NW_local_affine_read4_float_query_Protein_new(
 }
 
 
-template <int numRegs> 
+template <int numRegs, class ScoreOutputIterator> 
 __launch_bounds__(1,1)
 __global__
 void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new(
-    const int* d_overflow_number,
-    short2* d_temp,
-    size_t maxTempBytes,
-    const char * devChars,
-    float * devAlignmentScores,
-    const size_t* devOffsets,
-    const size_t* devLengths,
-    const size_t* d_positions_of_selected_lengths,
-    const int queryLength,
-    const float gap_open,
-    const float gap_extend
+    __grid_constant__ const int* const d_overflow_number,
+    __grid_constant__ short2* const d_temp,
+    __grid_constant__ const size_t maxTempBytes,
+    __grid_constant__ const char * const devChars,
+    __grid_constant__ ScoreOutputIterator const devAlignmentScores,
+    __grid_constant__ const size_t* const devOffsets,
+    __grid_constant__ const size_t* const devLengths,
+    __grid_constant__ const size_t* const d_positions_of_selected_lengths,
+    __grid_constant__ const int queryLength,
+    __grid_constant__ const float gap_open,
+    __grid_constant__ const float gap_extend
 ){
     const int numOverflow = *d_overflow_number;
     if(numOverflow > 0){

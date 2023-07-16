@@ -139,7 +139,55 @@ const int BLOSUM62[21][21] = {
 };
 
 
+template<size_t size>
+struct TopNMaximaArray{
+    struct Ref{
+        size_t index;
+        size_t indexOffset;
+        int* d_locks;
+        volatile float* d_scores;
+        size_t* d_indices;
 
+        __device__
+        Ref& operator=(float newscore){
+            //printf("Ref operator=(%f), index %lu\n", score, index);
+
+            const size_t slot = (indexOffset + index) % size;
+
+            int* lock = &d_locks[slot];
+
+            while (0 != (atomicCAS(lock, 0, 1))) {}
+
+            const float currentScore = d_scores[slot];
+            if(currentScore < newscore){
+                d_scores[slot] = newscore;
+                d_indices[slot] = indexOffset + index;
+            }
+
+            atomicExch(lock, 0);
+        }
+    };
+
+    TopNMaximaArray(float* d_scores_, size_t* d_indices_, int* d_locks_, size_t offset)
+        : indexOffset(offset), d_locks(d_locks_), d_scores(d_scores_), d_indices(d_indices_){}
+
+    template<class Index>
+    __device__
+    Ref operator[](Index index) const{
+        Ref r;
+        r.index = index;
+        r.indexOffset = indexOffset;
+        r.d_locks = d_locks;
+        r.d_scores = d_scores;
+        r.d_indices = d_indices;
+        return r;
+    }
+
+    size_t indexOffset = 1000;
+    int* d_locks;
+    volatile float* d_scores;
+    size_t* d_indices;
+};
 
 struct CudaSW4Options{
     /*
@@ -164,6 +212,9 @@ struct CudaSW4Options{
 
 struct GpuWorkingSet{
 
+    static constexpr int maxReduceArraySize = 512 * 1024;
+    using MaxReduceArray = TopNMaximaArray<maxReduceArraySize>;
+
     GpuWorkingSet(
         size_t num_queries,
         size_t bytesForQueries,
@@ -183,7 +234,13 @@ struct GpuWorkingSet{
         devOffsets.resize(num_queries+1); CUERR
         devLengths.resize(num_queries); CUERR
 
-        devAlignmentScoresFloat.resize(numSubjects);
+        d_maxReduceArrayLocks.resize(maxReduceArraySize);
+        d_maxReduceArrayScores.resize(maxReduceArraySize);
+        d_maxReduceArrayIndices.resize(maxReduceArraySize);
+
+        cudaMemset(d_maxReduceArrayLocks.data(), 0, sizeof(int) * maxReduceArraySize);
+
+        //devAlignmentScoresFloat.resize(numSubjects);
         Fillchar.resize(16*512);
         cudaMemset(Fillchar.data(), 20, 16*512);
 
@@ -249,6 +306,24 @@ struct GpuWorkingSet{
         d_tempStorageHE.resize(numTempBytes);
     }
 
+    MaxReduceArray getMaxReduceArray(size_t offset){
+        return MaxReduceArray(
+            d_maxReduceArrayScores.data(), 
+            d_maxReduceArrayIndices.data(), 
+            d_maxReduceArrayLocks.data(), 
+            offset
+        );
+    }
+
+    void resetMaxReduceArray(cudaStream_t stream){
+        thrust::fill(thrust::cuda::par_nosync.on(stream),
+            d_maxReduceArrayScores.data(),
+            d_maxReduceArrayScores.data() + maxReduceArraySize,
+            -1.f
+        );
+        cudaMemsetAsync(d_maxReduceArrayIndices.data(), 0, sizeof(int) * maxReduceArraySize, stream);
+    }
+
     bool singleBatchDBisOnGpu = false;
     int deviceId;
     int numCopyBuffers;
@@ -259,11 +334,17 @@ struct GpuWorkingSet{
     size_t MAX_CHARDATA_BYTES;
     size_t MAX_SEQ;
 
+
+
+    MyDeviceBuffer<int> d_maxReduceArrayLocks;
+    MyDeviceBuffer<float> d_maxReduceArrayScores;
+    MyDeviceBuffer<size_t> d_maxReduceArrayIndices;
+
     MyDeviceBuffer<char> devChars;
     MyDeviceBuffer<size_t> devOffsets;
     MyDeviceBuffer<size_t> devLengths;
     MyDeviceBuffer<char> d_tempStorageHE;
-    MyDeviceBuffer<float> devAlignmentScoresFloat;
+    //MyDeviceBuffer<float> devAlignmentScoresFloat;
     MyDeviceBuffer<char> Fillchar;
     MyDeviceBuffer<size_t> d_selectedPositions;
     MyDeviceBuffer<int> d_new_overflow_number;
@@ -945,7 +1026,7 @@ void processQueryOnGpu(
         const float gop = options.gop;
         const float gex = options.gex;
 
-        auto runAlignmentKernels = [&](float* d_scores, size_t* d_overflow_positions, int* d_overflow_number){
+        auto runAlignmentKernels = [&](auto& d_scores, size_t* d_overflow_positions, int* d_overflow_number){
             auto nextWorkStreamNoTemp = [&](){
                 ws.workstreamIndex = (ws.workstreamIndex + 1) % ws.numWorkStreamsWithoutTemp;
                 return (cudaStream_t)ws.workStreamsWithoutTemp[ws.workstreamIndex];
@@ -1136,7 +1217,8 @@ void processQueryOnGpu(
 
         
         //cudaDeviceSynchronize(); CUERR;
-        runAlignmentKernels(ws.devAlignmentScoresFloat.data() + processedSequences, d_overflow_positions, d_overflow_number);
+        auto maxReduceArray = ws.getMaxReduceArray(processedSequences);
+        runAlignmentKernels(maxReduceArray, d_overflow_positions, d_overflow_number);
 
 
         //alignments are done in workstreams. now, join all workstreams into workStreamForTempUsage to process overflow alignments
@@ -1168,7 +1250,7 @@ void processQueryOnGpu(
         //         //NW_local_affine_read4_float_query_Protein<32, 32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
         //         NW_local_affine_read4_float_query_Protein_new<12><<<num, 32, 0, ws.workStreamForTempUsage>>>(
         //             inputChars, 
-        //             ws.devAlignmentScoresFloat.data() + processedSequences, 
+        //             maxReduceArray, 
         //             d_tempHcol2, 
         //             d_tempEcol2, 
         //             inputOffsets, 
@@ -1189,7 +1271,7 @@ void processQueryOnGpu(
                 d_temp, 
                 ws.numTempBytes,
                 inputChars, 
-                ws.devAlignmentScoresFloat.data() + processedSequences, 
+                maxReduceArray, 
                 inputOffsets, 
                 inputLengths, 
                 d_overflow_positions, 
@@ -1421,7 +1503,7 @@ void processQueryOnGpu(
         const float gop = options.gop;
         const float gex = options.gex;
 
-        auto runAlignmentKernels = [&](float* d_scores, size_t* d_overflow_positions, int* d_overflow_number){
+        auto runAlignmentKernels = [&](auto& d_scores, size_t* d_overflow_positions, int* d_overflow_number){
             auto nextWorkStreamNoTemp = [&](){
                 ws.workstreamIndex = (ws.workstreamIndex + 1) % ws.numWorkStreamsWithoutTemp;
                 return (cudaStream_t)ws.workStreamsWithoutTemp[ws.workstreamIndex];
@@ -1603,8 +1685,8 @@ void processQueryOnGpu(
         };
 
         
-
-        runAlignmentKernels(ws.devAlignmentScoresFloat.data() + processedSequences, d_overflow_positions, d_overflow_number);
+        auto maxReduceArray = ws.getMaxReduceArray(processedSequences);
+        runAlignmentKernels(maxReduceArray, d_overflow_positions, d_overflow_number);
 
 
         //alignments are done in workstreams. now, join all workstreams into workStreamForTempUsage to process overflow alignments
@@ -1635,7 +1717,7 @@ void processQueryOnGpu(
         //         //NW_local_affine_read4_float_query_Protein<32, 32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
         //         NW_local_affine_read4_float_query_Protein_new<12><<<num, 32, 0, ws.workStreamForTempUsage>>>(
         //             inputChars, 
-        //             ws.devAlignmentScoresFloat.data() + processedSequences, 
+        //             maxReduceArray, 
         //             d_tempHcol2, 
         //             d_tempEcol2, 
         //             inputOffsets, 
@@ -1658,7 +1740,7 @@ void processQueryOnGpu(
                 d_temp, 
                 ws.numTempBytes,
                 inputChars, 
-                ws.devAlignmentScoresFloat.data() + processedSequences, 
+                maxReduceArray, 
                 inputOffsets, 
                 inputLengths, 
                 d_overflow_positions, 
@@ -1747,6 +1829,8 @@ void processQueryOnGpus(
 
         cudaMemcpyToSymbolAsync(constantQuery4 ,ws.Fillchar.data(), 512*16, 0, cudaMemcpyDeviceToDevice, gpuStreams[gpu]); CUERR
         cudaMemcpyToSymbolAsync(constantQuery4, ws.devChars.data(), queryLength, 0, cudaMemcpyDeviceToDevice, gpuStreams[gpu]); CUERR
+
+        ws.resetMaxReduceArray(gpuStreams[gpu]);
 
         //create dependency on mainStream
         cudaEventRecord(ws.forkStreamEvent, gpuStreams[gpu]); CUERR;
@@ -1874,7 +1958,7 @@ void processQueryOnGpus(
                 int* const d_overflow_number = ws.d_new_overflow_number.data() + currentBuffer;
                 size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[currentBuffer].data();
 
-                auto runAlignmentKernels = [&](float* d_scores, size_t* d_overflow_positions, int* d_overflow_number){
+                auto runAlignmentKernels = [&](auto& d_scores, size_t* d_overflow_positions, int* d_overflow_number){
                     auto nextWorkStreamNoTemp = [&](){
                         ws.workstreamIndex = (ws.workstreamIndex + 1) % ws.numWorkStreamsWithoutTemp;
                         return (cudaStream_t)ws.workStreamsWithoutTemp[ws.workstreamIndex];
@@ -2056,8 +2140,9 @@ void processQueryOnGpus(
                 };
 
                 
-
-                runAlignmentKernels(ws.devAlignmentScoresFloat.data() + processedSequencesPerGpu[gpu], d_overflow_positions, d_overflow_number);
+                auto maxReduceArray = ws.getMaxReduceArray(processedSequencesPerGpu[gpu]);
+                //runAlignmentKernels(ws.devAlignmentScoresFloat.data() + processedSequencesPerGpu[gpu], d_overflow_positions, d_overflow_number);
+                runAlignmentKernels(maxReduceArray, d_overflow_positions, d_overflow_number);
 
 
                 //alignments are done in workstreams. now, join all workstreams into workStreamForTempUsage to process overflow alignments
@@ -2087,6 +2172,8 @@ void processQueryOnGpus(
                 int* const d_overflow_number = ws.d_new_overflow_number.data() + currentBuffer;
                 size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[currentBuffer].data();
 
+                auto maxReduceArray = ws.getMaxReduceArray(processedSequencesPerGpu[gpu]);
+
                 // cudaMemcpyAsync(h_overflow_number, d_overflow_number, sizeof(int), D2H, ws.workStreamForTempUsage); CUERR;
                 // cudaStreamSynchronize(ws.workStreamForTempUsage); CUERR;
                 // if(*h_overflow_number > 0){
@@ -2110,7 +2197,8 @@ void processQueryOnGpus(
                 //         //NW_local_affine_read4_float_query_Protein<32, 32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
                 //         NW_local_affine_read4_float_query_Protein_new<12><<<num, 32, 0, ws.workStreamForTempUsage>>>(
                 //             inputChars, 
-                //             ws.devAlignmentScoresFloat.data() + processedSequences, 
+                //             //ws.devAlignmentScoresFloat.data() + processedSequences, 
+                //             maxReduceArray,
                 //             d_tempHcol2, 
                 //             d_tempEcol2, 
                 //             inputOffsets, 
@@ -2133,7 +2221,8 @@ void processQueryOnGpus(
                         d_temp, 
                         ws.numTempBytes,
                         inputChars, 
-                        ws.devAlignmentScoresFloat.data() + processedSequencesPerGpu[gpu], 
+                        //ws.devAlignmentScoresFloat.data() + processedSequencesPerGpu[gpu], 
+                        maxReduceArray,
                         inputOffsets, 
                         inputLengths, 
                         d_overflow_positions, 
@@ -2774,8 +2863,8 @@ int main(int argc, char* argv[])
     cudaSetDevice(masterDeviceId);
 
     int totalOverFlowNumber = 0;
-    MyDeviceBuffer<float> devAllAlignmentScoresFloat(totalNumberOfSequencesInDB);
-    MyDeviceBuffer<size_t> dev_sorted_indices(totalNumberOfSequencesInDB);
+    MyDeviceBuffer<float> devAllAlignmentScoresFloat(512 * 1024 * numGpus);
+    MyDeviceBuffer<size_t> dev_sorted_indices(512 * 1024 * numGpus);
 
 
     cudaSetDevice(masterDeviceId);
@@ -2828,41 +2917,41 @@ int main(int argc, char* argv[])
             cudaEventRecord(masterevent1, masterStream1); CUERR;
 
             #if 0
-            std::cout << "start old func\n";
-            for(int gpu = 0; gpu < numGpus; gpu++){
-                cudaSetDevice(deviceIds[gpu]); CUERR;
+                std::cout << "start old func\n";
+                for(int gpu = 0; gpu < numGpus; gpu++){
+                    cudaSetDevice(deviceIds[gpu]); CUERR;
 
-                auto& ws = *workingSets[gpu];
-                assert(ws.deviceId == deviceIds[gpu]);
+                    auto& ws = *workingSets[gpu];
+                    assert(ws.deviceId == deviceIds[gpu]);
 
-                cudaStreamWaitEvent(gpuStreams[gpu], masterevent1, 0); CUERR;
+                    cudaStreamWaitEvent(gpuStreams[gpu], masterevent1, 0); CUERR;
 
-                processQueryOnGpu(
-                    ws,
-                    subPartitionsForGpus_perDBchunk[chunkId][gpu],
-                    lengthPartitionIdsForGpus_perDBchunk[chunkId][gpu],
-                    batchPlans_perChunk[chunkId][gpu],
-                    ws.devChars.data() + queryOffsets[query_num],
-                    queryLengths[query_num],
-                    useExtraThreadForBatchTransfer,
-                    options,
-                    gpuStreams[gpu]
-                );
-                CUERR;
+                    processQueryOnGpu(
+                        ws,
+                        subPartitionsForGpus_perDBchunk[chunkId][gpu],
+                        lengthPartitionIdsForGpus_perDBchunk[chunkId][gpu],
+                        batchPlans_perChunk[chunkId][gpu],
+                        ws.devChars.data() + queryOffsets[query_num],
+                        queryLengths[query_num],
+                        useExtraThreadForBatchTransfer,
+                        options,
+                        gpuStreams[gpu]
+                    );
+                    CUERR;
 
-                cudaMemcpyAsync(
-                    devAllAlignmentScoresFloat.data() + numSequencesPerGpuPrefixSum_perDBchunk[chunkId][gpu],
-                    ws.devAlignmentScoresFloat.data(),
-                    sizeof(float) * numSequencesPerGpu_perDBchunk[chunkId][gpu],
-                    cudaMemcpyDeviceToDevice,
-                    gpuStreams[gpu]
-                ); CUERR;
+                    cudaMemcpyAsync(
+                        devAllAlignmentScoresFloat.data() + numSequencesPerGpuPrefixSum_perDBchunk[chunkId][gpu],
+                        ws.devAlignmentScoresFloat.data(),
+                        sizeof(float) * numSequencesPerGpu_perDBchunk[chunkId][gpu],
+                        cudaMemcpyDeviceToDevice,
+                        gpuStreams[gpu]
+                    ); CUERR;
 
-                cudaEventRecord(ws.forkStreamEvent, gpuStreams[gpu]); CUERR;
+                    cudaEventRecord(ws.forkStreamEvent, gpuStreams[gpu]); CUERR;
 
-                cudaSetDevice(masterDeviceId);
-                cudaStreamWaitEvent(masterStream1, ws.forkStreamEvent, 0); CUERR;
-            }
+                    cudaSetDevice(masterDeviceId);
+                    cudaStreamWaitEvent(masterStream1, ws.forkStreamEvent, 0); CUERR;
+                }
             #else
             std::cout << "start new func\n";
             for(int gpu = 0; gpu < numGpus; gpu++){
@@ -2886,10 +2975,25 @@ int main(int argc, char* argv[])
             for(int gpu = 0; gpu < numGpus; gpu++){
                 cudaSetDevice(deviceIds[gpu]); CUERR;
                 auto& ws = *workingSets[gpu];
+                // cudaMemcpyAsync(
+                //     devAllAlignmentScoresFloat.data() + numSequencesPerGpuPrefixSum_perDBchunk[chunkId][gpu],
+                //     ws.devAlignmentScoresFloat.data(),
+                //     sizeof(float) * numSequencesPerGpu_perDBchunk[chunkId][gpu],
+                //     cudaMemcpyDeviceToDevice,
+                //     gpuStreams[gpu]
+                // ); CUERR;
+
                 cudaMemcpyAsync(
-                    devAllAlignmentScoresFloat.data() + numSequencesPerGpuPrefixSum_perDBchunk[chunkId][gpu],
-                    ws.devAlignmentScoresFloat.data(),
-                    sizeof(float) * numSequencesPerGpu_perDBchunk[chunkId][gpu],
+                    devAllAlignmentScoresFloat.data() + 512*1024*gpu,
+                    ws.d_maxReduceArrayScores.data(),
+                    sizeof(float) * 512*1024,
+                    cudaMemcpyDeviceToDevice,
+                    gpuStreams[gpu]
+                ); CUERR;
+                cudaMemcpyAsync(
+                    dev_sorted_indices.data() + 512*1024*gpu,
+                    ws.d_maxReduceArrayIndices.data(),
+                    sizeof(size_t) * 512*1024,
                     cudaMemcpyDeviceToDevice,
                     gpuStreams[gpu]
                 ); CUERR;
@@ -2904,18 +3008,28 @@ int main(int argc, char* argv[])
 
             cudaSetDevice(masterDeviceId);
 
-            thrust::sequence(
-                thrust::cuda::par_nosync.on(masterStream1),
-                dev_sorted_indices.begin(), 
-                dev_sorted_indices.end(),
-                0
-            );
+            // thrust::sequence(
+            //     thrust::cuda::par_nosync.on(masterStream1),
+            //     dev_sorted_indices.begin(), 
+            //     dev_sorted_indices.end(),
+            //     0
+            // );
+            // thrust::sort_by_key(
+            //     thrust::cuda::par_nosync(thrust_async_allocator<char>(masterStream1)).on(masterStream1),
+            //     // thrust::cuda::par_nosync(thrust_preallocated_single_allocator<char>((void*)workingSets[0]->d_tempStorageHE, 
+            //     //     workingSets[0]->numTempBytes)).on(masterStream1),
+            //     devAllAlignmentScoresFloat.begin(),
+            //     devAllAlignmentScoresFloat.end(),
+            //     dev_sorted_indices.begin(),
+            //     thrust::greater<float>()
+            // );
+
             thrust::sort_by_key(
                 thrust::cuda::par_nosync(thrust_async_allocator<char>(masterStream1)).on(masterStream1),
                 // thrust::cuda::par_nosync(thrust_preallocated_single_allocator<char>((void*)workingSets[0]->d_tempStorageHE, 
                 //     workingSets[0]->numTempBytes)).on(masterStream1),
                 devAllAlignmentScoresFloat.begin(),
-                devAllAlignmentScoresFloat.end(),
+                devAllAlignmentScoresFloat.begin() + 512 * 1024 * numGpus,
                 dev_sorted_indices.begin(),
                 thrust::greater<float>()
             );

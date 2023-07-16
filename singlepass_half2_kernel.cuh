@@ -356,9 +356,10 @@ struct SinglePassHalf2{
         }
     }
 
+    template<class ScoreOutputIterator>
     __device__
     void compute(
-        float* const devAlignmentScores,
+        ScoreOutputIterator const devAlignmentScores,
         const bool overflow_check, 
         int* const d_overflow_number, 
         size_t* const d_overflow_positions
@@ -464,7 +465,7 @@ struct SinglePassHalf2{
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int group_size, int numRegs, class PositionsIterator> 
+template <int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
 #if __CUDA_ARCH__ >= 800
 __launch_bounds__(256,2)
 #else
@@ -473,7 +474,7 @@ __launch_bounds__(256)
 __global__
 void NW_local_affine_Protein_single_pass_half2_new(
     __grid_constant__ const char * const devChars,
-    __grid_constant__ float * const devAlignmentScores,
+    __grid_constant__ ScoreOutputIterator const devAlignmentScores,
     __grid_constant__ const size_t* const devOffsets,
     __grid_constant__ const size_t* const devLengths,
     __grid_constant__ PositionsIterator const d_positions_of_selected_lengths,
@@ -523,10 +524,10 @@ void NW_local_affine_Protein_single_pass_half2_new(
 }
 
 
-template <int blocksize, int group_size, int numRegs, class PositionsIterator> 
+template <int blocksize, int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
 void call_NW_local_affine_Protein_single_pass_half2_new(
     const char * const devChars,
-    float * const devAlignmentScores,
+    ScoreOutputIterator const devAlignmentScores,
     const size_t* const devOffsets,
     const size_t* const devLengths,
     PositionsIterator const d_positions_of_selected_lengths,
