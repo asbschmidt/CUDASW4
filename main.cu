@@ -187,7 +187,7 @@ struct TopNMaximaArray{
         return r;
     }
 
-    size_t indexOffset = 1000;
+    size_t indexOffset = 0;
     int* d_locks;
     volatile float* d_scores;
     size_t* d_indices;
@@ -823,6 +823,128 @@ void executePinnedCopyPlanSerialAndTransferToGpu(
     auto& d_lengthdata_vec = ws.d_lengthdata_vec;
     auto& d_offsetdata_vec = ws.d_offsetdata_vec;
 
+    #if 1
+
+    size_t usedBytes = 0;
+    for(const auto& copyRange : plan.copyRanges){
+        const auto& dbPartition = dbPartitions[copyRange.currentCopyPartition];
+        const auto& firstSeq = copyRange.currentCopySeqInPartition;
+        const auto& numToCopy = copyRange.numToCopy;
+        size_t numBytesToCopy = dbPartition.offsets()[firstSeq + numToCopy] - dbPartition.offsets()[firstSeq];
+        constexpr size_t maxTransferBatchSize = 8 * 1024 * 1024;
+        for(size_t i = 0; i < numBytesToCopy; i += maxTransferBatchSize){
+            const size_t x = std::min(numBytesToCopy - i, maxTransferBatchSize);
+
+            std::copy_n(
+                dbPartition.chars() + dbPartition.offsets()[firstSeq] + i,
+                x,
+                h_chardata_vec[currentBuffer].data() + usedBytes + i
+            );
+            cudaMemcpyAsync(
+                d_chardata_vec[currentBuffer].data() + usedBytes + i,
+                h_chardata_vec[currentBuffer].data() + usedBytes + i,
+                x,
+                H2D,
+                H2DcopyStream
+            ); CUERR;
+        }
+
+        // auto end = std::copy(
+        //     dbPartition.chars() + dbPartition.offsets()[firstSeq],
+        //     dbPartition.chars() + dbPartition.offsets()[firstSeq + numToCopy],
+        //     h_chardata_vec[currentBuffer].data() + usedBytes
+        // );
+        // cudaMemcpyAsync(
+        //     d_chardata_vec[currentBuffer].data() + usedBytes,
+        //     h_chardata_vec[currentBuffer].data() + usedBytes,
+        //     numBytesToCopy,
+        //     H2D,
+        //     H2DcopyStream
+        // ); CUERR;
+
+        usedBytes += numBytesToCopy;
+    }
+
+    size_t usedSeq = 0;
+    for(const auto& copyRange : plan.copyRanges){
+        const auto& dbPartition = dbPartitions[copyRange.currentCopyPartition];
+        const auto& firstSeq = copyRange.currentCopySeqInPartition;
+        const auto& numToCopy = copyRange.numToCopy;
+
+        std::copy(
+            dbPartition.lengths() + firstSeq,
+            dbPartition.lengths() + firstSeq+numToCopy,
+            h_lengthdata_vec[currentBuffer].data() + usedSeq
+        );
+        // cudaMemcpyAsync(
+        //     d_lengthdata_vec[currentBuffer].data() + usedSeq,
+        //     h_lengthdata_vec[currentBuffer].data() + usedSeq,
+        //     sizeof(size_t) * numToCopy,
+        //     H2D,
+        //     H2DcopyStream
+        // ); CUERR;
+
+        usedSeq += numToCopy;
+    }
+    cudaMemcpyAsync(
+        d_lengthdata_vec[currentBuffer].data(),
+        h_lengthdata_vec[currentBuffer].data(),
+        sizeof(size_t) * plan.usedSeq,
+        H2D,
+        H2DcopyStream
+    ); CUERR;
+
+    cudaMemsetAsync(d_offsetdata_vec[currentBuffer].data(), 0, sizeof(size_t), H2DcopyStream); CUERR;
+
+    auto d_paddedLengths = thrust::make_transform_iterator(
+        d_lengthdata_vec[currentBuffer].data(),
+        [] __host__ __device__ (const size_t& length){
+            return SDIV(length, 4) * 4;
+        }
+    );
+
+    thrust::inclusive_scan(
+        thrust::cuda::par_nosync(thrust_async_allocator<char>(H2DcopyStream)).on(H2DcopyStream),
+        d_paddedLengths,
+        d_paddedLengths + plan.usedSeq,
+        d_offsetdata_vec[currentBuffer].data() + 1
+    );
+
+    // usedSeq = 0;
+    // for(const auto& copyRange : plan.copyRanges){
+    //     const auto& dbPartition = dbPartitions[copyRange.currentCopyPartition];
+    //     const auto& firstSeq = copyRange.currentCopySeqInPartition;
+    //     const auto& numToCopy = copyRange.numToCopy;
+
+    //     std::transform(
+    //         dbPartition.offsets() + firstSeq,
+    //         dbPartition.offsets() + firstSeq + (numToCopy+1),
+    //         h_offsetdata_vec[currentBuffer].data() + usedSeq,
+    //         [&](size_t off){
+    //             return off - dbPartition.offsets()[firstSeq] + usedBytes;
+    //         }
+    //     );
+    //     // cudaMemcpyAsync(
+    //     //     d_offsetdata_vec[currentBuffer].data() + usedSeq,
+    //     //     h_offsetdata_vec[currentBuffer].data() + usedSeq,
+    //     //     sizeof(size_t) * (numToCopy+1),
+    //     //     H2D,
+    //     //     H2DcopyStream
+    //     // ); CUERR;
+
+    //     usedSeq += numToCopy;
+    // }
+    // cudaMemcpyAsync(
+    //     d_offsetdata_vec[currentBuffer].data(),
+    //     h_offsetdata_vec[currentBuffer].data(),
+    //     sizeof(size_t) * (plan.usedSeq+1),
+    //     H2D,
+    //     H2DcopyStream
+    // ); CUERR;
+    #endif
+
+    #if 0
+
     size_t usedBytes = 0;
     size_t usedSeq = 0;
     for(const auto& copyRange : plan.copyRanges){
@@ -903,6 +1025,8 @@ void executePinnedCopyPlanSerialAndTransferToGpu(
         H2D,
         H2DcopyStream
     ); CUERR;
+
+    #endif
 };
 
 struct ExecutePinnedCopyCallbackData{
