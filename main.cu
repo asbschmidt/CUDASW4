@@ -1850,12 +1850,14 @@ void processQueryOnGpu(
 
 
 void processQueryOnGpus(
-    const std::vector<int> deviceIds,
+    const std::vector<int>& deviceIds,
     const std::vector<cudaStream_t>& gpuStreams,
     const std::vector<std::unique_ptr<GpuWorkingSet>>& workingSets,
     const std::vector<std::vector<DBdataView>>& dbPartitionsPerGpu,
     const std::vector<std::vector<int>>& lengthPartitionIdsPerGpu, // dbPartitions[i] belongs to the length partition lengthPartitionIds[i]
     const std::vector<std::vector<DeviceBatchCopyToPinnedPlan>>& batchPlanPerGpu,
+    const std::vector<size_t>& numberOfSequencesPerGpu,
+    const std::vector<size_t>& numberOfSequencesPerGpuPrefixSum,
     const char* query, // may be host or device
     const int queryLength,
     bool useExtraThreadForBatchTransfer,
@@ -1865,17 +1867,8 @@ void processQueryOnGpus(
     constexpr int numLengthPartitions = boundaries.size();
     const int numGpus = deviceIds.size();
 
-    size_t totalNumberOfSequencesToProcess = 0;
-    std::vector<size_t> numberOfSequencesToProcessPerGpu;
-    for(const auto& vec : dbPartitionsPerGpu){
-        size_t sum = 0;
-        for(const auto& view : vec){
-            totalNumberOfSequencesToProcess += view.numSequences();
-            sum += view.numSequences();
-        }
-        numberOfSequencesToProcessPerGpu.push_back(sum);
-    }
-
+    size_t totalNumberOfSequencesToProcess = std::reduce(numberOfSequencesPerGpu.begin(), numberOfSequencesPerGpu.end());
+    
     size_t totalNumberOfProcessedSequences = 0;
     std::vector<size_t> processedSequencesPerGpu(numGpus, 0);
 
@@ -2201,7 +2194,7 @@ void processQueryOnGpus(
                 };
 
                 
-                auto maxReduceArray = ws.getMaxReduceArray(processedSequencesPerGpu[gpu]);
+                auto maxReduceArray = ws.getMaxReduceArray(numberOfSequencesPerGpuPrefixSum[gpu] + processedSequencesPerGpu[gpu]);
                 //runAlignmentKernels(ws.devAlignmentScoresFloat.data() + processedSequencesPerGpu[gpu], d_overflow_positions, d_overflow_number);
                 runAlignmentKernels(maxReduceArray, d_overflow_positions, d_overflow_number);
 
@@ -2233,7 +2226,7 @@ void processQueryOnGpus(
                 int* const d_overflow_number = ws.d_new_overflow_number.data() + currentBuffer;
                 size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[currentBuffer].data();
 
-                auto maxReduceArray = ws.getMaxReduceArray(processedSequencesPerGpu[gpu]);
+                auto maxReduceArray = ws.getMaxReduceArray(numberOfSequencesPerGpuPrefixSum[gpu] + processedSequencesPerGpu[gpu]);
 
                 // cudaMemcpyAsync(h_overflow_number, d_overflow_number, sizeof(int), D2H, ws.workStreamForTempUsage); CUERR;
                 // cudaStreamSynchronize(ws.workStreamForTempUsage); CUERR;
@@ -3008,6 +3001,8 @@ int main(int argc, char* argv[])
                 subPartitionsForGpus_perDBchunk[chunkId],
                 lengthPartitionIdsForGpus_perDBchunk[chunkId], // dbPartitions[i] belongs to the length partition lengthPartitionIds[i]
                 batchPlans_perChunk[chunkId],
+                numSequencesPerGpu_perDBchunk[chunkId],
+                numSequencesPerGpuPrefixSum_perDBchunk[chunkId],
                 queryChars + queryOffsets[query_num],
                 queryLengths[query_num],
                 useExtraThreadForBatchTransfer,
