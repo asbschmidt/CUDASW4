@@ -888,7 +888,7 @@ struct ManyPassHalf2{
                         d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[alignmentNumber0];
                     }else{
                         //no overflow happened, update score
-                        devAlignmentScores[alignmentNumber0] =  maximum.y;
+                        devAlignmentScores[d_positions_of_selected_lengths[alignmentNumber0]] =  maximum.y;
                     }
                 }
                 const int alignmentNumber1 = 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1;
@@ -898,7 +898,7 @@ struct ManyPassHalf2{
                         d_overflow_positions[pos_overflow] = d_positions_of_selected_lengths[alignmentNumber1];
                     }else{
                         //no overflow happened, update score
-                        devAlignmentScores[alignmentNumber1] =  maximum.x;
+                        devAlignmentScores[d_positions_of_selected_lengths[alignmentNumber1]] =  maximum.x;
                     }
                 }
             }else{
