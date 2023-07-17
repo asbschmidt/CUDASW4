@@ -276,9 +276,11 @@ struct GpuWorkingSet{
         deviceBufferEvents.resize(numCopyBuffers);
 
         for(int i = 0; i < numCopyBuffers; i++){
-            h_chardata_vec[i].resize(MAX_CHARDATA_BYTES);
-            h_lengthdata_vec[i].resize(MAX_SEQ);
-            h_offsetdata_vec[i].resize(MAX_SEQ+1);
+            if(!options.loadFullDBToGpu){
+                h_chardata_vec[i].resize(MAX_CHARDATA_BYTES);
+                h_lengthdata_vec[i].resize(MAX_SEQ);
+                h_offsetdata_vec[i].resize(MAX_SEQ+1);
+            }
             d_chardata_vec[i].resize(MAX_CHARDATA_BYTES);
             d_lengthdata_vec[i].resize(MAX_SEQ);
             d_offsetdata_vec[i].resize(MAX_SEQ+1);
@@ -2957,7 +2959,7 @@ int main(int argc, char* argv[])
             cudaEventRecord(masterevent1, masterStream1); CUERR;
 
             #if 0
-                std::cout << "start old func\n";
+                //std::cout << "start old func\n";
                 for(int gpu = 0; gpu < numGpus; gpu++){
                     cudaSetDevice(deviceIds[gpu]); CUERR;
 
@@ -2993,7 +2995,7 @@ int main(int argc, char* argv[])
                     cudaStreamWaitEvent(masterStream1, ws.forkStreamEvent, 0); CUERR;
                 }
             #else
-            std::cout << "start new func\n";
+            //std::cout << "start new func\n";
             for(int gpu = 0; gpu < numGpus; gpu++){
                 cudaSetDevice(deviceIds[gpu]); CUERR;
                 cudaStreamWaitEvent(gpuStreams[gpu], masterevent1, 0); CUERR;
@@ -3107,7 +3109,7 @@ int main(int argc, char* argv[])
     cudaStreamSynchronize(masterStream1); CUERR
 
     for(int i = 0; i < numQueries; i++){
-        //queryTimers[i]->printGCUPS(avg_length_2 * queryLengths[i]);
+        queryTimers[i]->printGCUPS(avg_length_2 * queryLengths[i]);
     }
     fullscanTimer.printGCUPS(avg_length_2 * avg_length);
 
