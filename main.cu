@@ -3234,10 +3234,7 @@ int main(int argc, char* argv[])
 
     CUERR;
 
-    const char* alignerDisableOutputString = std::getenv("ALIGNER_DISABLE_OUTPUT");
-    bool outputDisabled = std::atoi(alignerDisableOutputString);
-
-    if(!outputDisabled){
+    if(options.numTopOutputs > 0){
 
         //sort the chunk results per query to find overall top results
         std::vector<float> final_alignment_scores_float(numQueries * results_per_query);
