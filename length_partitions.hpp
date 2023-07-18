@@ -37,14 +37,52 @@ constexpr auto getLengthPartitionBoundaries(){
 	// 	std::numeric_limits<int>::max()-1
 	// };
 
-	constexpr int numLengthPartitions = 27;
+	// constexpr int numLengthPartitions = 27;
+	// std::array<int, numLengthPartitions> boundaries{
+	// 	64,
+	// 	96,
+	// 	128,
+	// 	160,
+	// 	192,
+	// 	224,
+	// 	256,
+	// 	288,
+	// 	320,
+	// 	352,
+	// 	384,
+	// 	416,
+	// 	448,
+	// 	480,
+	// 	512,
+	// 	576,
+	// 	640,
+	// 	704,
+	// 	768,
+	// 	832,
+	// 	896,
+	// 	960,
+	// 	1024,
+	// 	1088,
+	// 	1152,
+	// 	8000,
+	// 	std::numeric_limits<int>::max()-1
+	// };
+
+	constexpr int numLengthPartitions = 36;
 	std::array<int, numLengthPartitions> boundaries{
+		48,
 		64,
+		80,
 		96,
+		112,
 		128,
+		144,
 		160,
+		176,
 		192,
+		208,
 		224,
+		240,
 		256,
 		288,
 		320,
@@ -64,6 +102,8 @@ constexpr auto getLengthPartitionBoundaries(){
 		1024,
 		1088,
 		1152,
+		1216,
+		1280,
 		8000,
 		std::numeric_limits<int>::max()-1
 	};
