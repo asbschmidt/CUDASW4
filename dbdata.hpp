@@ -34,11 +34,15 @@ struct DBdataMetaData{
 };
 
 struct DBdata{
-    friend void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess, bool prefetchSeq);
+    friend void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess, bool prefetchSeq, size_t globalSequenceOffset);
 
 
-    DBdata(const std::string& inputPrefix, bool writeAccess, bool prefetchSeq){
-        loadDBdata(inputPrefix, *this, writeAccess, prefetchSeq);
+    DBdata(const std::string& inputPrefix, bool writeAccess, bool prefetchSeq, size_t globalSequenceOffset = 0){
+        loadDBdata(inputPrefix, *this, writeAccess, prefetchSeq, globalSequenceOffset);
+    }
+
+    size_t getGlobalSequenceOffset() const noexcept{
+        return globalSequenceOffset;
     }
 
     size_t numSequences() const noexcept{
@@ -97,7 +101,7 @@ struct DBdata{
 private:
     DBdata() = default;
 
-
+    size_t globalSequenceOffset;
     std::unique_ptr<MappedFile> mappedFileSequences;
     std::unique_ptr<MappedFile> mappedFileLengths;
     std::unique_ptr<MappedFile> mappedFileOffsets;
@@ -182,6 +186,10 @@ struct PseudoDBdata{
                 metaData.numSequencesPerLengthPartition[i] = 0;
             }
         }
+    }
+
+    size_t getGlobalSequenceOffset() const noexcept{
+        return 0;
     }
 
     size_t numSequences() const noexcept{
@@ -270,9 +278,10 @@ PseudoDB loadPseudoDB(size_t num, size_t length, int randomseed = 42);
 
 */
 struct DBdataView{
-    DBdataView(const DBdata& parent) 
+    DBdataView(const DBdata& parent, size_t globalSequenceOffset_ = 0) 
         : firstSequence(0), 
         lastSequence_excl(parent.numSequences()), 
+        globalSequenceOffset(globalSequenceOffset_),
         parentChars(parent.chars()),
         parentLengths(parent.lengths()),
         parentOffsets(parent.offsets()),
@@ -282,9 +291,10 @@ struct DBdataView{
 
     }
 
-    DBdataView(const PseudoDBdata& parent) 
+    DBdataView(const PseudoDBdata& parent, size_t globalSequenceOffset_ = 0) 
         : firstSequence(0), 
         lastSequence_excl(parent.numSequences()), 
+        globalSequenceOffset(globalSequenceOffset_),
         parentChars(parent.chars()),
         parentLengths(parent.lengths()),
         parentOffsets(parent.offsets()),
@@ -297,6 +307,7 @@ struct DBdataView{
     DBdataView(const DBdataView& parent, size_t first_, size_t last_) 
         : firstSequence(first_), 
         lastSequence_excl(last_), 
+        globalSequenceOffset(parent.getGlobalSequenceOffset() + firstSequence),
         parentChars(parent.chars()),
         parentLengths(parent.lengths()),
         parentOffsets(parent.offsets()),
@@ -304,6 +315,10 @@ struct DBdataView{
         parentHeaderOffsets(parent.headerOffsets())
     {
 
+    }
+
+    size_t getGlobalSequenceOffset() const noexcept{
+        return globalSequenceOffset;
     }
 
     size_t numSequences() const noexcept{
@@ -337,6 +352,7 @@ struct DBdataView{
 private:
     size_t firstSequence;
     size_t lastSequence_excl;
+    size_t globalSequenceOffset; //index of firstSequence at the top level, i.e. in the full db
 
     const char* parentChars;
     const size_t* parentLengths;

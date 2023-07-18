@@ -10,7 +10,7 @@
 #include <thrust/iterator/transform_iterator.h>
 
 
-void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess, bool prefetchSeq){
+void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess, bool prefetchSeq, size_t globalSequenceOffset){
 
 
     MappedFile::Options headerOptions;
@@ -30,6 +30,8 @@ void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess
     result.mappedFileSequences = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::sequencesfilename(), sequenceOptions);
     result.mappedFileLengths = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::sequencelengthsfilename(), sequenceOptions);
     result.mappedFileOffsets = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::sequenceoffsetsfilename(), sequenceOptions);
+
+    result.globalSequenceOffset = globalSequenceOffset;
 
     // std::ifstream metadatain(inputPrefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
     // if(!metadatain) throw std::runtime_error("Cannot open file " + inputPrefix + DBdataIoConfig::metadatafilename());
@@ -209,9 +211,11 @@ DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq){
     DB result;
     readGlobalDbInfo(prefix, result.info);
 
+    size_t totalNumSequences = 0;
     for(int i = 0; i < result.info.numChunks; i++){
         const std::string chunkPrefix = prefix + std::to_string(i);
-        result.chunks.emplace_back(chunkPrefix, writeAccess, prefetchSeq);
+        result.chunks.emplace_back(chunkPrefix, writeAccess, prefetchSeq, totalNumSequences);
+        totalNumSequences += result.chunks.back().numSequences();
     }
 
     return result;
