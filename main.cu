@@ -22,6 +22,7 @@
 #include <thrust/count.h>
 #include <thrust/equal.h>
 #include <thrust/logical.h>
+#include <thrust/binary_search.h>
 
 #include "hpc_helpers/cuda_raiiwrappers.cuh"
 #include "hpc_helpers/all_helpers.cuh"
@@ -214,6 +215,143 @@ struct CudaSW4Options{
 };
 
 
+struct HostGpuPartitionOffsets{
+    int numGpus;
+    int numLengthPartitions;
+    std::vector<size_t> partitionSizes;
+    std::vector<size_t> horizontalPS;
+    std::vector<size_t> verticalPS;
+    std::vector<size_t> totalPerLengthPartitionPS;
+
+    HostGpuPartitionOffsets(int numGpus_, int numLengthpartitions_, std::vector<size_t> partitionSizes_)
+        : numGpus(numGpus_), 
+        numLengthPartitions(numLengthpartitions_), 
+        partitionSizes(std::move(partitionSizes_)),
+        horizontalPS(numGpus * numLengthPartitions, 0),
+        verticalPS(numGpus * numLengthPartitions, 0),
+        totalPerLengthPartitionPS(numLengthPartitions, 0)
+    {
+        assert(partitionSizes.size() == numGpus * numLengthPartitions);
+
+        for(int gpu = 0; gpu < numGpus; gpu++){
+            for(int l = 1; l < numLengthPartitions; l++){
+                horizontalPS[gpu * numLengthPartitions + l] = horizontalPS[gpu * numLengthPartitions + l-1] + partitionSizes[gpu * numLengthPartitions + l-1];
+            }
+        }
+        for(int l = 0; l < numLengthPartitions; l++){
+            for(int gpu = 1; gpu < numGpus; gpu++){
+                verticalPS[gpu * numLengthPartitions + l] = verticalPS[(gpu-1) * numLengthPartitions + l] + partitionSizes[(gpu-1) * numLengthPartitions + l];
+            }
+        }
+        for(int l = 1; l < numLengthPartitions; l++){
+            totalPerLengthPartitionPS[l] = totalPerLengthPartitionPS[l-1] 
+                + (verticalPS[(numGpus - 1) * numLengthPartitions + (l-1)] + partitionSizes[(numGpus-1) * numLengthPartitions + (l-1)]);
+        }
+    }
+
+    size_t getGlobalIndex(int gpu, size_t localIndex) const {
+        const size_t* const myHorizontalPS = horizontalPS.data() + gpu * numLengthPartitions;
+        const auto it = std::lower_bound(myHorizontalPS, myHorizontalPS + numLengthPartitions, localIndex+1);
+        const int whichPartition = std::distance(myHorizontalPS, it) - 1;
+        const size_t occurenceInPartition = localIndex - myHorizontalPS[whichPartition];
+        const size_t globalPartitionBegin = totalPerLengthPartitionPS[whichPartition];
+        const size_t elementsOfOtherPreviousGpusInPartition = verticalPS[gpu * numLengthPartitions + whichPartition];
+        //std::cout << "whichPartition " << whichPartition << ", occurenceInPartition " << occurenceInPartition 
+        //    << ", globalPartitionBegin " << globalPartitionBegin << ", elementsOfOtherPreviousGpusInPartition " << elementsOfOtherPreviousGpusInPartition << "\n";
+        return globalPartitionBegin + elementsOfOtherPreviousGpusInPartition + occurenceInPartition;
+    };
+
+    void print(std::ostream& os){
+        os << "numGpus " << numGpus << "\n";
+        os << "numLengthPartitions " << numLengthPartitions << "\n";
+        os << "partitionSizes\n";
+        for(size_t gpu = 0; gpu < numGpus; gpu++){
+            for(size_t l = 0; l < numLengthPartitions; l++){
+                os << partitionSizes[gpu * numLengthPartitions + l] << " ";
+            }
+            os << "\n";
+        }
+        os << "\n";
+        os << "horizontalPS\n";
+        for(size_t gpu = 0; gpu < numGpus; gpu++){
+            for(size_t l = 0; l < numLengthPartitions; l++){
+                os << horizontalPS[gpu * numLengthPartitions + l] << " ";
+            }
+            os << "\n";
+        }
+        os << "\n";
+        os << "verticalPS\n";
+        for(size_t gpu = 0; gpu < numGpus; gpu++){
+            for(size_t l = 0; l < numLengthPartitions; l++){
+                os << verticalPS[gpu * numLengthPartitions + l] << " ";
+            }
+            os << "\n";
+        }
+        os << "\n";
+        os << "totalPerLengthPartitionPS\n";
+        for(size_t l = 0; l < numLengthPartitions; l++){
+            os << totalPerLengthPartitionPS[l] << " ";
+        }
+        os << "\n";
+    }
+};
+
+struct DeviceGpuPartitionOffsets{
+    int numGpus;
+    int numLengthPartitions;
+    MyDeviceBuffer<size_t> partitionSizes;
+    MyDeviceBuffer<size_t> horizontalPS;
+    MyDeviceBuffer<size_t> verticalPS;
+    MyDeviceBuffer<size_t> totalPerLengthPartitionPS;
+
+    struct View{
+        int numGpus;
+        int numLengthPartitions;
+        const size_t* partitionSizes;
+        const size_t* horizontalPS;
+        const size_t* verticalPS;
+        const size_t* totalPerLengthPartitionPS;
+
+        __device__
+        size_t getGlobalIndex(int gpu, size_t localIndex) const {
+            const size_t* const myHorizontalPS = horizontalPS + gpu * numLengthPartitions;
+            const auto it = thrust::lower_bound(thrust::seq, myHorizontalPS, myHorizontalPS + numLengthPartitions, localIndex+1);
+            const int whichPartition = thrust::distance(myHorizontalPS, it) - 1;
+            const size_t occurenceInPartition = localIndex - myHorizontalPS[whichPartition];
+            const size_t globalPartitionBegin = totalPerLengthPartitionPS[whichPartition];
+            const size_t elementsOfOtherPreviousGpusInPartition = verticalPS[gpu * numLengthPartitions + whichPartition];
+            return globalPartitionBegin + elementsOfOtherPreviousGpusInPartition + occurenceInPartition;
+        };
+    };
+
+    DeviceGpuPartitionOffsets() = default;
+    DeviceGpuPartitionOffsets(const HostGpuPartitionOffsets& hostData)
+        : numGpus(hostData.numGpus),
+        numLengthPartitions(hostData.numLengthPartitions),
+        partitionSizes(numGpus * numLengthPartitions),
+        horizontalPS(numGpus * numLengthPartitions),
+        verticalPS(numGpus * numLengthPartitions),
+        totalPerLengthPartitionPS(numLengthPartitions)
+    {
+        cudaMemcpyAsync(partitionSizes.data(), hostData.partitionSizes.data(), sizeof(size_t) * numGpus * numLengthPartitions, H2D, cudaStreamLegacy); CUERR;
+        cudaMemcpyAsync(horizontalPS.data(), hostData.horizontalPS.data(), sizeof(size_t) * numGpus * numLengthPartitions, H2D, cudaStreamLegacy); CUERR;
+        cudaMemcpyAsync(verticalPS.data(), hostData.verticalPS.data(), sizeof(size_t) * numGpus * numLengthPartitions, H2D, cudaStreamLegacy); CUERR;
+        cudaMemcpyAsync(totalPerLengthPartitionPS.data(), hostData.totalPerLengthPartitionPS.data(), sizeof(size_t) * numLengthPartitions, H2D, cudaStreamLegacy); CUERR;
+    }
+
+    View getDeviceView() const{
+        View view;
+        view.numGpus = numGpus;
+        view.numLengthPartitions = numLengthPartitions;
+        view.partitionSizes = partitionSizes.data();
+        view.horizontalPS = horizontalPS.data();
+        view.verticalPS = verticalPS.data();
+        view.totalPerLengthPartitionPS = totalPerLengthPartitionPS.data();
+        return view;
+    }
+};
+
+
 struct GpuWorkingSet{
 
     static constexpr int maxReduceArraySize = 512 * 1024;
@@ -330,6 +468,10 @@ struct GpuWorkingSet{
         cudaMemsetAsync(d_maxReduceArrayIndices.data(), 0, sizeof(int) * maxReduceArraySize, stream);
     }
 
+    void setPartitionOffsets(const HostGpuPartitionOffsets& offsets){
+        deviceGpuPartitionOffsets = DeviceGpuPartitionOffsets(offsets);
+    }        
+
     bool singleBatchDBisOnGpu = false;
     int deviceId;
     int numCopyBuffers;
@@ -339,8 +481,6 @@ struct GpuWorkingSet{
     size_t numTempBytes;
     size_t MAX_CHARDATA_BYTES;
     size_t MAX_SEQ;
-
-
 
     MyDeviceBuffer<int> d_maxReduceArrayLocks;
     MyDeviceBuffer<float> d_maxReduceArrayScores;
@@ -375,6 +515,8 @@ struct GpuWorkingSet{
     std::vector<CudaEvent> deviceBufferEvents;
     std::vector<CudaStream> workStreamsWithoutTemp;
     std::vector<MyDeviceBuffer<size_t>> d_new_overflow_positions_vec;
+
+    DeviceGpuPartitionOffsets deviceGpuPartitionOffsets;
 
 };
 
@@ -2318,7 +2460,8 @@ void processQueryOnGpus(
                 };
 
                 
-                auto maxReduceArray = ws.getMaxReduceArray(numberOfSequencesPerGpuPrefixSum[gpu] + processedSequencesPerGpu[gpu]);
+                //auto maxReduceArray = ws.getMaxReduceArray(numberOfSequencesPerGpuPrefixSum[gpu] + processedSequencesPerGpu[gpu]);
+                auto maxReduceArray = ws.getMaxReduceArray(processedSequencesPerGpu[gpu]);
                 //runAlignmentKernels(ws.devAlignmentScoresFloat.data() + processedSequencesPerGpu[gpu], d_overflow_positions, d_overflow_number);
                 runAlignmentKernels(maxReduceArray, d_overflow_positions, d_overflow_number);
 
@@ -2350,7 +2493,8 @@ void processQueryOnGpus(
                 int* const d_overflow_number = ws.d_new_overflow_number.data() + currentBuffer;
                 size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[currentBuffer].data();
 
-                auto maxReduceArray = ws.getMaxReduceArray(numberOfSequencesPerGpuPrefixSum[gpu] + processedSequencesPerGpu[gpu]);
+                //auto maxReduceArray = ws.getMaxReduceArray(numberOfSequencesPerGpuPrefixSum[gpu] + processedSequencesPerGpu[gpu]);
+                auto maxReduceArray = ws.getMaxReduceArray(processedSequencesPerGpu[gpu]);
 
                 // cudaMemcpyAsync(h_overflow_number, d_overflow_number, sizeof(int), D2H, ws.workStreamForTempUsage); CUERR;
                 // cudaStreamSynchronize(ws.workStreamForTempUsage); CUERR;
@@ -2661,6 +2805,7 @@ int main(int argc, char* argv[])
 
     const int numDBChunks = fullDB.info.numChunks;
     std::cout << "Number of DB chunks: " << numDBChunks << "\n";
+    assert(numDBChunks == 1);
     for(int i = 0; i < numDBChunks; i++){
         const auto& chunkData = fullDB.chunks[i];
         const auto& dbMetaData = chunkData.getMetaData();
@@ -2792,9 +2937,19 @@ int main(int argc, char* argv[])
             //     numSubPartitionsPerLengthPerGpu[gpu][lengthPartitionId] = partitionedBySeq.size();
             // }
 
-            for(int gpu = 0; gpu < int(partitionedByGpu.size()); gpu++){     
-                subPartitionsForGpus[gpu].push_back(partitionedByGpu[gpu]);
-                lengthPartitionIdsForGpus[gpu].push_back(lengthPartitionId);
+            // for(int gpu = 0; gpu < int(partitionedByGpu.size()); gpu++){     
+            //     subPartitionsForGpus[gpu].push_back(partitionedByGpu[gpu]);
+            //     lengthPartitionIdsForGpus[gpu].push_back(lengthPartitionId);
+            // }
+            for(int gpu = 0; gpu < numGpus; gpu++){
+                if(gpu < partitionedByGpu.size()){
+                    subPartitionsForGpus[gpu].push_back(partitionedByGpu[gpu]);
+                    lengthPartitionIdsForGpus[gpu].push_back(lengthPartitionId);
+                }else{
+                    //add empty partition
+                    subPartitionsForGpus[gpu].push_back(DBdataView(dbChunk, 0, 0));
+                    lengthPartitionIdsForGpus[gpu].push_back(0);
+                }
             }
         }
 
@@ -2869,6 +3024,8 @@ int main(int argc, char* argv[])
 
 
 
+
+
     // std::cout << "Top level partioning:\n";
     // for(size_t i = 0; i < dbPartitionsForGpus.size(); i++){
     //     std::cout << "Partition for gpu " << i << ":\n";
@@ -2896,7 +3053,6 @@ int main(int argc, char* argv[])
 
     //set up gpus
 
-    assert(numDBChunks == 1);
 
 
     std::vector<std::unique_ptr<GpuWorkingSet>> workingSets(numGpus);  
@@ -2974,7 +3130,27 @@ int main(int argc, char* argv[])
         }
     }
 
-    
+    std::vector<size_t> sequencesInPartitions(numGpus * numLengthPartitions);
+    for(int gpu = 0; gpu < numGpus; gpu++){
+        assert(subPartitionsForGpus_perDBchunk[0][gpu].size() == numLengthPartitions);
+        for(int i = 0; i < numLengthPartitions; i++){
+            sequencesInPartitions[gpu * numLengthPartitions + i] = subPartitionsForGpus_perDBchunk[0][gpu][i].numSequences();
+        }
+    }
+
+
+    HostGpuPartitionOffsets hostGpuPartitionOffsets(numGpus, numLengthPartitions, sequencesInPartitions);
+    for(int gpu = 0; gpu < numGpus; gpu++){
+        cudaSetDevice(deviceIds[gpu]); CUERR;
+        auto& ws = *workingSets[gpu];
+        ws.setPartitionOffsets(hostGpuPartitionOffsets);
+    }
+
+ 
+
+
+
+
     for(int gpu = 0; gpu < numGpus; gpu++){
         cudaSetDevice(deviceIds[gpu]);
         const int chunkId = 0;
@@ -3146,6 +3322,25 @@ int main(int argc, char* argv[])
 
                 //we could sort the maxReduceArray here as well and only send the best results_per_query entries
 
+                if(numGpus > 1){
+                    //transform per gpu local sequence indices into global sequence indices
+                    helpers::lambda_kernel<<<SDIV(512*1024, 128), 128, 0, gpuStreams[gpu]>>>(
+                        [
+                            gpu, 
+                            //N = numSequencesPerGpu_perDBchunk[chunkId][gpu],
+                            N = 512*1024,
+                            partitionOffsets = ws.deviceGpuPartitionOffsets.getDeviceView(),
+                            d_maxReduceArrayIndices = ws.d_maxReduceArrayIndices.data()
+                        ] __device__ (){
+                            const int tid = threadIdx.x + blockIdx.x * blockDim.x;
+
+                            if(tid < N){
+                                d_maxReduceArrayIndices[tid] = partitionOffsets.getGlobalIndex(gpu, d_maxReduceArrayIndices[tid]);
+                            }
+                        }
+                    ); CUERR;
+                }
+
                 cudaMemcpyAsync(
                     devAllAlignmentScoresFloat.data() + 512*1024*gpu,
                     ws.d_maxReduceArrayScores.data(),
@@ -3294,7 +3489,7 @@ int main(int argc, char* argv[])
             for(int j = 0; j < results_per_query; ++j) {
                 const int arrayIndex = i*results_per_query+j;
                 const size_t sortedIndex = final_sorted_indices[arrayIndex];
-                
+                //std::cout << "sortedIndex " << sortedIndex << "\n";
                 const int dbChunkIndex = final_resultDbChunkIndices[arrayIndex];
                 
                 const auto& chunkData = fullDB.chunks[dbChunkIndex];
@@ -3305,7 +3500,8 @@ int main(int argc, char* argv[])
                 std::copy(headerBegin, headerEnd,std::ostream_iterator<char>{cout});
                 //cout << "\n";
 
-                std::cout << " dbChunkIndex " << dbChunkIndex << "\n";
+                std::cout << "\n";
+                //std::cout << " dbChunkIndex " << dbChunkIndex << "\n";
                 //std::cout << "sortedIndex " << sortedIndex << "\n";
 
                 // std::copy(chunkData.chars() + chunkData.offsets()[sortedIndex], 
