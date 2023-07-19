@@ -141,6 +141,8 @@ __device__ char4 constantQuery4[2048];
 __device__ char cBLOSUM62_dev[21*21];
 //__constant__ char2 cQuery2[4*1024];
 
+__constant__ int cBlosumDim;
+
 GLOBALQUALIFIER
 void test(char* chars, size_t* offsets, size_t nseq)
 {

@@ -2,6 +2,7 @@
 #define MANYPASS_FLOAT_KERNEL_CUH
 
 #include <cuda_fp16.h>
+#include "blosum.hpp"
 
 template <int numRegs, class PositionsIterator> 
 struct ManyPassFloat{
@@ -193,7 +194,7 @@ struct ManyPassFloat{
         const char* const devS0, const int length_S0
     ) const{
         if (!offset_isc) {
-            for (int i=threadIdx.x; i<21*21; i+=32) shared_BLOSUM62[i/21][i%21]=cBLOSUM62_dev[i];
+            for (int i=threadIdx.x; i<cBlosumDim*cBlosumDim; i+=32) shared_BLOSUM62[i/cBlosumDim][i%cBlosumDim]=cBLOSUM62_dev[i];
             __syncwarp();
         }
 
@@ -940,6 +941,7 @@ void NW_local_affine_read4_float_query_Protein_new(
 
 template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
 void call_NW_local_affine_read4_float_query_Protein_new(
+    BlosumType blosumType,
     const char * const devChars,
     ScoreOutputIterator const devAlignmentScores,
     float2 * const devTempHcol2,
@@ -953,10 +955,13 @@ void call_NW_local_affine_read4_float_query_Protein_new(
     const float gap_extend,
     cudaStream_t stream
 ) {
+    auto kernel = NW_local_affine_read4_float_query_Protein_new<numRegs, ScoreOutputIterator, PositionsIterator>;
+    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 62500);
+
     dim3 block = 32;
     dim3 grid = numSelected;
 
-    NW_local_affine_read4_float_query_Protein_new<numRegs><<<grid, block, 0, stream>>>(
+    kernel<<<grid, block, 0, stream>>>(
         devChars,
         devAlignmentScores,
         devTempHcol2,

@@ -2,6 +2,7 @@
 #define SINGLEPASS_HALF2_KERNEL_CUH
 
 #include <cuda_fp16.h>
+#include "blosum.hpp"
 
 template <int group_size, int numRegs, class PositionsIterator> 
 struct SinglePassHalf2{
@@ -203,12 +204,12 @@ struct SinglePassHalf2{
         const char* const devS1, const int length_S1
     ) const{
         if (!offset_isc) {
-            for (int i=threadIdx.x; i<21*21; i+=blockDim.x) {
+            for (int i=threadIdx.x; i<cBlosumDim*cBlosumDim; i+=blockDim.x) {
                 __half2 temp0;
-                temp0.x = cBLOSUM62_dev[21*(i/21)+(i%21)];
-                for (int j=0; j<21; j++) {
-                    temp0.y = cBLOSUM62_dev[21*(i/21)+j];
-                    shared_BLOSUM62[i/21][21*(i%21)+j]=temp0;
+                temp0.x = cBLOSUM62_dev[cBlosumDim*(i/cBlosumDim)+(i%cBlosumDim)];
+                for (int j=0; j<cBlosumDim; j++) {
+                    temp0.y = cBLOSUM62_dev[cBlosumDim*(i/cBlosumDim)+j];
+                    shared_BLOSUM62[i/cBlosumDim][cBlosumDim*(i%cBlosumDim)+j]=temp0;
                 }
             }
             __syncthreads();
@@ -222,8 +223,8 @@ struct SinglePassHalf2{
             subject[i] = devS0[offset_isc+numRegs*(threadIdx.x%group_size)+i]; //devChars[offset_isc+base_S0+numRegs*(threadIdx.x%group_size)+i];
            }
 
-           if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S1) subject[i] += 1*21; // 20*21;
-           else subject[i] += 21* devS1[offset_isc+numRegs*(threadIdx.x%group_size)+i]; //devChars[offset_isc+base_S1+numRegs*(threadIdx.x%group_size)+i];
+           if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S1) subject[i] += 1*cBlosumDim; // 20*cBlosumDim;
+           else subject[i] += cBlosumDim* devS1[offset_isc+numRegs*(threadIdx.x%group_size)+i]; //devChars[offset_isc+base_S1+numRegs*(threadIdx.x%group_size)+i];
        }
     }
 
@@ -485,7 +486,7 @@ void NW_local_affine_Protein_single_pass_half2_new(
     //     }
     //     printf("\n");
     //     printf("constantblosum\n");
-    //     for(int i = 0; i < 21*21; i++){
+    //     for(int i = 0; i < cBlosumDim*cBlosumDim; i++){
     //         printf("%d %d %d %d", int(cBLOSUM62_dev[i]));
     //     }
     //     printf("\n");
@@ -518,6 +519,7 @@ void NW_local_affine_Protein_single_pass_half2_new(
 
 template <int blocksize, int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
 void call_NW_local_affine_Protein_single_pass_half2_new(
+    BlosumType blosumType,
     const char * const devChars,
     ScoreOutputIterator const devAlignmentScores,
     const size_t* const devOffsets,
@@ -532,12 +534,16 @@ void call_NW_local_affine_Protein_single_pass_half2_new(
     const float gap_extend,
     cudaStream_t stream
 ){
-
+    
     constexpr int groupsPerBlock = blocksize / group_size;
     constexpr int alignmentsPerGroup = 2;
     constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
+
+    auto kernel = NW_local_affine_Protein_single_pass_half2_new<group_size, numRegs, ScoreOutputIterator, PositionsIterator>;
+    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 62500);
+
     dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;
-    NW_local_affine_Protein_single_pass_half2_new<group_size, numRegs><<<grid, blocksize, 0, stream>>>(
+    kernel<<<grid, blocksize, 0, stream>>>(
         devChars,
         devAlignmentScores,
         devOffsets,
