@@ -6,11 +6,10 @@
 
 template <int group_size, int numRegs, class PositionsIterator> 
 struct SinglePassHalf2{
-    using BLOSUM62_SMEM = __half2[21*21*21];
 
     static constexpr float negInftyFloat = -1000.0f;
 
-    BLOSUM62_SMEM& shared_BLOSUM62;
+    __half2* shared_BLOSUM62;
 
     //int& cBlosumDim;
     int numSelected;
@@ -24,7 +23,7 @@ struct SinglePassHalf2{
 
     __device__
     SinglePassHalf2(
-        BLOSUM62_SMEM& shared_BLOSUM62_,
+        __half2* shared_BLOSUM62_,
         const char* devChars_,
         const size_t* devOffsets_,
         const size_t* devLengths_,
@@ -514,10 +513,11 @@ void NW_local_affine_Protein_single_pass_half2_new(
     //     printf("gap_extend %f\n", gap_extend);
     // }
     using Processor = SinglePassHalf2<group_size, numRegs, PositionsIterator>;
-    __shared__ typename Processor::BLOSUM62_SMEM shared_BLOSUM62;
+    extern __shared__ __half2 shared_blosum[];
+    //__shared__ typename Processor::BLOSUM62_SMEM shared_BLOSUM62;
 
     Processor processor(
-        shared_BLOSUM62,
+        shared_blosum,
         devChars,
         devOffsets,
         devLengths,
@@ -554,11 +554,23 @@ void call_NW_local_affine_Protein_single_pass_half2_new(
     constexpr int alignmentsPerGroup = 2;
     constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
 
+    int blosumDim = 1;
+    switch(blosumType){
+        case BlosumType::BLOSUM50:
+            blosumDim = BLOSUM50::dim;
+            break;
+        default: //BlosumType::BLOSUM62
+            blosumDim = BLOSUM62::dim;
+            break;
+    };
+
+    int smem = sizeof(__half2) * blosumDim * blosumDim * blosumDim;
+
     auto kernel = NW_local_affine_Protein_single_pass_half2_new<group_size, numRegs, ScoreOutputIterator, PositionsIterator>;
-    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 62500);
+    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
 
     dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;
-    kernel<<<grid, blocksize, 0, stream>>>(
+    kernel<<<grid, blocksize, smem, stream>>>(
         devChars,
         devAlignmentScores,
         devOffsets,
