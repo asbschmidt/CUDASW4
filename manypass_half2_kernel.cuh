@@ -932,6 +932,7 @@ struct ManyPassHalf2{
 template <int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
 #if __CUDA_ARCH__ >= 800
 __launch_bounds__(256,2)
+//__launch_bounds__(512,1)
 #else
 __launch_bounds__(256)
 #endif
@@ -975,7 +976,7 @@ void NW_local_affine_Protein_many_pass_half2_new(
 
 
 
-template <int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
+template <int blocksize, int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
 void call_NW_local_affine_Protein_many_pass_half2_new(
     BlosumType blosumType,
     const char * const devChars,
@@ -994,7 +995,6 @@ void call_NW_local_affine_Protein_many_pass_half2_new(
     const float gap_extend,
     cudaStream_t stream
 ) {
-    constexpr int blocksize = 32 * 8;
     constexpr int groupsPerBlock = blocksize / group_size;
     constexpr int alignmentsPerGroup = 2;
     constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;

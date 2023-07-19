@@ -118,7 +118,7 @@ struct CudaSW4Options{
     int numTopOutputs = 10;
     int gop = -11;
     int gex = -1;
-    BlosumType blosumType = BlosumType::BLOSUM62;
+    BlosumType blosumType = BlosumType::BLOSUM62_21;
     size_t maxBatchBytes = 32ull * 1024ull * 1024ull;
     size_t maxBatchSequences = 10'000'000;
     size_t maxTempBytes = 4ull * 1024ull * 1024ull * 1024ull;
@@ -203,10 +203,26 @@ bool parseArgs(int argc, char** argv, CudaSW4Options& options){
         }else if(arg == "--db"){
             options.dbPrefix = argv[++i];
             gotDB = true;
+        }else if(arg == "--mat"){
+            const std::string val = argv[++i];
+            if(val == "blosum45") options.blosumType = BlosumType::BLOSUM45;
+            if(val == "blosum50") options.blosumType = BlosumType::BLOSUM50;
+            if(val == "blosum62") options.blosumType = BlosumType::BLOSUM62;
+            if(val == "blosum80") options.blosumType = BlosumType::BLOSUM80;
+            if(val == "blosum50_21") options.blosumType = BlosumType::BLOSUM50_21;
+            if(val == "blosum62_21") options.blosumType = BlosumType::BLOSUM62_21;
+        }else if(arg == "--blosum45"){
+            options.blosumType = BlosumType::BLOSUM45;
         }else if(arg == "--blosum50"){
             options.blosumType = BlosumType::BLOSUM50;
         }else if(arg == "--blosum62"){
             options.blosumType = BlosumType::BLOSUM62;
+        }else if(arg == "--blosum80"){
+            options.blosumType = BlosumType::BLOSUM80;
+        }else if(arg == "--blosum50_21"){
+            options.blosumType = BlosumType::BLOSUM50_21;
+        }else if(arg == "--blosum62_21"){
+            options.blosumType = BlosumType::BLOSUM62_21;
         }else{
             std::cout << "Unexpected arg " << arg << "\n";
         }
@@ -214,11 +230,11 @@ bool parseArgs(int argc, char** argv, CudaSW4Options& options){
 
     //set specific gop gex for blosum if no gop gex was set
     switch(options.blosumType){
-        case BlosumType::BLOSUM50:
+        case BlosumType::BLOSUM50_21:
             if(!gotGop) options.gop = -13;
             if(!gotGex) options.gex = -2;
             break;
-        case BlosumType::BLOSUM62:
+        case BlosumType::BLOSUM62_21:
             if(!gotGop) options.gop = -11;
             if(!gotGex) options.gex = -1;
             break;
@@ -250,8 +266,10 @@ void printHelp(int argc, char** argv){
     std::cout << "      --maxBatchBytes val : Process DB in batches of at most val bytes. Can use suffix K,M,G. Default val = " << defaultoptions.maxBatchBytes << "\n";
     std::cout << "      --maxBatchSequences val : Process DB in batches of at most val sequences. Default val = " << defaultoptions.maxBatchSequences << "\n";
     std::cout << "      --uploadFull : Do not process DB in smaller batches. Copy full DB to GPU before processing queries.\n";
-    std::cout << "      --blosum50 : Use BLOSUM50 substitution matrix.\n";
-    std::cout << "      --blosum62 : Use BLOSUM62 substitution matrix.\n";
+    //std::cout << "      --blosum50 : Use BLOSUM50 substitution matrix.\n";
+    //std::cout << "      --blosum62 : Use BLOSUM62 substitution matrix.\n";
+    std::cout << "      --mat val: Set substitution matrix. Supported values: blosum45, blosum50, blosum62, blosum80, blosum50_21, blosum62_21. "
+                        "Default: " << to_string(defaultoptions.blosumType) << "\n";
 }
 
 
@@ -2411,41 +2429,42 @@ void processQueryOnGpus(
                         #endif
 
                         #if 1
-                        if (partId == 0){call_NW_local_affine_Protein_single_pass_half2_new<256, 2, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 1){call_NW_local_affine_Protein_single_pass_half2_new<256, 4, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 2){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 10>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 3){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 12>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 4){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 14>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 5){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 6){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 7){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 8){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 9){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 10){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 11){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 12){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 13){call_NW_local_affine_Protein_single_pass_half2_new<256, 8, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 14){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 15){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 16){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 17){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 18){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 19){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 20){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 21){call_NW_local_affine_Protein_single_pass_half2_new<256, 16, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 22){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 23){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 24){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 25){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 26){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 27){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 28){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 29){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 30){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 34>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 31){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 36>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 32){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 38>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 33){call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 40>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-
+                        constexpr int sh2bs = 256; // single half2 blocksize 
+                        if (partId == 0){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 2, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 1){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 4, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 2){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 10>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 3){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 12>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 4){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 14>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 5){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 6){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 7){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 8){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 9){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 10){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 11){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 12){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 13){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 14){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 15){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 16){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 17){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 18){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 19){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 20){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 21){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 22){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 23){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 24){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 25){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 26){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 27){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 28){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 29){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 30){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 34>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 31){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 36>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 32){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 38>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        if (partId == 33){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 40>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+ 
                         #endif
 
                         //if (partId > 15 && partId < 44){
@@ -2482,7 +2501,7 @@ void processQueryOnGpus(
                                 //cudaDeviceSynchronize(); CUERR;
                                 
                                 //NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
-                                call_NW_local_affine_Protein_many_pass_half2_new<groupsize, 22>(
+                                call_NW_local_affine_Protein_many_pass_half2_new<blocksize, groupsize, 22>(
                                     options.blosumType,
                                     inputChars, 
                                     d_scores, 
@@ -3190,18 +3209,18 @@ int main(int argc, char* argv[])
     for(int i = 0; i < numGpus; i++){
         cudaSetDevice(deviceIds[i]);
         switch(options.blosumType){
-            case BlosumType::BLOSUM50:
+            case BlosumType::BLOSUM50_21:
                 {
-                    const auto blosum = BLOSUM50::get1D();
-                    const int dim = BLOSUM50::dim;
+                    const auto blosum = BLOSUM50_21::get1D();
+                    const int dim = BLOSUM50_21::dim;
                     assert(dim == 21);
                     cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));                    
                 }
                 break;
-            default: //BlosumType::BLOSUM62
+            default: //BlosumType::BLOSUM62_21
                 {
-                    const auto blosum = BLOSUM62::get1D();
-                    const int dim = BLOSUM62::dim;
+                    const auto blosum = BLOSUM62_21::get1D();
+                    const int dim = BLOSUM62_21::dim;
                     assert(dim == 21);
                     cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
                 }

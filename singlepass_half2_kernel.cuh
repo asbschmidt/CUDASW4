@@ -475,6 +475,7 @@ struct SinglePassHalf2{
 template <int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
 #if __CUDA_ARCH__ >= 800
 __launch_bounds__(256,2)
+//__launch_bounds__(512,1)
 #else
 __launch_bounds__(256)
 #endif
