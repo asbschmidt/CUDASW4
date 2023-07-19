@@ -967,4 +967,50 @@ void NW_local_affine_Protein_many_pass_half2_new(
     processor.compute(devAlignmentScores, overflow_check, d_overflow_number, d_overflow_positions);
 }
 
+
+
+template <int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
+void call_NW_local_affine_Protein_many_pass_half2_new(
+    const char * const devChars,
+    ScoreOutputIterator const devAlignmentScores,
+    __half2 * const devTempHcol2,
+    __half2 * const devTempEcol2,
+    const size_t* const devOffsets,
+    const size_t* const devLengths,
+    PositionsIterator const d_positions_of_selected_lengths,
+    const int numSelected,
+	size_t* const d_overflow_positions,
+	int* const d_overflow_number,
+	const bool overflow_check,
+    const int length_2,
+    const float gap_open,
+    const float gap_extend,
+    cudaStream_t stream
+) {
+    constexpr int blocksize = 32 * 8;
+    constexpr int groupsPerBlock = blocksize / group_size;
+    constexpr int alignmentsPerGroup = 2;
+    constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
+
+    dim3 block = blocksize;
+    dim3 grid = SDIV(numSelected, alignmentsPerBlock);
+
+    NW_local_affine_Protein_many_pass_half2_new<group_size, numRegs><<<grid, block, 0, stream>>>(
+        devChars,
+        devAlignmentScores,
+        devTempHcol2,
+        devTempEcol2,
+        devOffsets,
+        devLengths,
+        d_positions_of_selected_lengths,
+        numSelected,
+        d_overflow_positions,
+        d_overflow_number,
+        overflow_check,
+        length_2,
+        gap_open,
+        gap_extend
+    ); CUERR;
+}
+
 #endif

@@ -938,6 +938,38 @@ void NW_local_affine_read4_float_query_Protein_new(
     processor.compute(devAlignmentScores);
 }
 
+template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
+void call_NW_local_affine_read4_float_query_Protein_new(
+    const char * const devChars,
+    ScoreOutputIterator const devAlignmentScores,
+    float2 * const devTempHcol2,
+    float2 * const devTempEcol2,
+    const size_t* const devOffsets,
+    const size_t* const devLengths,
+    PositionsIterator const d_positions_of_selected_lengths,
+    const int numSelected,
+    const int length_2,
+    const float gap_open,
+    const float gap_extend,
+    cudaStream_t stream
+) {
+    dim3 block = 32;
+    dim3 grid = numSelected;
+
+    NW_local_affine_read4_float_query_Protein_new<numRegs><<<grid, block, 0, stream>>>(
+        devChars,
+        devAlignmentScores,
+        devTempHcol2,
+        devTempEcol2,
+        devOffsets,
+        devLengths,
+        d_positions_of_selected_lengths,
+        length_2,
+        gap_open,
+        gap_extend
+    ); CUERR;
+}
+
 
 template <int numRegs, class ScoreOutputIterator> 
 __launch_bounds__(1,1)

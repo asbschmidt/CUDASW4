@@ -137,8 +137,8 @@ inline __device__ short2 viaddmax_non_dpx(const short2 a_in, const short2 b_in, 
 
 
 //__constant__ char cQuery[8*1024];
-__constant__ char4 constantQuery4[2048];
-__constant__ char cBLOSUM62_dev[21*21];
+__device__ char4 constantQuery4[2048];
+__device__ char cBLOSUM62_dev[21*21];
 //__constant__ char2 cQuery2[4*1024];
 
 GLOBALQUALIFIER

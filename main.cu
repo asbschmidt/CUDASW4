@@ -52,42 +52,6 @@ using MyDeviceBuffer = helpers::SimpleAllocationDevice<T, 0>;
 
 
 
-
-
-#define TIMERSTART_CUDA(label)                                                  \
-    cudaEvent_t start##label, stop##label;                                 \
-    float time##label;                                                     \
-    cudaEventCreate(&start##label);                                        \
-    cudaEventCreate(&stop##label);                                         \
-    cudaEventRecord(start##label, 0);
-
-#define TIMERSTOP_CUDA(label)                                                   \
-            cudaEventRecord(stop##label, 0);                                   \
-            cudaEventSynchronize(stop##label);                                 \
-            cudaEventElapsedTime(&time##label, start##label, stop##label);     \
-            std::cout << "TIMING: " << time##label << " ms " << (dp_cells)/(time##label*1e6) << " GCUPS (" << #label << ")" << std::endl;
-
-
-#define TIMERSTART_CUDA_STREAM(label, stream)                                                  \
-        cudaEvent_t start##label, stop##label;                                 \
-        float time##label;                                                     \
-        cudaEventCreate(&start##label);                                        \
-        cudaEventCreate(&stop##label);                                         \
-        cudaEventRecord(start##label, stream);
-    
-#define TIMERSTOP_CUDA_STREAM(label, stream)                                                   \
-            cudaEventRecord(stop##label, stream);                                   \
-            cudaEventSynchronize(stop##label);                                 \
-            cudaEventElapsedTime(&time##label, start##label, stop##label);     \
-            std::cout << "TIMING: " << time##label << " ms " << (dp_cells)/(time##label*1e6) << " GCUPS (" << #label << ")" << std::endl;
-
-                
-
-// using std::cout;
-// using std::copy;
-
-
-
 template<size_t size>
 struct TopNMaximaArray{
     struct Ref{
@@ -1715,7 +1679,9 @@ void processQueryOnGpu(
 
 }
 
-#else 
+#endif
+
+#if 0
 
 void processQueryOnGpu(
     GpuWorkingSet& ws,
@@ -2516,7 +2482,7 @@ void processQueryOnGpus(
                                 //cudaDeviceSynchronize(); CUERR;
                                 
                                 //NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
-                                NW_local_affine_Protein_many_pass_half2_new<groupsize, 22><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
+                                call_NW_local_affine_Protein_many_pass_half2_new<groupsize, 22>(
                                     inputChars, 
                                     d_scores, 
                                     d_tempHcol2, 
@@ -2530,7 +2496,8 @@ void processQueryOnGpus(
                                     1, 
                                     queryLength, 
                                     gop, 
-                                    gex
+                                    gex,
+                                    ws.workStreamForTempUsage
                                 ); CUERR
                             }
                         }
@@ -2556,7 +2523,7 @@ void processQueryOnGpus(
                                 //cudaDeviceSynchronize(); CUERR;
 
                                 //NW_local_affine_read4_float_query_Protein<32, 32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
-                                NW_local_affine_read4_float_query_Protein_new<20><<<num, 32, 0, ws.workStreamForTempUsage>>>(
+                                call_NW_local_affine_read4_float_query_Protein_new<20>(
                                     inputChars, 
                                     d_scores, 
                                     d_tempHcol2, 
@@ -2564,9 +2531,11 @@ void processQueryOnGpus(
                                     inputOffsets, 
                                     inputLengths, 
                                     d_selectedPositions + begin, 
+                                    num,
                                     queryLength, 
                                     gop, 
-                                    gex
+                                    gex,
+                                    ws.workStreamForTempUsage
                                 ); CUERR 
                             }
                         }
