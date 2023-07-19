@@ -4,14 +4,17 @@
 #include <cuda_fp16.h>
 #include "blosum.hpp"
 
-template <int group_size, int numRegs, class PositionsIterator> 
+template <int group_size, int numRegs, int blosumDim, class PositionsIterator> 
 struct SinglePassHalf2{
 
     static constexpr float negInftyFloat = -1000.0f;
 
+    static constexpr int deviceBlosumDimCexpr = blosumDim;
+    static constexpr int deviceBlosumDimCexprSquared = deviceBlosumDimCexpr * deviceBlosumDimCexpr;
+
     __half2* shared_blosum;
 
-    //int& deviceBlosumDim;
+    //int& deviceBlosumDimCexpr;
     int numSelected;
     int length_2;
     float gap_open;
@@ -33,7 +36,7 @@ struct SinglePassHalf2{
         float gap_open_,
         float gap_extend_
     ) : shared_blosum(shared_blosum_),
-        //deviceBlosumDim(deviceBlosumDim),
+        //deviceBlosumDimCexpr(deviceBlosumDimCexpr),
         devChars(devChars_),
         devOffsets(devOffsets_),
         devLengths(devLengths_),
@@ -44,15 +47,15 @@ struct SinglePassHalf2{
         gap_extend(gap_extend_)
     {
 
-        for (int i=threadIdx.x; i<deviceBlosumDimSquared; i+=blockDim.x) {
+        for (int i=threadIdx.x; i<deviceBlosumDimCexprSquared; i+=blockDim.x) {
             __half2 temp0;
-            const int A = (i/deviceBlosumDim);
-            const int B = (i%deviceBlosumDim);
-            temp0.x = deviceBlosum[deviceBlosumDim*A+B];
-            for (int j=0; j<deviceBlosumDim; j++) {
-                temp0.y = deviceBlosum[deviceBlosumDim*A+j];
-                shared_blosum[A * deviceBlosumDimSquared + deviceBlosumDim*(B)+j]=temp0;
-                //shared_blosum[(A * deviceBlosumDim + B) * deviceBlosumDim + j]=temp0;
+            const int A = (i/deviceBlosumDimCexpr);
+            const int B = (i%deviceBlosumDimCexpr);
+            temp0.x = deviceBlosum[deviceBlosumDimCexpr*A+B];
+            for (int j=0; j<deviceBlosumDimCexpr; j++) {
+                temp0.y = deviceBlosum[deviceBlosumDimCexpr*A+j];
+                shared_blosum[A * deviceBlosumDimCexprSquared + deviceBlosumDimCexpr*(B)+j]=temp0;
+                //shared_blosum[(A * deviceBlosumDimCexpr + B) * deviceBlosumDimCexpr + j]=temp0;
             }
         }
         __syncthreads();
@@ -87,7 +90,7 @@ struct SinglePassHalf2{
         __half2 (&penalty_here_array)[numRegs],
         __half2 (&F_here_array)[numRegs]
     ) const{
-        const __half2* const sbt_row = &shared_blosum[int(query_letter) * deviceBlosumDimSquared];
+        const __half2* const sbt_row = &shared_blosum[int(query_letter) * deviceBlosumDimCexprSquared];
 
         const __half2 score2_0 = sbt_row[subject[0]];
         //score2.y = sbt_row[subject1[0].x];
@@ -140,7 +143,7 @@ struct SinglePassHalf2{
         __half2 (&penalty_here_array)[numRegs],
         __half2 (&F_here_array)[numRegs]
     ) const{
-        const __half2* const sbt_row = &shared_blosum[int(query_letter) * deviceBlosumDimSquared];
+        const __half2* const sbt_row = &shared_blosum[int(query_letter) * deviceBlosumDimCexprSquared];
 
         const __half2 score2_0 = sbt_row[subject[0]];
         //score2.y = sbt_row[subject1[0].x];
@@ -216,14 +219,14 @@ struct SinglePassHalf2{
         const char* const devS1, const int length_S1
     ) const{
     //     if (!offset_isc) {
-    //         for (int i=threadIdx.x; i<deviceBlosumDim*deviceBlosumDim; i+=blockDim.x) {
+    //         for (int i=threadIdx.x; i<deviceBlosumDimCexpr*deviceBlosumDimCexpr; i+=blockDim.x) {
     //             const int A = 
     //             __half2 temp0;
-    //             temp0.x = deviceBlosum[deviceBlosumDim*(i/deviceBlosumDim)+(i%deviceBlosumDim)];
-    //             for (int j=0; j<deviceBlosumDim; j++) {
-    //                 temp0.y = deviceBlosum[deviceBlosumDim*(i/deviceBlosumDim)+j];
-    //                 //shared_blosum[(i/deviceBlosumDim) * deviceBlosumDim * deviceBlosumDim + deviceBlosumDim*(i%deviceBlosumDim)+j]=temp0;
-    //                 shared_blosum[((i/deviceBlosumDim) * deviceBlosumDim + (i%deviceBlosumDim)) * deviceBlosumDim + j]=temp0;
+    //             temp0.x = deviceBlosum[deviceBlosumDimCexpr*(i/deviceBlosumDimCexpr)+(i%deviceBlosumDimCexpr)];
+    //             for (int j=0; j<deviceBlosumDimCexpr; j++) {
+    //                 temp0.y = deviceBlosum[deviceBlosumDimCexpr*(i/deviceBlosumDimCexpr)+j];
+    //                 //shared_blosum[(i/deviceBlosumDimCexpr) * deviceBlosumDimCexpr * deviceBlosumDimCexpr + deviceBlosumDimCexpr*(i%deviceBlosumDimCexpr)+j]=temp0;
+    //                 shared_blosum[((i/deviceBlosumDimCexpr) * deviceBlosumDimCexpr + (i%deviceBlosumDimCexpr)) * deviceBlosumDimCexpr + j]=temp0;
     //             }
     //         }
     //         __syncthreads();
@@ -237,8 +240,8 @@ struct SinglePassHalf2{
             subject[i] = devS0[offset_isc+numRegs*(threadIdx.x%group_size)+i]; //devChars[offset_isc+base_S0+numRegs*(threadIdx.x%group_size)+i];
            }
 
-           if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S1) subject[i] += 1*deviceBlosumDim; // 20*deviceBlosumDim;
-           else subject[i] += deviceBlosumDim* devS1[offset_isc+numRegs*(threadIdx.x%group_size)+i]; //devChars[offset_isc+base_S1+numRegs*(threadIdx.x%group_size)+i];
+           if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S1) subject[i] += 1*deviceBlosumDimCexpr; // 20*deviceBlosumDimCexpr;
+           else subject[i] += deviceBlosumDimCexpr* devS1[offset_isc+numRegs*(threadIdx.x%group_size)+i]; //devChars[offset_isc+base_S1+numRegs*(threadIdx.x%group_size)+i];
        }
     }
 
@@ -472,7 +475,7 @@ struct SinglePassHalf2{
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
+template <int group_size, int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
 #if __CUDA_ARCH__ >= 800
 __launch_bounds__(256,2)
 //__launch_bounds__(512,1)
@@ -501,7 +504,7 @@ void NW_local_affine_Protein_single_pass_half2_new(
     //     }
     //     printf("\n");
     //     printf("constantblosum\n");
-    //     for(int i = 0; i < deviceBlosumDimSquared; i++){
+    //     for(int i = 0; i < deviceBlosumDimCexprSquared; i++){
     //         printf("%d %d %d %d", int(deviceBlosum[i]));
     //     }
     //     printf("\n");
@@ -513,7 +516,7 @@ void NW_local_affine_Protein_single_pass_half2_new(
     //     printf("gap_open %f\n", gap_open);
     //     printf("gap_extend %f\n", gap_extend);
     // }
-    using Processor = SinglePassHalf2<group_size, numRegs, PositionsIterator>;
+    using Processor = SinglePassHalf2<group_size, numRegs, blosumDim, PositionsIterator>;
     extern __shared__ __half2 shared_blosum[];
     //__shared__ typename Processor::BLOSUM62_SMEM shared_blosum;
 
@@ -557,24 +560,47 @@ void call_NW_local_affine_Protein_single_pass_half2_new(
 
     int smem = sizeof(__half2) * hostBlosumDim * hostBlosumDim * hostBlosumDim;
 
-    auto kernel = NW_local_affine_Protein_single_pass_half2_new<group_size, numRegs, ScoreOutputIterator, PositionsIterator>;
-    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    if(hostBlosumDim == 21){
+        auto kernel = NW_local_affine_Protein_single_pass_half2_new<group_size, numRegs, 21, ScoreOutputIterator, PositionsIterator>;
+        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
 
-    dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;
-    kernel<<<grid, blocksize, smem, stream>>>(
-        devChars,
-        devAlignmentScores,
-        devOffsets,
-        devLengths,
-        d_positions_of_selected_lengths,
-        numSelected,
-        d_overflow_positions,
-        d_overflow_number,
-        overflow_check,
-        length_2,
-        gap_open,
-        gap_extend
-    );
+        dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;
+        kernel<<<grid, blocksize, smem, stream>>>(
+            devChars,
+            devAlignmentScores,
+            devOffsets,
+            devLengths,
+            d_positions_of_selected_lengths,
+            numSelected,
+            d_overflow_positions,
+            d_overflow_number,
+            overflow_check,
+            length_2,
+            gap_open,
+            gap_extend
+        );
+    }else if(hostBlosumDim == 25){
+        auto kernel = NW_local_affine_Protein_single_pass_half2_new<group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
+        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+
+        dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;
+        kernel<<<grid, blocksize, smem, stream>>>(
+            devChars,
+            devAlignmentScores,
+            devOffsets,
+            devLengths,
+            d_positions_of_selected_lengths,
+            numSelected,
+            d_overflow_positions,
+            d_overflow_number,
+            overflow_check,
+            length_2,
+            gap_open,
+            gap_extend
+        );
+    } else{
+        assert(false);
+    }
 
 }
 

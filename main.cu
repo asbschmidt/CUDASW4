@@ -2647,18 +2647,35 @@ void processQueryOnGpus(
                     float2* d_temp = (float2*)ws.d_tempStorageHE.data();
 
                     //launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32,32><<<1,1,0, ws.workStreamForTempUsage>>>(
-                    launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<20><<<1,1,0, ws.workStreamForTempUsage>>>(
-                        d_overflow_number,
-                        d_temp, 
-                        ws.numTempBytes,
-                        inputChars, 
-                        //ws.devAlignmentScoresFloat.data() + processedSequencesPerGpu[gpu], 
-                        maxReduceArray,
-                        inputOffsets, 
-                        inputLengths, 
-                        d_overflow_positions, 
-                        queryLength, gop, gex
-                    ); CUERR
+                    if(hostBlosumDim == 21){
+                        launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<20,21><<<1,1,0, ws.workStreamForTempUsage>>>(
+                            d_overflow_number,
+                            d_temp, 
+                            ws.numTempBytes,
+                            inputChars, 
+                            //ws.devAlignmentScoresFloat.data() + processedSequencesPerGpu[gpu], 
+                            maxReduceArray,
+                            inputOffsets, 
+                            inputLengths, 
+                            d_overflow_positions, 
+                            queryLength, gop, gex
+                        ); CUERR
+                    }else if(hostBlosumDim == 25){
+                        launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<20,25><<<1,1,0, ws.workStreamForTempUsage>>>(
+                            d_overflow_number,
+                            d_temp, 
+                            ws.numTempBytes,
+                            inputChars, 
+                            //ws.devAlignmentScoresFloat.data() + processedSequencesPerGpu[gpu], 
+                            maxReduceArray,
+                            inputOffsets, 
+                            inputLengths, 
+                            d_overflow_positions, 
+                            queryLength, gop, gex
+                        ); CUERR
+                    }else{
+                        assert(false);
+                    }
                 }
 
                 //update total num overflows for query

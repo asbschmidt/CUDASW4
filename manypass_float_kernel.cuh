@@ -4,11 +4,14 @@
 #include <cuda_fp16.h>
 #include "blosum.hpp"
 
-template <int numRegs, class PositionsIterator> 
+template <int numRegs, int blosumDim, class PositionsIterator> 
 struct ManyPassFloat{
     static constexpr int group_size = 32;
 
     static constexpr float negInftyFloat = -10000.0f;
+
+    static constexpr int deviceBlosumDimCexpr = blosumDim;
+    static constexpr int deviceBlosumDimCexprSquared = deviceBlosumDimCexpr * deviceBlosumDimCexpr;
 
     float* shared_blosum;
 
@@ -904,7 +907,7 @@ struct ManyPassFloat{
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
+template <int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
 __launch_bounds__(32,16)
 //__launch_bounds__(32)
 __global__
@@ -920,7 +923,7 @@ void NW_local_affine_read4_float_query_Protein_new(
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ) {
-    using Processor = ManyPassFloat<numRegs, PositionsIterator>;
+    using Processor = ManyPassFloat<numRegs, blosumDim, PositionsIterator>;
 
     //__shared__ typename Processor::BLOSUM62_SMEM shared_blosum;
 
@@ -959,30 +962,52 @@ void call_NW_local_affine_read4_float_query_Protein_new(
     const float gap_extend,
     cudaStream_t stream
 ) {
-    assert(hostBlosumDim <= 25);
-    
-    auto kernel = NW_local_affine_read4_float_query_Protein_new<numRegs, ScoreOutputIterator, PositionsIterator>;
-    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
-    dim3 block = 32;
-    dim3 grid = numSelected;
+    if(hostBlosumDim == 21){
+        auto kernel = NW_local_affine_read4_float_query_Protein_new<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
+        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
-    kernel<<<grid, block, 0, stream>>>(
-        devChars,
-        devAlignmentScores,
-        devTempHcol2,
-        devTempEcol2,
-        devOffsets,
-        devLengths,
-        d_positions_of_selected_lengths,
-        length_2,
-        gap_open,
-        gap_extend
-    ); CUERR;
+        dim3 block = 32;
+        dim3 grid = numSelected;
+
+        kernel<<<grid, block, 0, stream>>>(
+            devChars,
+            devAlignmentScores,
+            devTempHcol2,
+            devTempEcol2,
+            devOffsets,
+            devLengths,
+            d_positions_of_selected_lengths,
+            length_2,
+            gap_open,
+            gap_extend
+        ); CUERR;
+    }else if(hostBlosumDim == 25){
+        auto kernel = NW_local_affine_read4_float_query_Protein_new<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
+        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
+
+        dim3 block = 32;
+        dim3 grid = numSelected;
+
+        kernel<<<grid, block, 0, stream>>>(
+            devChars,
+            devAlignmentScores,
+            devTempHcol2,
+            devTempEcol2,
+            devOffsets,
+            devLengths,
+            d_positions_of_selected_lengths,
+            length_2,
+            gap_open,
+            gap_extend
+        ); CUERR;
+    }else{
+        assert(false);
+    }
 }
 
 
-template <int numRegs, class ScoreOutputIterator> 
+template <int numRegs, int blosumDim, class ScoreOutputIterator> 
 __launch_bounds__(1,1)
 __global__
 void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new(
@@ -1037,7 +1062,7 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
             // cudaMemsetAsync(d_tempHcol2, 0, tempBytesPerSubjectPerBuffer * num, 0);
             // cudaMemsetAsync(d_tempEcol2, 0, tempBytesPerSubjectPerBuffer * num, 0);
 
-            NW_local_affine_read4_float_query_Protein_new<12><<<num, 32>>>(
+            NW_local_affine_read4_float_query_Protein_new<12, blosumDim><<<num, 32>>>(
                 devChars, 
                 devAlignmentScores,
                 d_tempHcol2, 
