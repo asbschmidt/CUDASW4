@@ -154,6 +154,7 @@ struct CudaSW4Options{
     int numTopOutputs = 10;
     int gop = -11;
     int gex = -1;
+    BlosumType blosumType = BlosumType::BLOSUM62;
     size_t maxBatchBytes = 32ull * 1024ull * 1024ull;
     size_t maxBatchSequences = 10'000'000;
     size_t maxTempBytes = 4ull * 1024ull * 1024ull * 1024ull;
@@ -161,6 +162,134 @@ struct CudaSW4Options{
     std::string queryFile;
     std::string dbPrefix;
 };
+
+void printOptions(const CudaSW4Options& options){
+    std::cout << "Selected options:\n";
+    std::cout << "loadFullDBToGpu: " << options.loadFullDBToGpu << "\n";
+    std::cout << "numTopOutputs: " << options.numTopOutputs << "\n";
+    std::cout << "gop: " << options.gop << "\n";
+    std::cout << "gex: " << options.gex << "\n";
+    std::cout << "maxBatchBytes: " << options.maxBatchBytes << "\n";
+    std::cout << "maxBatchSequences: " << options.maxBatchSequences << "\n";
+    std::cout << "maxTempBytes: " << options.maxTempBytes << "\n";
+    std::cout << "queryFile: " << options.queryFile << "\n";
+    std::cout << "dbPrefix: " << options.dbPrefix << "\n";
+    std::cout << "blosum: " << to_string(options.blosumType) << "\n";
+}
+
+bool parseArgs(int argc, char** argv, CudaSW4Options& options){
+
+    auto parseMemoryString = [](const std::string& string) -> std::size_t{
+        if(string.length() > 0){
+            std::size_t factor = 1;
+            bool foundSuffix = false;
+            switch(string.back()){
+                case 'K':{
+                    factor = std::size_t(1) << 10; 
+                    foundSuffix = true;
+                }break;
+                case 'M':{
+                    factor = std::size_t(1) << 20;
+                    foundSuffix = true;
+                }break;
+                case 'G':{
+                    factor = std::size_t(1) << 30;
+                    foundSuffix = true;
+                }break;
+            }
+            if(foundSuffix){
+                const auto numberString = string.substr(0, string.size()-1);
+                return factor * std::stoull(numberString);
+            }else{
+                return std::stoull(string);
+            }
+        }else{
+            return 0;
+        }
+    };
+
+    bool gotQuery = false;
+    bool gotDB = false;
+    bool gotGex = false;
+    bool gotGop = false;
+
+    for(int i = 1; i < argc; i++){
+        const std::string arg = argv[i];
+        if(arg == "--help"){
+            options.help = true;
+        }else if(arg == "--uploadFull"){
+            options.loadFullDBToGpu = true;
+        }else if(arg == "--top"){
+            options.numTopOutputs = std::atoi(argv[++i]);
+        }else if(arg == "--gop"){
+            options.gop = std::atoi(argv[++i]);
+            gotGop = true;
+        }else if(arg == "--gex"){
+            options.gex = std::atoi(argv[++i]);
+            gotGex = true;
+        }else if(arg == "--maxBatchBytes"){
+            options.maxBatchBytes = parseMemoryString(argv[++i]);
+        }else if(arg == "--maxBatchSequences"){
+            options.maxBatchSequences = std::atoi(argv[++i]);
+        }else if(arg == "--maxTempBytes"){
+            options.maxTempBytes = parseMemoryString(argv[++i]);
+        }else if(arg == "--query"){
+            options.queryFile = argv[++i];
+            gotQuery = true;
+        }else if(arg == "--db"){
+            options.dbPrefix = argv[++i];
+            gotDB = true;
+        }else if(arg == "--blosum50"){
+            options.blosumType = BlosumType::BLOSUM50;
+        }else if(arg == "--blosum62"){
+            options.blosumType = BlosumType::BLOSUM62;
+        }else{
+            std::cout << "Unexpected arg " << arg << "\n";
+        }
+    }
+
+    //set specific gop gex for blosum if no gop gex was set
+    switch(options.blosumType){
+        case BlosumType::BLOSUM50:
+            if(!gotGop) options.gop = -13;
+            if(!gotGex) options.gex = -2;
+            break;
+        case BlosumType::BLOSUM62:
+            if(!gotGop) options.gop = -11;
+            if(!gotGex) options.gex = -1;
+            break;
+    }
+
+    if(!gotQuery){
+        std::cout << "Query is missing\n";
+        return false;
+    }
+    if(!gotDB){
+        std::cout << "DB prefix is missing\n";
+        return false;
+    }
+
+    return true;
+}
+
+void printHelp(int argc, char** argv){
+    CudaSW4Options defaultoptions;
+
+    std::cout << "Usage: " << argv[0] << " [options]\n";
+    std::cout << "Options: \n";
+    std::cout << "      --query queryfile : Mandatory. Fasta or Fastq\n";
+    std::cout << "      --db dbPrefix : Mandatory. The DB to query against. The same dbPrefix as used for makedb\n";
+    std::cout << "      --gop val : Gap open score. Default val = " << defaultoptions.gop << "\n";
+    std::cout << "      --gex val : Gap extend score. Default val = " << defaultoptions.gex << "\n";
+    std::cout << "      --top val : Output the val best scores. Default val = " << defaultoptions.numTopOutputs << "\n";
+    std::cout << "      --maxTempBytes val : Size of temp storage in GPU memory. Can use suffix K,M,G. Default val = " << defaultoptions.maxTempBytes << "\n";
+    std::cout << "      --maxBatchBytes val : Process DB in batches of at most val bytes. Can use suffix K,M,G. Default val = " << defaultoptions.maxBatchBytes << "\n";
+    std::cout << "      --maxBatchSequences val : Process DB in batches of at most val sequences. Default val = " << defaultoptions.maxBatchSequences << "\n";
+    std::cout << "      --uploadFull : Do not process DB in smaller batches. Copy full DB to GPU before processing queries.\n";
+    std::cout << "      --blosum50 : Use BLOSUM50 substitution matrix.\n";
+    std::cout << "      --blosum62 : Use BLOSUM62 substitution matrix.\n";
+}
+
 
 
 struct HostGpuPartitionOffsets{
@@ -2596,96 +2725,6 @@ void processQueryOnGpus(
 
 
 
-bool parseArgs(int argc, char** argv, CudaSW4Options& options){
-
-    auto parseMemoryString = [](const std::string& string) -> std::size_t{
-        if(string.length() > 0){
-            std::size_t factor = 1;
-            bool foundSuffix = false;
-            switch(string.back()){
-                case 'K':{
-                    factor = std::size_t(1) << 10; 
-                    foundSuffix = true;
-                }break;
-                case 'M':{
-                    factor = std::size_t(1) << 20;
-                    foundSuffix = true;
-                }break;
-                case 'G':{
-                    factor = std::size_t(1) << 30;
-                    foundSuffix = true;
-                }break;
-            }
-            if(foundSuffix){
-                const auto numberString = string.substr(0, string.size()-1);
-                return factor * std::stoull(numberString);
-            }else{
-                return std::stoull(string);
-            }
-        }else{
-            return 0;
-        }
-    };
-
-    bool gotQuery = false;
-    bool gotDB = false;
-
-    for(int i = 1; i < argc; i++){
-        const std::string arg = argv[i];
-        if(arg == "--help"){
-            options.help = true;
-        }else if(arg == "--uploadFull"){
-            options.loadFullDBToGpu = true;
-        }else if(arg == "--top"){
-            options.numTopOutputs = std::atoi(argv[++i]);
-        }else if(arg == "--gop"){
-            options.gop = std::atoi(argv[++i]);
-        }else if(arg == "--gex"){
-            options.gex = std::atoi(argv[++i]);
-        }else if(arg == "--maxBatchBytes"){
-            options.maxBatchBytes = parseMemoryString(argv[++i]);
-        }else if(arg == "--maxBatchSequences"){
-            options.maxBatchSequences = std::atoi(argv[++i]);
-        }else if(arg == "--maxTempBytes"){
-            options.maxTempBytes = parseMemoryString(argv[++i]);
-        }else if(arg == "--query"){
-            options.queryFile = argv[++i];
-            gotQuery = true;
-        }else if(arg == "--db"){
-            options.dbPrefix = argv[++i];
-            gotDB = true;
-        }else{
-            std::cout << "Unexpected arg " << arg << "\n";
-        }
-    }
-
-    if(!gotQuery){
-        std::cout << "Query is missing\n";
-        return false;
-    }
-    if(!gotDB){
-        std::cout << "DB prefix is missing\n";
-        return false;
-    }
-
-    return true;
-}
-
-void printHelp(int argc, char** argv){
-    CudaSW4Options defaultoptions;
-
-    std::cout << "Usage: " << argv[0] << " [options]\n";
-    std::cout << "Options: \n";
-    std::cout << "      --query queryfile : Mandatory. Fasta or Fastq\n";
-    std::cout << "      --db dbPrefix : Mandatory. The DB to query against. The same dbPrefix as used for makedb\n";
-    std::cout << "      --gop val : Gap open score. Default val = " << defaultoptions.gop << "\n";
-    std::cout << "      --gex val : Gap extend score. Default val = " << defaultoptions.gex << "\n";
-    std::cout << "      --top val : Output the val best scores. Default val = " << defaultoptions.numTopOutputs << "\n";
-    std::cout << "      --maxTempBytes val : Size of temp storage in GPU memory. Can use suffix K,M,G. Default val = " << defaultoptions.maxTempBytes << "\n";
-    std::cout << "      --maxBatchBytes val : Process DB in batches of at most val bytes. Can use suffix K,M,G. Default val = " << defaultoptions.maxBatchBytes << "\n";
-    std::cout << "      --maxBatchSequences val : Process DB in batches of at most val sequences. Default val = " << defaultoptions.maxBatchSequences << "\n";
-    std::cout << "      --uploadFull : Do not process DB in smaller batches. Copy full DB to GPU before processing queries.\n";
-}
 
 
 int main(int argc, char* argv[])
@@ -2704,18 +2743,9 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    std::cout << "Selected options:\n";
-    std::cout << "loadFullDBToGpu: " << options.loadFullDBToGpu << "\n";
-    std::cout << "numTopOutputs: " << options.numTopOutputs << "\n";
-    std::cout << "gop: " << options.gop << "\n";
-    std::cout << "gex: " << options.gex << "\n";
-    std::cout << "maxBatchBytes: " << options.maxBatchBytes << "\n";
-    std::cout << "maxBatchSequences: " << options.maxBatchSequences << "\n";
-    std::cout << "maxTempBytes: " << options.maxTempBytes << "\n";
-    std::cout << "queryFile: " << options.queryFile << "\n";
-    std::cout << "dbPrefix: " << options.dbPrefix << "\n";
+    printOptions(options);
 
-    
+  
 
 
 
@@ -3194,10 +3224,24 @@ int main(int argc, char* argv[])
         // perumte_columns_BLOSUM(BLOSUM62_1D,21,permutation,BLOSUM62_1D_permutation);
         // cudaMemcpyToSymbol(cBLOSUM62_dev, &(BLOSUM62_1D_permutation[0]), 21*21*sizeof(char));
 
-        const auto blosum = BLOSUM62::get1D();
-        const int dim = BLOSUM62::dim;
-        assert(dim == 21);
-        cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
+        switch(options.blosumType){
+            case BlosumType::BLOSUM50:
+                {
+                    const auto blosum = BLOSUM50::get1D();
+                    const int dim = BLOSUM50::dim;
+                    assert(dim == 21);
+                    cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
+                }
+                break;
+            default: //BlosumType::BLOSUM62
+                {
+                    const auto blosum = BLOSUM62::get1D();
+                    const int dim = BLOSUM62::dim;
+                    assert(dim == 21);
+                    cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
+                }
+                break;
+        }
     }
 
     cudaSetDevice(masterDeviceId);

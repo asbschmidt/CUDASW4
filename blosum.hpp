@@ -2,7 +2,20 @@
 #define BLOSUM_HPP
 
 #include <array>
+#include <string>
 
+enum class BlosumType{
+    BLOSUM50,
+    BLOSUM62,
+};
+
+std::string to_string(BlosumType type){
+    switch(type){
+        case BlosumType::BLOSUM50: return "BLOSUM50";
+        case BlosumType::BLOSUM62: return "BLOSUM62";
+        default: return "FORGOT TO NAME THIS BLOSUM TYPE";
+    }
+}
 
 struct BLOSUM50{
     static constexpr char low = -5;
