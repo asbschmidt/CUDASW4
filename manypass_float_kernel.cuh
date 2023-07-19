@@ -19,8 +19,8 @@ struct ManyPassFloat{
     float gap_extend;
     PositionsIterator d_positions_of_selected_lengths;
     const char* devChars;
-    short2* devTempHcol2;
-    short2* devTempEcol2;
+    float2* devTempHcol2;
+    float2* devTempEcol2;
     const size_t* devOffsets;
     const size_t* devLengths;
 
@@ -28,8 +28,8 @@ struct ManyPassFloat{
     ManyPassFloat(
         BLOSUM62_SMEM& shared_BLOSUM62_,
         const char* devChars_,
-        short2* devTempHcol2_,
-        short2* devTempEcol2_,
+        float2* devTempHcol2_,
+        float2* devTempEcol2_,
         const size_t* devOffsets_,
         const size_t* devLengths_,
         PositionsIterator d_positions_of_selected_lengths_,
@@ -237,23 +237,23 @@ struct ManyPassFloat{
     }
 
     __device__
-    void shuffle_H_E_temp_out(short2& H_temp_out, short2& E_temp_out) const{
-        const uint32_t temp = __shfl_down_sync(0xFFFFFFFF, *((int*)(&H_temp_out)), 1, 32);
-        H_temp_out = *((short2*)(&temp));
-        const uint32_t temp2 = __shfl_down_sync(0xFFFFFFFF, *((int*)(&E_temp_out)), 1, 32);
-        E_temp_out = *((short2*)(&temp2));
+    void shuffle_H_E_temp_out(float2& H_temp_out, float2& E_temp_out) const{
+        const double temp = __shfl_down_sync(0xFFFFFFFF, *((double*)(&H_temp_out)), 1, 32);
+        H_temp_out = *((float2*)(&temp));
+        const double temp2 = __shfl_down_sync(0xFFFFFFFF, *((double*)(&E_temp_out)), 1, 32);
+        E_temp_out = *((float2*)(&temp2));
     }
 
     __device__
-    void shuffle_H_E_temp_in(short2& H_temp_in, short2& E_temp_in) const{
-        const uint32_t temp = __shfl_down_sync(0xFFFFFFFF, *((int*)(&H_temp_in)), 1, 32);
-        H_temp_in = *((short2*)(&temp));
-        const uint32_t temp2 = __shfl_down_sync(0xFFFFFFFF, *((int*)(&E_temp_in)), 1, 32);
-        E_temp_in = *((short2*)(&temp2));
+    void shuffle_H_E_temp_in(float2& H_temp_in, float2& E_temp_in) const{
+        const double temp = __shfl_down_sync(0xFFFFFFFF, *((double*)(&H_temp_in)), 1, 32);
+        H_temp_in = *((float2*)(&temp));
+        const double temp2 = __shfl_down_sync(0xFFFFFFFF, *((double*)(&E_temp_in)), 1, 32);
+        E_temp_in = *((float2*)(&temp2));
     }
 
     __device__
-    void set_H_E_temp_out_x(float penalty_here31, float E, short2& H_temp_out, short2& E_temp_out) const{
+    void set_H_E_temp_out_x(float penalty_here31, float E, float2& H_temp_out, float2& E_temp_out) const{
         if (threadIdx.x == 31) {
             H_temp_out.x = penalty_here31;
             E_temp_out.x = E;
@@ -261,7 +261,7 @@ struct ManyPassFloat{
     };
 
     __device__
-    void set_H_E_temp_out_y(float penalty_here31, float E, short2& H_temp_out, short2& E_temp_out) const{
+    void set_H_E_temp_out_y(float penalty_here31, float E, float2& H_temp_out, float2& E_temp_out) const{
         if (threadIdx.x == 31) {
             H_temp_out.y = penalty_here31;
             E_temp_out.y = E;
@@ -283,8 +283,8 @@ struct ManyPassFloat{
 
 
         const size_t base_3 = size_t(blockIdx.x)*size_t(length_2);
-        short2* const devTempHcol = (&devTempHcol2[base_3]);
-        short2* const devTempEcol = (&devTempEcol2[base_3]);
+        float2* const devTempHcol = (&devTempHcol2[base_3]);
+        float2* const devTempEcol = (&devTempEcol2[base_3]);
 
         const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
@@ -295,8 +295,8 @@ struct ManyPassFloat{
         float penalty_here31;
         float penalty_diag;
         float penalty_left;
-        short2 H_temp_out;
-        short2 E_temp_out;
+        float2 H_temp_out;
+        float2 E_temp_out;
         int subject[numRegs];
         float penalty_here_array[numRegs];
         float F_here_array[numRegs];
@@ -385,10 +385,10 @@ struct ManyPassFloat{
             counter++;
         }
         if (length_2 % 4 == 0) {
-            const int temp1 = __shfl_up_sync(0xFFFFFFFF, *((int*)(&H_temp_out)), 1, 32);
-            H_temp_out = *((short2*)(&temp1));
-            const int temp2 = __shfl_up_sync(0xFFFFFFFF, *((int*)(&E_temp_out)), 1, 32);
-            E_temp_out = *((short2*)(&temp2));
+            const double temp1 = __shfl_up_sync(0xFFFFFFFF, *((double*)(&H_temp_out)), 1, 32);
+            H_temp_out = *((float2*)(&temp1));
+            const double temp2 = __shfl_up_sync(0xFFFFFFFF, *((double*)(&E_temp_out)), 1, 32);
+            E_temp_out = *((float2*)(&temp2));
         }
 
         if (length_2%4 == 1) {
@@ -446,24 +446,24 @@ struct ManyPassFloat{
 
 
         const size_t base_3 = size_t(blockIdx.x)*size_t(length_2);
-        short2* const devTempHcol = (&devTempHcol2[base_3]);
-        short2* const devTempEcol = (&devTempEcol2[base_3]);
+        float2* const devTempHcol = (&devTempHcol2[base_3]);
+        float2* const devTempEcol = (&devTempEcol2[base_3]);
 
         const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
         int offset_out = group_id;
         int offset_in = group_id;
         checkHEindex(offset_in, __LINE__);
-        short2 H_temp_in = devTempHcol[offset_in];
-        short2 E_temp_in = devTempEcol[offset_in];
+        float2 H_temp_in = devTempHcol[offset_in];
+        float2 E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
 
         float E = negInftyFloat;
         float penalty_here31;
         float penalty_diag;
         float penalty_left;
-        short2 H_temp_out;
-        short2 E_temp_out;
+        float2 H_temp_out;
+        float2 E_temp_out;
         int subject[numRegs];
         float penalty_here_array[numRegs];
         float F_here_array[numRegs];
@@ -571,10 +571,10 @@ struct ManyPassFloat{
         }
 
         if (length_2 % 4 == 0) {
-            const int temp1 = __shfl_up_sync(0xFFFFFFFF, *((int*)(&H_temp_out)), 1, 32);
-            H_temp_out = *((short2*)(&temp1));
-            const int temp2 = __shfl_up_sync(0xFFFFFFFF, *((int*)(&E_temp_out)), 1, 32);
-            E_temp_out = *((short2*)(&temp2));
+            const double temp1 = __shfl_up_sync(0xFFFFFFFF, *((double*)(&H_temp_out)), 1, 32);
+            H_temp_out = *((float2*)(&temp1));
+            const double temp2 = __shfl_up_sync(0xFFFFFFFF, *((double*)(&E_temp_out)), 1, 32);
+            E_temp_out = *((float2*)(&temp2));
         }
         if (length_2 % 4 == 1) {
             //shuffle_max();
@@ -629,15 +629,15 @@ struct ManyPassFloat{
 
 
         const size_t base_3 = size_t(blockIdx.x)*size_t(length_2);
-        short2* const devTempHcol = (&devTempHcol2[base_3]);
-        short2* const devTempEcol = (&devTempEcol2[base_3]);
+        float2* const devTempHcol = (&devTempHcol2[base_3]);
+        float2* const devTempEcol = (&devTempEcol2[base_3]);
 
         const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
         int offset_in = group_id;
         checkHEindex(offset_in, __LINE__);
-        short2 H_temp_in = devTempHcol[offset_in];
-        short2 E_temp_in = devTempEcol[offset_in];
+        float2 H_temp_in = devTempHcol[offset_in];
+        float2 E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
 
         const uint32_t thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
@@ -909,8 +909,8 @@ __global__
 void NW_local_affine_read4_float_query_Protein_new(
     __grid_constant__ const char * const devChars,
     __grid_constant__ ScoreOutputIterator const devAlignmentScores,
-    __grid_constant__ short2 * const devTempHcol2,
-    __grid_constant__ short2 * const devTempEcol2,
+    __grid_constant__ float2 * const devTempHcol2,
+    __grid_constant__ float2 * const devTempEcol2,
     __grid_constant__ const size_t* const devOffsets,
     __grid_constant__ const size_t* const devLengths,
     __grid_constant__ PositionsIterator const d_positions_of_selected_lengths,
@@ -944,7 +944,7 @@ __launch_bounds__(1,1)
 __global__
 void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new(
     __grid_constant__ const int* const d_overflow_number,
-    __grid_constant__ short2* const d_temp,
+    __grid_constant__ float2* const d_temp,
     __grid_constant__ const size_t maxTempBytes,
     __grid_constant__ const char * const devChars,
     __grid_constant__ ScoreOutputIterator const devAlignmentScores,
@@ -977,11 +977,11 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
         // }
         // printf("\n");
     
-        const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * queryLength;
+        const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * queryLength;
         const size_t maxSubjectsPerIteration = std::min(size_t(numOverflow), maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
-        short2* d_tempHcol2 = d_temp;
-        short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+        float2* d_tempHcol2 = d_temp;
+        float2* d_tempEcol2 = (float2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
 
         const int numIters =  SDIV(numOverflow, maxSubjectsPerIteration);
         for(int iter = 0; iter < numIters; iter++){

@@ -1502,12 +1502,12 @@ void processQueryOnGpu(
                 //if (partId == 44){
                 //if (partId == 17){
                 if(partId == numLengthPartitions - 1){
-                    const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
+                    const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * SDIV(queryLength,32) * 32;
                     const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
-                    short2* d_temp = (short2*)ws.d_tempStorageHE.data();
-                    short2* d_tempHcol2 = d_temp;
-                    short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+                    float2* d_temp = (float2*)ws.d_tempStorageHE.data();
+                    float2* d_tempHcol2 = d_temp;
+                    float2* d_tempEcol2 = (float2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
 
                     const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
                     for(int iter = 0; iter < numIters; iter++){
@@ -1558,12 +1558,12 @@ void processQueryOnGpu(
         // cudaStreamSynchronize(ws.workStreamForTempUsage); CUERR;
         // if(*h_overflow_number > 0){
         //     //std::cout << "numOverflow " << *h_overflow_number << "\n";
-        //     const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
+        //     const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * SDIV(queryLength,32) * 32;
         //     const size_t maxSubjectsPerIteration = std::min(size_t(*h_overflow_number), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
-        //     short2* d_temp = (short2*)ws.d_tempStorageHE.data();
-        //     short2* d_tempHcol2 = d_temp;
-        //     short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+        //     float2* d_temp = (float2*)ws.d_tempStorageHE.data();
+        //     float2* d_tempHcol2 = d_temp;
+        //     float2* d_tempEcol2 = (float2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
 
         //     const int numIters =  SDIV(*h_overflow_number, maxSubjectsPerIteration);
         //     //std::cout << "numIters " << numIters << "\n";
@@ -1591,7 +1591,7 @@ void processQueryOnGpu(
         // }
 
         {
-            short2* d_temp = (short2*)ws.d_tempStorageHE.data();
+            float2* d_temp = (float2*)ws.d_tempStorageHE.data();
 
             launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32,12><<<1,1,0, ws.workStreamForTempUsage>>>(
                 d_overflow_number,
@@ -1971,12 +1971,12 @@ void processQueryOnGpu(
                 //if (partId == 44){
                 //if (partId == 17){
                 if(partId == numLengthPartitions - 1){
-                    const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
+                    const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * SDIV(queryLength,32) * 32;
                     const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
-                    short2* d_temp = (short2*)ws.d_tempStorageHE.data();
-                    short2* d_tempHcol2 = d_temp;
-                    short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+                    float2* d_temp = (float2*)ws.d_tempStorageHE.data();
+                    float2* d_tempHcol2 = d_temp;
+                    float2* d_tempEcol2 = (float2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
 
                     const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
                     for(int iter = 0; iter < numIters; iter++){
@@ -2026,12 +2026,12 @@ void processQueryOnGpu(
         // cudaStreamSynchronize(ws.workStreamForTempUsage); CUERR;
         // if(numOverflow > 0){
         //     std::cout << "numOverflow " << numOverflow << "\n";
-        //     const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
+        //     const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * SDIV(queryLength,32) * 32;
         //     const size_t maxSubjectsPerIteration = std::min(size_t(numOverflow), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
-        //     short2* d_temp = (short2*)ws.d_tempStorageHE.data();
-        //     short2* d_tempHcol2 = d_temp;
-        //     short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+        //     float2* d_temp = (float2*)ws.d_tempStorageHE.data();
+        //     float2* d_tempHcol2 = d_temp;
+        //     float2* d_tempEcol2 = (float2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
 
         //     const int numIters =  SDIV(numOverflow, maxSubjectsPerIteration);
         //     for(int iter = 0; iter < numIters; iter++){
@@ -2059,7 +2059,7 @@ void processQueryOnGpu(
 
         {
             //std::cerr << "overflow processing\n";
-            short2* d_temp = (short2*)ws.d_tempStorageHE.data();
+            float2* d_temp = (float2*)ws.d_tempStorageHE.data();
 
             //launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32,32><<<1,1,0, ws.workStreamForTempUsage>>>(
             launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<32><<<1,1,0, ws.workStreamForTempUsage>>>(
@@ -2457,12 +2457,12 @@ void processQueryOnGpus(
                         //if (partId == 44){
                         //if (partId == 17){
                         if(partId == numLengthPartitions - 1){
-                            const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
+                            const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * SDIV(queryLength,32) * 32;
                             const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
-                            short2* d_temp = (short2*)ws.d_tempStorageHE.data();
-                            short2* d_tempHcol2 = d_temp;
-                            short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+                            float2* d_temp = (float2*)ws.d_tempStorageHE.data();
+                            float2* d_tempHcol2 = d_temp;
+                            float2* d_tempEcol2 = (float2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
 
                             const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
                             for(int iter = 0; iter < numIters; iter++){
@@ -2538,12 +2538,12 @@ void processQueryOnGpus(
                 // cudaStreamSynchronize(ws.workStreamForTempUsage); CUERR;
                 // if(*h_overflow_number > 0){
                 //     //std::cout << "numOverflow " << *h_overflow_number << "\n";
-                //     const size_t tempBytesPerSubjectPerBuffer = sizeof(short2) * SDIV(queryLength,32) * 32;
+                //     const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * SDIV(queryLength,32) * 32;
                 //     const size_t maxSubjectsPerIteration = std::min(size_t(*h_overflow_number), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
-                //     short2* d_temp = (short2*)ws.d_tempStorageHE.data();
-                //     short2* d_tempHcol2 = d_temp;
-                //     short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+                //     float2* d_temp = (float2*)ws.d_tempStorageHE.data();
+                //     float2* d_tempHcol2 = d_temp;
+                //     float2* d_tempEcol2 = (float2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
 
                 //     const int numIters =  SDIV(*h_overflow_number, maxSubjectsPerIteration);
                 //     //std::cout << "numIters " << numIters << "\n";
@@ -2573,7 +2573,7 @@ void processQueryOnGpus(
 
                 {
                     //std::cerr << "overflow processing\n";
-                    short2* d_temp = (short2*)ws.d_tempStorageHE.data();
+                    float2* d_temp = (float2*)ws.d_tempStorageHE.data();
 
                     //launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32,32><<<1,1,0, ws.workStreamForTempUsage>>>(
                     launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<20><<<1,1,0, ws.workStreamForTempUsage>>>(
