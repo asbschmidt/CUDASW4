@@ -43,6 +43,7 @@
 #include "manypass_half2_kernel.cuh"
 #include "singlepass_half2_kernel.cuh"
 #include "manypass_float_kernel.cuh"
+#include "blosum.hpp"
 
 template<class T>
 using MyPinnedBuffer = helpers::SimpleAllocationPinnedHost<T, 0>;
@@ -82,62 +83,9 @@ using MyDeviceBuffer = helpers::SimpleAllocationDevice<T, 0>;
 
                 
 
-using std::cout;
-using std::copy;
+// using std::cout;
+// using std::copy;
 
-
-
-
-const char low = -4;
-const char BLOSUM62_1D[21*21] = {
-// A   R   N   D   C   Q   E   G   H   I   L   K   M   F   P   S   T   W   Y   V
-   4, -1, -2, -2,  0, -1, -1,  0, -2, -1, -1, -1, -1, -2, -1,  1,  0, -3, -2,  0, low,
-  -1,  5,  0, -2, -3,  1,  0, -2,  0, -3, -2,  2, -1, -3, -2, -1, -1, -3, -2, -3, low,
-  -2,  0,  6,  1, -3,  0,  0,  0,  1, -3, -3,  0, -2, -3, -2,  1,  0, -4, -2, -3, low,
-  -2, -2,  1,  6, -3,  0,  2, -1, -1, -3, -4, -1, -3, -3, -1,  0, -1, -4, -3, -3, low,
-   0, -3, -3, -3,  9, -3, -4, -3, -3, -1, -1, -3, -1, -2, -3, -1, -1, -2, -2, -1, low,
-  -1,  1,  0,  0, -3,  5,  2, -2,  0, -3, -2,  1,  0, -3, -1,  0, -1, -2, -1, -2, low,
-  -1,  0,  0,  2, -4,  2,  5, -2,  0, -3, -3,  1, -2, -3, -1,  0, -1, -3, -2, -2, low,
-   0, -2,  0, -1, -3, -2, -2,  6, -2, -4, -4, -2, -3, -3, -2,  0, -2, -2, -3, -3, low,
-  -2,  0,  1, -1, -3,  0,  0, -2,  8, -3, -3, -1, -2, -1, -2, -1, -2, -2,  2, -3, low,
-  -1, -3, -3, -3, -1, -3, -3, -4, -3,  4,  2, -3,  1,  0, -3, -2, -1, -3, -1,  3, low,
-  -1, -2, -3, -4, -1, -2, -3, -4, -3,  2,  4, -2,  2,  0, -3, -2, -1, -2, -1,  1, low,
-  -1,  2,  0, -1, -3,  1,  1, -2, -1, -3, -2,  5, -1, -3, -1,  0, -1, -3, -2, -2, low,
-  -1, -1, -2, -3, -1,  0, -2, -3, -2,  1,  2, -1,  5,  0, -2, -1, -1, -1, -1,  1, low,
-  -2, -3, -3, -3, -2, -3, -3, -3, -1,  0,  0, -3,  0,  6, -4, -2, -2,  1,  3, -1, low,
-  -1, -2, -2, -1, -3, -1, -1, -2, -2, -3, -3, -1, -2, -4,  7, -1, -1, -4, -3, -2, low,
-   1, -1,  1,  0, -1,  0,  0,  0, -1, -2, -2,  0, -1, -2, -1,  4,  1, -3, -2, -2, low,
-   0, -1,  0, -1, -1, -1, -1, -2, -2, -1, -1, -1, -1, -2, -1,  1,  5, -2, -2,  0, low,
-  -3, -3, -4, -4, -2, -2, -3, -2, -2, -3, -2, -3, -1,  1, -4, -3, -2, 11,  2, -3, low,
-  -2, -2, -2, -3, -2, -1, -2, -3,  2, -1, -1, -2, -1,  3, -3, -2, -2,  2,  7, -1, low,
-   0, -3, -3, -3, -1, -2, -2, -3, -3,  3,  1, -2,  1, -1, -2, -2,  0, -3, -1,  4, low,
-   low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low
- };
-
-// A   R   N   D   C   Q   E   G   H   I   L   K   M   F   P   S   T   W   Y   V
-const int BLOSUM62[21][21] = {
-{  4, -1, -2, -2,  0, -1, -1,  0, -2, -1, -1, -1, -1, -2, -1,  1,  0, -3, -2,  0, low },
-{ -1,  5,  0, -2, -3,  1,  0, -2,  0, -3, -2,  2, -1, -3, -2, -1, -1, -3, -2, -3, low },
-{ -2,  0,  6,  1, -3,  0,  0,  0,  1, -3, -3,  0, -2, -3, -2,  1,  0, -4, -2, -3, low },
-{ -2, -2,  1,  6, -3,  0,  2, -1, -1, -3, -4, -1, -3, -3, -1,  0, -1, -4, -3, -3, low },
-{  0, -3, -3, -3,  9, -3, -4, -3, -3, -1, -1, -3, -1, -2, -3, -1, -1, -2, -2, -1, low },
-{ -1,  1,  0,  0, -3,  5,  2, -2,  0, -3, -2,  1,  0, -3, -1,  0, -1, -2, -1, -2, low },
-{ -1,  0,  0,  2, -4,  2,  5, -2,  0, -3, -3,  1, -2, -3, -1,  0, -1, -3, -2, -2, low },
-{  0, -2,  0, -1, -3, -2, -2,  6, -2, -4, -4, -2, -3, -3, -2,  0, -2, -2, -3, -3, low },
-{ -2,  0,  1, -1, -3,  0,  0, -2,  8, -3, -3, -1, -2, -1, -2, -1, -2, -2,  2, -3, low },
-{ -1, -3, -3, -3, -1, -3, -3, -4, -3,  4,  2, -3,  1,  0, -3, -2, -1, -3, -1,  3, low },
-{ -1, -2, -3, -4, -1, -2, -3, -4, -3,  2,  4, -2,  2,  0, -3, -2, -1, -2, -1,  1, low },
-{ -1,  2,  0, -1, -3,  1,  1, -2, -1, -3, -2,  5, -1, -3, -1,  0, -1, -3, -2, -2, low },
-{ -1, -1, -2, -3, -1,  0, -2, -3, -2,  1,  2, -1,  5,  0, -2, -1, -1, -1, -1,  1, low },
-{ -2, -3, -3, -3, -2, -3, -3, -3, -1,  0,  0, -3,  0,  6, -4, -2, -2,  1,  3, -1, low },
-{ -1, -2, -2, -1, -3, -1, -1, -2, -2, -3, -3, -1, -2, -4,  7, -1, -1, -4, -3, -2, low },
-{  1, -1,  1,  0, -1,  0,  0,  0, -1, -2, -2,  0, -1, -2, -1,  4,  1, -3, -2, -2, low },
-{  0, -1,  0, -1, -1, -1, -1, -2, -2, -1, -1, -1, -1, -2, -1,  1,  5, -2, -2,  0, low },
-{ -3, -3, -4, -4, -2, -2, -3, -2, -2, -3, -2, -3, -1,  1, -4, -3, -2, 11,  2, -3, low },
-{ -2, -2, -2, -3, -2, -1, -2, -3,  2, -1, -1, -2, -1,  3, -3, -2, -2,  2,  7, -1, low },
-{  0, -3, -3, -3, -1, -2, -2, -3, -3,  3,  1, -2,  1, -1, -2, -2,  0, -3, -1,  4, low },
-{ low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low}
-};
 
 
 template<size_t size>
@@ -432,11 +380,12 @@ struct GpuWorkingSet{
             d_selectedPositions.end(),
             size_t(0)
         );
-        d_new_overflow_number.resize(numCopyBuffers);
-        h_new_overflow_number.resize(numCopyBuffers);
-        d_new_overflow_positions_vec.resize(numCopyBuffers);
+        d_total_overflow_number.resize(1);
+        d_overflow_number.resize(numCopyBuffers);
+        h_overflow_number.resize(numCopyBuffers);
+        d_overflow_positions_vec.resize(numCopyBuffers);
         for(int i = 0; i < numCopyBuffers; i++){
-            d_new_overflow_positions_vec[i].resize(MAX_SEQ);
+            d_overflow_positions_vec[i].resize(MAX_SEQ);
         }
 
         size_t free, total;
@@ -493,8 +442,9 @@ struct GpuWorkingSet{
     //MyDeviceBuffer<float> devAlignmentScoresFloat;
     MyDeviceBuffer<char> Fillchar;
     MyDeviceBuffer<size_t> d_selectedPositions;
-    MyDeviceBuffer<int> d_new_overflow_number;
-    MyPinnedBuffer<int> h_new_overflow_number;
+    MyDeviceBuffer<int> d_total_overflow_number;
+    MyDeviceBuffer<int> d_overflow_number;
+    MyPinnedBuffer<int> h_overflow_number;
     CudaStream hostFuncStream;
     CudaStream workStreamForTempUsage;
     CudaEvent forkStreamEvent;
@@ -514,7 +464,7 @@ struct GpuWorkingSet{
     std::vector<CudaEvent> pinnedBufferEvents;
     std::vector<CudaEvent> deviceBufferEvents;
     std::vector<CudaStream> workStreamsWithoutTemp;
-    std::vector<MyDeviceBuffer<size_t>> d_new_overflow_positions_vec;
+    std::vector<MyDeviceBuffer<size_t>> d_overflow_positions_vec;
 
     DeviceGpuPartitionOffsets deviceGpuPartitionOffsets;
 
@@ -1326,9 +1276,9 @@ void processQueryOnGpu(
         const char* const inputChars = d_chardata_vec[currentBuffer].data();
         const size_t* const inputOffsets = d_offsetdata_vec[currentBuffer].data();
         const size_t* const inputLengths = d_lengthdata_vec[currentBuffer].data();
-        int* const h_overflow_number = ws.h_new_overflow_number.data() + currentBuffer;
-        int* const d_overflow_number = ws.d_new_overflow_number.data() + currentBuffer;
-        size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[currentBuffer].data();
+        int* const h_overflow_number = ws.h_overflow_number.data() + currentBuffer;
+        int* const d_overflow_number = ws.d_overflow_number.data() + currentBuffer;
+        size_t* const d_overflow_positions = ws.d_overflow_positions_vec[currentBuffer].data();
 
 
         cudaMemsetAsync(d_overflow_number, 0, sizeof(int), H2DcopyStream);
@@ -1790,8 +1740,8 @@ void processQueryOnGpu(
         const char* const inputChars = d_chardata_vec[currentBuffer].data();
         const size_t* const inputOffsets = d_offsetdata_vec[currentBuffer].data();
         const size_t* const inputLengths = d_lengthdata_vec[currentBuffer].data();
-        int* const d_overflow_number = ws.d_new_overflow_number.data() + currentBuffer;
-        size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[currentBuffer].data();
+        int* const d_overflow_number = ws.d_overflow_number.data() + currentBuffer;
+        size_t* const d_overflow_positions = ws.d_overflow_positions_vec[currentBuffer].data();
 
         // std::cout << (void*)inputChars << " " << (void*)inputOffsets << " " << (void*)inputLengths << "\n";
 
@@ -2144,6 +2094,8 @@ void processQueryOnGpus(
         cudaSetDevice(deviceIds[gpu]); CUERR;
         auto& ws = *workingSets[gpu];
 
+        cudaMemsetAsync(ws.d_total_overflow_number.data(), 0, sizeof(int), gpuStreams[gpu]);
+
         cudaMemcpyAsync(ws.devChars.data(), query, queryLength, cudaMemcpyDefault, gpuStreams[gpu]); CUERR
         NW_convert_protein_single<<<SDIV(queryLength, 128), 128, 0, gpuStreams[gpu]>>>(ws.devChars.data(), queryLength); CUERR
 
@@ -2237,8 +2189,8 @@ void processQueryOnGpus(
                 // const char* const inputChars = d_chardata_vec[currentBuffer].data();
                 // const size_t* const inputOffsets = d_offsetdata_vec[currentBuffer].data();
                 // const size_t* const inputLengths = d_lengthdata_vec[currentBuffer].data();
-                int* const d_overflow_number = ws.d_new_overflow_number.data() + currentBuffer;
-                //size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[currentBuffer].data();
+                int* const d_overflow_number = ws.d_overflow_number.data() + currentBuffer;
+                //size_t* const d_overflow_positions = ws.d_overflow_positions_vec[currentBuffer].data();
 
 
                 cudaMemsetAsync(d_overflow_number, 0, sizeof(int), H2DcopyStream);
@@ -2275,8 +2227,8 @@ void processQueryOnGpus(
                 const char* const inputChars = ws.d_chardata_vec[currentBuffer].data();
                 const size_t* const inputOffsets = ws.d_offsetdata_vec[currentBuffer].data();
                 const size_t* const inputLengths = ws.d_lengthdata_vec[currentBuffer].data();
-                int* const d_overflow_number = ws.d_new_overflow_number.data() + currentBuffer;
-                size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[currentBuffer].data();
+                int* const d_overflow_number = ws.d_overflow_number.data() + currentBuffer;
+                size_t* const d_overflow_positions = ws.d_overflow_positions_vec[currentBuffer].data();
 
                 auto runAlignmentKernels = [&](auto& d_scores, size_t* d_overflow_positions, int* d_overflow_number){
                     auto nextWorkStreamNoTemp = [&](){
@@ -2528,8 +2480,8 @@ void processQueryOnGpus(
                 const char* const inputChars = ws.d_chardata_vec[currentBuffer].data();
                 const size_t* const inputOffsets = ws.d_offsetdata_vec[currentBuffer].data();
                 const size_t* const inputLengths = ws.d_lengthdata_vec[currentBuffer].data();
-                int* const d_overflow_number = ws.d_new_overflow_number.data() + currentBuffer;
-                size_t* const d_overflow_positions = ws.d_new_overflow_positions_vec[currentBuffer].data();
+                int* const d_overflow_number = ws.d_overflow_number.data() + currentBuffer;
+                size_t* const d_overflow_positions = ws.d_overflow_positions_vec[currentBuffer].data();
 
                 //auto maxReduceArray = ws.getMaxReduceArray(numberOfSequencesPerGpuPrefixSum[gpu] + processedSequencesPerGpu[gpu]);
                 auto maxReduceArray = ws.getMaxReduceArray(processedSequencesPerGpu[gpu]);
@@ -2589,6 +2541,16 @@ void processQueryOnGpus(
                         queryLength, gop, gex
                     ); CUERR
                 }
+
+                //update total num overflows for query
+                helpers::lambda_kernel<<<1,1,0, ws.workStreamForTempUsage>>>(
+                    [
+                        d_total_overflow_number = ws.d_total_overflow_number.data(),
+                        d_overflow_number = d_overflow_number
+                    ]__device__(){
+                        *d_total_overflow_number += *d_overflow_number;
+                    }
+                ); CUERR;
 
                 //after processing overflow alignments, the batch is done and its data can be resused
                 cudaEventRecord(ws.deviceBufferEvents[currentBuffer], ws.workStreamForTempUsage); CUERR;
@@ -2730,7 +2692,7 @@ int main(int argc, char* argv[])
 {
 
     if(argc < 3) {
-        cout << "Usage:\n  " << argv[0] << " <FASTA filename 1> [dbPrefix]\n";
+        std::cout << "Usage:\n  " << argv[0] << " <FASTA filename 1> [dbPrefix]\n";
         return 0;
     }
 
@@ -2800,7 +2762,7 @@ int main(int argc, char* argv[])
 
 	// read all sequences from FASTA or FASTQ file: query file
 	sequence_batch batch = read_all_sequences_and_headers_from_file(options.queryFile);
-	cout << "Read Protein Query File 1\n";
+	std::cout << "Read Protein Query File 1\n";
 
     // chars   = concatenation of all sequences
     // offsets = starting indices of individual sequences (1st: 0, last: one behind end of 'chars')
@@ -2818,12 +2780,12 @@ int main(int argc, char* argv[])
     const size_t  offsetBytes = (numQueries+1) * sizeof(size_t);
 
 
-    cout << "Number of input sequences Query-File:  " << numQueries<< '\n';
-    cout << "Number of input characters Query-File: " << totalNumQueryBytes << '\n';
+    std::cout << "Number of input sequences Query-File:  " << numQueries<< '\n';
+    std::cout << "Number of input characters Query-File: " << totalNumQueryBytes << '\n';
 
 
     #if 1
-	cout << "Reading Database: \n";
+	std::cout << "Reading Database: \n";
 	helpers::CpuTimer timer_read_db("READ_DB");
     constexpr bool writeAccess = false;
     constexpr bool prefetchSeq = true;
@@ -2885,9 +2847,9 @@ int main(int argc, char* argv[])
 
 
 
-    cout << "Max Length 1: " << max_length << ", Max Length 2: " << max_length_2 <<"\n";
-    cout << "Min Length 1: " << min_length << ", Min Length 2: " << min_length_2 <<"\n";
-    cout << "Avg Length 1: " << avg_length/numQueries << ", Avg Length 2: " << avg_length_2/totalNumberOfSequencesInDB <<"\n";
+    std::cout << "Max Length 1: " << max_length << ", Max Length 2: " << max_length_2 <<"\n";
+    std::cout << "Min Length 1: " << min_length << ", Min Length 2: " << min_length_2 <<"\n";
+    std::cout << "Avg Length 1: " << avg_length/numQueries << ", Avg Length 2: " << avg_length_2/totalNumberOfSequencesInDB <<"\n";
 
 
 
@@ -3088,6 +3050,7 @@ int main(int argc, char* argv[])
     MyPinnedBuffer<float> alignment_scores_float(numQueries *numDBChunks * results_per_query);
     MyPinnedBuffer<size_t> sorted_indices(numQueries *numDBChunks * results_per_query);
     MyPinnedBuffer<int> resultDbChunkIndices(numQueries *numDBChunks * results_per_query);
+    MyPinnedBuffer<int> resultNumOverflows(numQueries *numDBChunks);
 
     //set up gpus
 
@@ -3096,7 +3059,7 @@ int main(int argc, char* argv[])
     std::vector<std::unique_ptr<GpuWorkingSet>> workingSets(numGpus);  
 
 
-    cout << "Allocate Memory: \n";
+    std::cout << "Allocate Memory: \n";
     //nvtx::push_range("ALLOC_MEM", 0);
 	helpers::CpuTimer allocTimer("ALLOC_MEM");
 
@@ -3230,14 +3193,19 @@ int main(int argc, char* argv[])
         // char BLOSUM62_1D_permutation[21*21];
         // perumte_columns_BLOSUM(BLOSUM62_1D,21,permutation,BLOSUM62_1D_permutation);
         // cudaMemcpyToSymbol(cBLOSUM62_dev, &(BLOSUM62_1D_permutation[0]), 21*21*sizeof(char));
-        cudaMemcpyToSymbol(cBLOSUM62_dev, &(BLOSUM62_1D[0]), 21*21*sizeof(char));
+
+        const auto blosum = BLOSUM62::get1D();
+        const int dim = BLOSUM62::dim;
+        assert(dim == 21);
+        cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
     }
 
     cudaSetDevice(masterDeviceId);
 
-    int totalOverFlowNumber = 0;
     MyDeviceBuffer<float> devAllAlignmentScoresFloat(512 * 1024 * numGpus);
     MyDeviceBuffer<size_t> dev_sorted_indices(512 * 1024 * numGpus);
+    MyDeviceBuffer<int> d_resultNumOverflows(numGpus);
+    
 
 
     cudaSetDevice(masterDeviceId);
@@ -3247,7 +3215,7 @@ int main(int argc, char* argv[])
         queryTimers.emplace_back(std::make_unique<helpers::GpuTimer>(masterStream1, "Query " + std::to_string(i)));
     }
 
-    cout << "Starting FULLSCAN_CUDA: \n";
+    std::cout << "Starting FULLSCAN_CUDA: \n";
     helpers::GpuTimer fullscanTimer(masterStream1, "FULLSCAN_CUDA");
 
     for(int i = 0; i < numGpus; i++){
@@ -3392,7 +3360,14 @@ int main(int argc, char* argv[])
                     sizeof(size_t) * 512*1024,
                     cudaMemcpyDeviceToDevice,
                     gpuStreams[gpu]
-                ); CUERR;
+                ); CUERR;                
+                cudaMemcpyAsync(
+                    d_resultNumOverflows.data() + gpu,
+                    ws.d_total_overflow_number.data(),
+                    sizeof(int),
+                    cudaMemcpyDeviceToDevice,
+                    gpuStreams[gpu]
+                ); CUERR;                
 
                 cudaEventRecord(ws.forkStreamEvent, gpuStreams[gpu]); CUERR;
 
@@ -3430,6 +3405,22 @@ int main(int argc, char* argv[])
                 thrust::greater<float>()
             );
 
+            if(numGpus > 1){
+                //sum the overflows per gpu
+                helpers::lambda_kernel<<<1,1,0,masterStream1>>>(
+                    [
+                        numGpus,
+                        d_resultNumOverflows = d_resultNumOverflows.data()
+                    ]__device__ (){
+                        int sum = d_resultNumOverflows[0];
+                        for(int gpu = 1; gpu < numGpus; gpu++){
+                            sum += d_resultNumOverflows[gpu];
+                        }
+                        d_resultNumOverflows[0] = sum;
+                    }
+                ); CUERR;
+            }
+
             std::fill(
                 &resultDbChunkIndices[query_num*numDBChunks*results_per_query + chunkId * results_per_query],
                 &resultDbChunkIndices[query_num*numDBChunks*results_per_query + chunkId * results_per_query] + results_per_query,
@@ -3450,6 +3441,15 @@ int main(int argc, char* argv[])
                 cudaMemcpyDeviceToHost, 
                 masterStream1
             );  CUERR
+            cudaMemcpyAsync(
+                &(resultNumOverflows[query_num*numDBChunks + chunkId]), 
+                d_resultNumOverflows.data(), 
+                sizeof(int), 
+                cudaMemcpyDeviceToHost, 
+                masterStream1
+            );  CUERR
+
+            
 
         }
 
@@ -3520,9 +3520,13 @@ int main(int argc, char* argv[])
 
 
         for (int i=0; i<numQueries; i++) {
-            std::cout << totalOverFlowNumber << " total overflow positions \n";
-            cout << "Query Length:" << queryLengths[i] << " Header: ";
-            cout << batch.headers[i] << '\n';
+            int numOverflows = 0;
+            for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
+                numOverflows += resultNumOverflows[i*numDBChunks + chunkId];
+            }
+            std::cout << numOverflows << " total overflow positions \n";
+            std::cout << "Query Length:" << queryLengths[i] << " Header: ";
+            std::cout << batch.headers[i] << '\n';
 
             for(int j = 0; j < results_per_query; ++j) {
                 const int arrayIndex = i*results_per_query+j;
@@ -3534,8 +3538,8 @@ int main(int argc, char* argv[])
 
                 const char* headerBegin = chunkData.headers() + chunkData.headerOffsets()[sortedIndex];
                 const char* headerEnd = chunkData.headers() + chunkData.headerOffsets()[sortedIndex+1];
-                cout << "Result: "<< j <<", Length: " << chunkData.lengths()[sortedIndex] << " Score: " << final_alignment_scores_float[arrayIndex] << " : ";
-                std::copy(headerBegin, headerEnd,std::ostream_iterator<char>{cout});
+                std::cout << "Result: "<< j <<", Length: " << chunkData.lengths()[sortedIndex] << " Score: " << final_alignment_scores_float[arrayIndex] << " : ";
+                std::copy(headerBegin, headerEnd,std::ostream_iterator<char>{std::cout});
                 //cout << "\n";
 
                 std::cout << "\n";
