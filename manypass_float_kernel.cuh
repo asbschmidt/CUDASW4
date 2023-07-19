@@ -6,13 +6,11 @@
 
 template <int numRegs, class PositionsIterator> 
 struct ManyPassFloat{
-    using BLOSUM62_SMEM = float[21 * 21];
-
     static constexpr int group_size = 32;
 
     static constexpr float negInftyFloat = -10000.0f;
 
-    BLOSUM62_SMEM& shared_BLOSUM62;
+    float* shared_BLOSUM62;
 
     int numSelected;
     int length_2;
@@ -27,7 +25,7 @@ struct ManyPassFloat{
 
     __device__
     ManyPassFloat(
-        BLOSUM62_SMEM& shared_BLOSUM62_,
+        float* shared_BLOSUM62_,
         const char* devChars_,
         float2* devTempHcol2_,
         float2* devTempEcol2_,
@@ -924,10 +922,13 @@ void NW_local_affine_read4_float_query_Protein_new(
 ) {
     using Processor = ManyPassFloat<numRegs, PositionsIterator>;
 
-    __shared__ typename Processor::BLOSUM62_SMEM shared_BLOSUM62;
+    //__shared__ typename Processor::BLOSUM62_SMEM shared_BLOSUM62;
+
+    //25 is max blosum dimension
+    __shared__ float shared_blosum[25 * 25];
 
     Processor processor(
-        shared_BLOSUM62,
+        shared_blosum,
         devChars,
         devTempHcol2,
         devTempEcol2,

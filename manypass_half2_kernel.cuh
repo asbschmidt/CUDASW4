@@ -6,11 +6,9 @@
 
 template <int group_size, int numRegs, class PositionsIterator> 
 struct ManyPassHalf2{
-    using BLOSUM62_SMEM = __half2[21 * 21*21];
-
     static constexpr float negInftyFloat = -1000.0f;
 
-    BLOSUM62_SMEM& shared_BLOSUM62;
+    __half2* shared_BLOSUM62;
 
     int numSelected;
     int length_2;
@@ -25,7 +23,7 @@ struct ManyPassHalf2{
 
     __device__
     ManyPassHalf2(
-        BLOSUM62_SMEM& shared_BLOSUM62_,
+        __half2* shared_BLOSUM62_,
         const char* devChars_,
         __half2* devTempHcol2_,
         __half2* devTempEcol2_,
@@ -955,10 +953,11 @@ void NW_local_affine_Protein_many_pass_half2_new(
     __grid_constant__ const float gap_extend
 ) {
     using Processor = ManyPassHalf2<group_size, numRegs, PositionsIterator>;
-    __shared__ typename Processor::BLOSUM62_SMEM shared_BLOSUM62;
+    extern __shared__ __half2 shared_blosum[];
+    //__shared__ typename Processor::BLOSUM62_SMEM shared_BLOSUM62;
 
     Processor processor(
-        shared_BLOSUM62,
+        shared_blosum,
         devChars,
         devTempHcol2,
         devTempEcol2,
@@ -1000,13 +999,25 @@ void call_NW_local_affine_Protein_many_pass_half2_new(
     constexpr int alignmentsPerGroup = 2;
     constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
 
+    int blosumDim = 1;
+    switch(blosumType){
+        case BlosumType::BLOSUM50:
+            blosumDim = BLOSUM50::dim;
+            break;
+        default: //BlosumType::BLOSUM62
+            blosumDim = BLOSUM62::dim;
+            break;
+    };
+
+    int smem = sizeof(__half2) * blosumDim * blosumDim * blosumDim;
+
     auto kernel = NW_local_affine_Protein_many_pass_half2_new<group_size, numRegs, ScoreOutputIterator, PositionsIterator>;
-    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 62500);
+    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
 
     dim3 block = blocksize;
     dim3 grid = SDIV(numSelected, alignmentsPerBlock);
 
-    kernel<<<grid, block, 0, stream>>>(
+    kernel<<<grid, block, smem, stream>>>(
         devChars,
         devAlignmentScores,
         devTempHcol2,
