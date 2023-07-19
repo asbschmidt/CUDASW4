@@ -10,7 +10,7 @@ struct ManyPassFloat{
 
     static constexpr float negInftyFloat = -10000.0f;
 
-    float* shared_BLOSUM62;
+    float* shared_blosum;
 
     int numSelected;
     int length_2;
@@ -25,7 +25,7 @@ struct ManyPassFloat{
 
     __device__
     ManyPassFloat(
-        float* shared_BLOSUM62_,
+        float* shared_blosum_,
         const char* devChars_,
         float2* devTempHcol2_,
         float2* devTempEcol2_,
@@ -35,7 +35,7 @@ struct ManyPassFloat{
         int length_2_,
         float gap_open_,
         float gap_extend_
-    ) : shared_BLOSUM62(shared_BLOSUM62_),
+    ) : shared_blosum(shared_blosum_),
         devChars(devChars_),
         devTempHcol2(devTempHcol2_),
         devTempEcol2(devTempEcol2_),
@@ -46,8 +46,8 @@ struct ManyPassFloat{
         gap_open(gap_open_),
         gap_extend(gap_extend_)
     {
-        for (int i=threadIdx.x; i<cBlosumDimSquared; i+=32){
-            shared_BLOSUM62[(i/cBlosumDim) * cBlosumDim + (i%cBlosumDim)]=cBLOSUM62_dev[i];
+        for (int i=threadIdx.x; i<deviceBlosumDimSquared; i+=32){
+            shared_blosum[(i/deviceBlosumDim) * deviceBlosumDim + (i%deviceBlosumDim)]=deviceBlosum[i];
         }
         __syncwarp();
 
@@ -69,7 +69,7 @@ struct ManyPassFloat{
         float (&penalty_here_array)[numRegs],
         float (&F_here_array)[numRegs]
     ) const{
-        const float* const sbt_row = &shared_BLOSUM62[int(query_letter) * cBlosumDim];
+        const float* const sbt_row = &shared_blosum[int(query_letter) * deviceBlosumDim];
 
         const float score2_0 = sbt_row[subject[0]];
         //score2.y = sbt_row[subject1[0].x];
@@ -122,7 +122,7 @@ struct ManyPassFloat{
         float (&penalty_here_array)[numRegs],
         float (&F_here_array)[numRegs]
     ) const{
-        const float* const sbt_row = &shared_BLOSUM62[int(query_letter) * cBlosumDim];
+        const float* const sbt_row = &shared_blosum[int(query_letter) * deviceBlosumDim];
 
         const float score2_0 = sbt_row[subject[0]];
         float penalty_temp0 = penalty_here_array[0];
@@ -195,7 +195,7 @@ struct ManyPassFloat{
         const char* const devS0, const int length_S0
     ) const{
         // if (!offset_isc) {
-        //     for (int i=threadIdx.x; i<cBlosumDimSquared; i+=32) shared_BLOSUM62[(i/cBlosumDim) * cBlosumDim + (i%cBlosumDim)]=cBLOSUM62_dev[i];
+        //     for (int i=threadIdx.x; i<deviceBlosumDimSquared; i+=32) shared_blosum[(i/deviceBlosumDim) * deviceBlosumDim + (i%deviceBlosumDim)]=deviceBlosum[i];
         //     __syncwarp();
         // }
 
@@ -922,7 +922,7 @@ void NW_local_affine_read4_float_query_Protein_new(
 ) {
     using Processor = ManyPassFloat<numRegs, PositionsIterator>;
 
-    //__shared__ typename Processor::BLOSUM62_SMEM shared_BLOSUM62;
+    //__shared__ typename Processor::BLOSUM62_SMEM shared_blosum;
 
     //25 is max blosum dimension
     __shared__ float shared_blosum[25 * 25];
@@ -959,8 +959,10 @@ void call_NW_local_affine_read4_float_query_Protein_new(
     const float gap_extend,
     cudaStream_t stream
 ) {
+    assert(hostBlosumDim <= 25);
+    
     auto kernel = NW_local_affine_read4_float_query_Protein_new<numRegs, ScoreOutputIterator, PositionsIterator>;
-    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 62500);
+    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
     dim3 block = 32;
     dim3 grid = numSelected;

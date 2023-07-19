@@ -1,8 +1,18 @@
 #ifndef BLOSUM_HPP
 #define BLOSUM_HPP
 
+#include "hpc_helpers/all_helpers.cuh"
+
 #include <array>
 #include <string>
+
+__device__ char deviceBlosum[25*25];
+__constant__ int deviceBlosumDim;
+__constant__ int deviceBlosumDimSquared;
+
+char hostBlosum[25*25];
+int hostBlosumDim;
+int hostBlosumDimSquared;
 
 enum class BlosumType{
     BLOSUM50,
@@ -16,6 +26,13 @@ std::string to_string(BlosumType type){
         default: return "FORGOT TO NAME THIS BLOSUM TYPE";
     }
 }
+
+//set host and device global variables
+void setProgramWideBlosum(BlosumType blosumType);
+
+
+
+
 
 struct BLOSUM50{
     static constexpr char low = -5;
@@ -127,5 +144,46 @@ struct BLOSUM62{
     }
 };
 
+
+void setProgramWideBlosum(BlosumType blosumType){
+    switch(blosumType){
+        case BlosumType::BLOSUM50:
+            {
+                const auto blosum = BLOSUM50::get1D();
+                const int dim = BLOSUM50::dim;
+                hostBlosumDim = dim;
+                hostBlosumDimSquared = dim * dim;
+                auto it = std::copy(blosum.begin(), blosum.end(), hostBlosum);
+                assert(std::distance(hostBlosum, it) <= 25 * 25);                
+            }
+            break;
+        case BlosumType::BLOSUM62:
+            {
+                const auto blosum = BLOSUM62::get1D();
+                const int dim = BLOSUM62::dim;
+                hostBlosumDim = dim;
+                hostBlosumDimSquared = dim * dim;
+                auto it = std::copy(blosum.begin(), blosum.end(), hostBlosum);
+                assert(std::distance(hostBlosum, it) <= 25 * 25);                
+            }
+            break;
+        default:
+            assert(false && "unimplemented blosum copy");
+            break;
+    }
+
+    int numGpus = 0;
+    cudaGetDeviceCount(&numGpus); CUERR;
+
+    int old = 0;
+    cudaGetDevice(&old); CUERR;
+    for(int gpu = 0; gpu < numGpus; gpu++){
+        cudaSetDevice(gpu); CUERR;
+        cudaMemcpyToSymbol(deviceBlosum, &(hostBlosum[0]), sizeof(char) * hostBlosumDim * hostBlosumDim); CUERR;
+        cudaMemcpyToSymbol(deviceBlosumDim, &hostBlosumDim, sizeof(int)); CUERR;
+        cudaMemcpyToSymbol(deviceBlosumDimSquared, &hostBlosumDimSquared, sizeof(int)); CUERR;
+    }
+    cudaSetDevice(old); CUERR;
+}
 
 #endif

@@ -3186,27 +3186,16 @@ int main(int argc, char* argv[])
         }
     }
 
-
+    //set blosum for legacy kernels
     for(int i = 0; i < numGpus; i++){
         cudaSetDevice(deviceIds[i]);
-
-        // const int permutation[21] = {0,20,4,3,6,13,7,8,9,11,10,12,2,14,5,1,15,16,19,17,18};
-        // char BLOSUM62_1D_permutation[21*21];
-        // perumte_columns_BLOSUM(BLOSUM62_1D,21,permutation,BLOSUM62_1D_permutation);
-        // cudaMemcpyToSymbol(cBLOSUM62_dev, &(BLOSUM62_1D_permutation[0]), 21*21*sizeof(char));
-
         switch(options.blosumType){
             case BlosumType::BLOSUM50:
                 {
                     const auto blosum = BLOSUM50::get1D();
                     const int dim = BLOSUM50::dim;
                     assert(dim == 21);
-                    cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
-                    cudaMemcpyToSymbol(cBlosumDim, &dim, sizeof(int));
-
-                    int dim2 = dim * dim;
-                    cudaMemcpyToSymbol(cBlosumDimSquared, &dim2, sizeof(int));
-                    
+                    cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));                    
                 }
                 break;
             default: //BlosumType::BLOSUM62
@@ -3215,14 +3204,49 @@ int main(int argc, char* argv[])
                     const int dim = BLOSUM62::dim;
                     assert(dim == 21);
                     cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
-                    cudaMemcpyToSymbol(cBlosumDim, &dim, sizeof(int));
-
-                    int dim2 = dim * dim;
-                    cudaMemcpyToSymbol(cBlosumDimSquared, &dim2, sizeof(int));
                 }
                 break;
         }
     }
+    //set blosum for new kernels
+    setProgramWideBlosum(options.blosumType);
+
+    // for(int i = 0; i < numGpus; i++){
+    //     cudaSetDevice(deviceIds[i]);
+
+    //     // const int permutation[21] = {0,20,4,3,6,13,7,8,9,11,10,12,2,14,5,1,15,16,19,17,18};
+    //     // char BLOSUM62_1D_permutation[21*21];
+    //     // perumte_columns_BLOSUM(BLOSUM62_1D,21,permutation,BLOSUM62_1D_permutation);
+    //     // cudaMemcpyToSymbol(cBLOSUM62_dev, &(BLOSUM62_1D_permutation[0]), 21*21*sizeof(char));
+
+    //     switch(options.blosumType){
+    //         case BlosumType::BLOSUM50:
+    //             {
+    //                 const auto blosum = BLOSUM50::get1D();
+    //                 const int dim = BLOSUM50::dim;
+    //                 assert(dim == 21);
+    //                 cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
+    //                 cudaMemcpyToSymbol(cBlosumDim, &dim, sizeof(int));
+
+    //                 int dim2 = dim * dim;
+    //                 cudaMemcpyToSymbol(cBlosumDimSquared, &dim2, sizeof(int));
+                    
+    //             }
+    //             break;
+    //         default: //BlosumType::BLOSUM62
+    //             {
+    //                 const auto blosum = BLOSUM62::get1D();
+    //                 const int dim = BLOSUM62::dim;
+    //                 assert(dim == 21);
+    //                 cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
+    //                 cudaMemcpyToSymbol(cBlosumDim, &dim, sizeof(int));
+
+    //                 int dim2 = dim * dim;
+    //                 cudaMemcpyToSymbol(cBlosumDimSquared, &dim2, sizeof(int));
+    //             }
+    //             break;
+    //     }
+    // }
 
     cudaSetDevice(masterDeviceId);
 
