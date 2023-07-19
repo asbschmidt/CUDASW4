@@ -3203,6 +3203,9 @@ int main(int argc, char* argv[])
                     assert(dim == 21);
                     cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
                     cudaMemcpyToSymbol(cBlosumDim, &dim, sizeof(int));
+
+                    int dim2 = dim * dim;
+                    cudaMemcpyToSymbol(cBlosumDimSquared, &dim2, sizeof(int));
                     
                 }
                 break;
@@ -3213,6 +3216,9 @@ int main(int argc, char* argv[])
                     assert(dim == 21);
                     cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
                     cudaMemcpyToSymbol(cBlosumDim, &dim, sizeof(int));
+
+                    int dim2 = dim * dim;
+                    cudaMemcpyToSymbol(cBlosumDimSquared, &dim2, sizeof(int));
                 }
                 break;
         }

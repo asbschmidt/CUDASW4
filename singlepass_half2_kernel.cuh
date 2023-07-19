@@ -6,12 +6,13 @@
 
 template <int group_size, int numRegs, class PositionsIterator> 
 struct SinglePassHalf2{
-    using BLOSUM62_SMEM = __half2[21][21*21];
+    using BLOSUM62_SMEM = __half2[21*21*21];
 
     static constexpr float negInftyFloat = -1000.0f;
 
     BLOSUM62_SMEM& shared_BLOSUM62;
 
+    //int& cBlosumDim;
     int numSelected;
     int length_2;
     float gap_open;
@@ -33,6 +34,7 @@ struct SinglePassHalf2{
         float gap_open_,
         float gap_extend_
     ) : shared_BLOSUM62(shared_BLOSUM62_),
+        //cBlosumDim(cBlosumDim),
         devChars(devChars_),
         devOffsets(devOffsets_),
         devLengths(devLengths_),
@@ -43,7 +45,18 @@ struct SinglePassHalf2{
         gap_extend(gap_extend_)
     {
 
-
+        for (int i=threadIdx.x; i<cBlosumDimSquared; i+=blockDim.x) {
+            __half2 temp0;
+            const int A = (i/cBlosumDim);
+            const int B = (i%cBlosumDim);
+            temp0.x = cBLOSUM62_dev[cBlosumDim*A+B];
+            for (int j=0; j<cBlosumDim; j++) {
+                temp0.y = cBLOSUM62_dev[cBlosumDim*A+j];
+                shared_BLOSUM62[A * cBlosumDimSquared + cBlosumDim*(B)+j]=temp0;
+                //shared_BLOSUM62[(A * cBlosumDim + B) * cBlosumDim + j]=temp0;
+            }
+        }
+        __syncthreads();
 
     }
 
@@ -75,7 +88,7 @@ struct SinglePassHalf2{
         __half2 (&penalty_here_array)[numRegs],
         __half2 (&F_here_array)[numRegs]
     ) const{
-        const __half2* const sbt_row = shared_BLOSUM62[query_letter];
+        const __half2* const sbt_row = &shared_BLOSUM62[int(query_letter) * cBlosumDimSquared];
 
         const __half2 score2_0 = sbt_row[subject[0]];
         //score2.y = sbt_row[subject1[0].x];
@@ -128,7 +141,7 @@ struct SinglePassHalf2{
         __half2 (&penalty_here_array)[numRegs],
         __half2 (&F_here_array)[numRegs]
     ) const{
-        const __half2* const sbt_row = shared_BLOSUM62[query_letter];
+        const __half2* const sbt_row = &shared_BLOSUM62[int(query_letter) * cBlosumDimSquared];
 
         const __half2 score2_0 = sbt_row[subject[0]];
         //score2.y = sbt_row[subject1[0].x];
@@ -203,17 +216,19 @@ struct SinglePassHalf2{
         const char* const devS0, const int length_S0, 
         const char* const devS1, const int length_S1
     ) const{
-        if (!offset_isc) {
-            for (int i=threadIdx.x; i<cBlosumDim*cBlosumDim; i+=blockDim.x) {
-                __half2 temp0;
-                temp0.x = cBLOSUM62_dev[cBlosumDim*(i/cBlosumDim)+(i%cBlosumDim)];
-                for (int j=0; j<cBlosumDim; j++) {
-                    temp0.y = cBLOSUM62_dev[cBlosumDim*(i/cBlosumDim)+j];
-                    shared_BLOSUM62[i/cBlosumDim][cBlosumDim*(i%cBlosumDim)+j]=temp0;
-                }
-            }
-            __syncthreads();
-	   }
+    //     if (!offset_isc) {
+    //         for (int i=threadIdx.x; i<cBlosumDim*cBlosumDim; i+=blockDim.x) {
+    //             const int A = 
+    //             __half2 temp0;
+    //             temp0.x = cBLOSUM62_dev[cBlosumDim*(i/cBlosumDim)+(i%cBlosumDim)];
+    //             for (int j=0; j<cBlosumDim; j++) {
+    //                 temp0.y = cBLOSUM62_dev[cBlosumDim*(i/cBlosumDim)+j];
+    //                 //shared_BLOSUM62[(i/cBlosumDim) * cBlosumDim * cBlosumDim + cBlosumDim*(i%cBlosumDim)+j]=temp0;
+    //                 shared_BLOSUM62[((i/cBlosumDim) * cBlosumDim + (i%cBlosumDim)) * cBlosumDim + j]=temp0;
+    //             }
+    //         }
+    //         __syncthreads();
+	//    }
        #pragma unroll //UNROLLHERE
        for (int i=0; i<numRegs; i++) {
 
@@ -486,7 +501,7 @@ void NW_local_affine_Protein_single_pass_half2_new(
     //     }
     //     printf("\n");
     //     printf("constantblosum\n");
-    //     for(int i = 0; i < cBlosumDim*cBlosumDim; i++){
+    //     for(int i = 0; i < cBlosumDimSquared; i++){
     //         printf("%d %d %d %d", int(cBLOSUM62_dev[i]));
     //     }
     //     printf("\n");
@@ -498,10 +513,10 @@ void NW_local_affine_Protein_single_pass_half2_new(
     //     printf("gap_open %f\n", gap_open);
     //     printf("gap_extend %f\n", gap_extend);
     // }
-    
-    __shared__ __half2 shared_BLOSUM62[21][21*21];
+    using Processor = SinglePassHalf2<group_size, numRegs, PositionsIterator>;
+    __shared__ typename Processor::BLOSUM62_SMEM shared_BLOSUM62;
 
-    SinglePassHalf2<group_size, numRegs, PositionsIterator> processor(
+    Processor processor(
         shared_BLOSUM62,
         devChars,
         devOffsets,

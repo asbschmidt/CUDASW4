@@ -6,7 +6,7 @@
 
 template <int numRegs, class PositionsIterator> 
 struct ManyPassFloat{
-    using BLOSUM62_SMEM = float[21][21];
+    using BLOSUM62_SMEM = float[21 * 21];
 
     static constexpr int group_size = 32;
 
@@ -48,7 +48,10 @@ struct ManyPassFloat{
         gap_open(gap_open_),
         gap_extend(gap_extend_)
     {
-
+        for (int i=threadIdx.x; i<cBlosumDimSquared; i+=32){
+            shared_BLOSUM62[(i/cBlosumDim) * cBlosumDim + (i%cBlosumDim)]=cBLOSUM62_dev[i];
+        }
+        __syncwarp();
 
 
     }
@@ -68,7 +71,7 @@ struct ManyPassFloat{
         float (&penalty_here_array)[numRegs],
         float (&F_here_array)[numRegs]
     ) const{
-        const float* const sbt_row = shared_BLOSUM62[query_letter];
+        const float* const sbt_row = &shared_BLOSUM62[int(query_letter) * cBlosumDim];
 
         const float score2_0 = sbt_row[subject[0]];
         //score2.y = sbt_row[subject1[0].x];
@@ -121,7 +124,7 @@ struct ManyPassFloat{
         float (&penalty_here_array)[numRegs],
         float (&F_here_array)[numRegs]
     ) const{
-        const float* const sbt_row = shared_BLOSUM62[query_letter];
+        const float* const sbt_row = &shared_BLOSUM62[int(query_letter) * cBlosumDim];
 
         const float score2_0 = sbt_row[subject[0]];
         float penalty_temp0 = penalty_here_array[0];
@@ -193,10 +196,10 @@ struct ManyPassFloat{
     void init_local_score_profile_BLOSUM62(int offset_isc, int (&subject)[numRegs], 
         const char* const devS0, const int length_S0
     ) const{
-        if (!offset_isc) {
-            for (int i=threadIdx.x; i<cBlosumDim*cBlosumDim; i+=32) shared_BLOSUM62[i/cBlosumDim][i%cBlosumDim]=cBLOSUM62_dev[i];
-            __syncwarp();
-        }
+        // if (!offset_isc) {
+        //     for (int i=threadIdx.x; i<cBlosumDimSquared; i+=32) shared_BLOSUM62[(i/cBlosumDim) * cBlosumDim + (i%cBlosumDim)]=cBLOSUM62_dev[i];
+        //     __syncwarp();
+        // }
 
         #pragma unroll //UNROLLHERE
         for (int i=0; i<numRegs; i++) {
