@@ -40,8 +40,9 @@
 #include "convert.cuh"
 #include "kernels.cuh"
 
-#include "manypass_half2_kernel.cuh"
-#include "singlepass_half2_kernel.cuh"
+//#include "manypass_half2_kernel.cuh"
+//#include "singlepass_half2_kernel.cuh"
+#include "half2_kernels.cuh"
 #include "manypass_float_kernel.cuh"
 #include "blosum.hpp"
 
