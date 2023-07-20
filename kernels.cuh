@@ -7,7 +7,7 @@
 #include <cuda_fp16.h>
 
 #define MAX_ACC_HALF2 2048.0 // 1024 ??
-
+#define MAX_ACC_SHORT 25000 //TODO which value here ???
 
 typedef union
 {
@@ -2091,7 +2091,9 @@ void call_NW_local_affine_Protein_single_pass_half2(
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int group_size, int numRegs> __global__
+template <int group_size, int numRegs> 
+//__launch_bounds__(256,2)
+__global__
 void NW_local_affine_single_pass_s16_DPX(
     const char * devChars,
     float * devAlignmentScores,
