@@ -118,7 +118,7 @@ struct CudaSW4Options{
     int numTopOutputs = 10;
     int gop = -11;
     int gex = -1;
-    BlosumType blosumType = BlosumType::BLOSUM62_21;
+    BlosumType blosumType = BlosumType::BLOSUM62_20;
     size_t maxBatchBytes = 32ull * 1024ull * 1024ull;
     size_t maxBatchSequences = 10'000'000;
     size_t maxTempBytes = 4ull * 1024ull * 1024ull * 1024ull;
@@ -205,39 +205,46 @@ bool parseArgs(int argc, char** argv, CudaSW4Options& options){
             gotDB = true;
         }else if(arg == "--mat"){
             const std::string val = argv[++i];
+            #ifdef CAN_USE_FULL_BLOSUM
             if(val == "blosum45") options.blosumType = BlosumType::BLOSUM45;
             if(val == "blosum50") options.blosumType = BlosumType::BLOSUM50;
             if(val == "blosum62") options.blosumType = BlosumType::BLOSUM62;
             if(val == "blosum80") options.blosumType = BlosumType::BLOSUM80;
-            if(val == "blosum50_21") options.blosumType = BlosumType::BLOSUM50_21;
-            if(val == "blosum62_21") options.blosumType = BlosumType::BLOSUM62_21;
-        }else if(arg == "--blosum45"){
-            options.blosumType = BlosumType::BLOSUM45;
-        }else if(arg == "--blosum50"){
-            options.blosumType = BlosumType::BLOSUM50;
-        }else if(arg == "--blosum62"){
-            options.blosumType = BlosumType::BLOSUM62;
-        }else if(arg == "--blosum80"){
-            options.blosumType = BlosumType::BLOSUM80;
-        }else if(arg == "--blosum50_21"){
-            options.blosumType = BlosumType::BLOSUM50_21;
-        }else if(arg == "--blosum62_21"){
-            options.blosumType = BlosumType::BLOSUM62_21;
+            if(val == "blosum45_20") options.blosumType = BlosumType::BLOSUM45_20;
+            if(val == "blosum50_20") options.blosumType = BlosumType::BLOSUM50_20;
+            if(val == "blosum62_20") options.blosumType = BlosumType::BLOSUM62_20;
+            if(val == "blosum80_20") options.blosumType = BlosumType::BLOSUM80_20;
+            #else
+            if(val == "blosum45") options.blosumType = BlosumType::BLOSUM45_20;
+            if(val == "blosum50") options.blosumType = BlosumType::BLOSUM50_20;
+            if(val == "blosum62") options.blosumType = BlosumType::BLOSUM62_20;
+            if(val == "blosum80") options.blosumType = BlosumType::BLOSUM80_20;
+            if(val == "blosum45_20") options.blosumType = BlosumType::BLOSUM45_20;
+            if(val == "blosum50_20") options.blosumType = BlosumType::BLOSUM50_20;
+            if(val == "blosum62_20") options.blosumType = BlosumType::BLOSUM62_20;
+            if(val == "blosum80_20") options.blosumType = BlosumType::BLOSUM80_20;
+            #endif
         }else{
             std::cout << "Unexpected arg " << arg << "\n";
         }
     }
 
     //set specific gop gex for blosum if no gop gex was set
-    switch(options.blosumType){
-        case BlosumType::BLOSUM50_21:
-            if(!gotGop) options.gop = -13;
-            if(!gotGex) options.gex = -2;
-            break;
-        case BlosumType::BLOSUM62_21:
-            if(!gotGop) options.gop = -11;
-            if(!gotGex) options.gex = -1;
-            break;
+    if(options.blosumType == BlosumType::BLOSUM45 || options.blosumType == BlosumType::BLOSUM45_20){
+        if(!gotGop) options.gop = -13;
+        if(!gotGex) options.gex = -2;
+    }
+    if(options.blosumType == BlosumType::BLOSUM50 || options.blosumType == BlosumType::BLOSUM50_20){
+        if(!gotGop) options.gop = -13;
+        if(!gotGex) options.gex = -2;
+    }
+    if(options.blosumType == BlosumType::BLOSUM62 || options.blosumType == BlosumType::BLOSUM62_20){
+        if(!gotGop) options.gop = -11;
+        if(!gotGex) options.gex = -1;
+    }
+    if(options.blosumType == BlosumType::BLOSUM80 || options.blosumType == BlosumType::BLOSUM80_20){
+        if(!gotGop) options.gop = -10;
+        if(!gotGex) options.gex = -1;
     }
 
     if(!gotQuery){
@@ -259,8 +266,6 @@ void printHelp(int argc, char** argv){
     std::cout << "Options: \n";
     std::cout << "      --query queryfile : Mandatory. Fasta or Fastq\n";
     std::cout << "      --db dbPrefix : Mandatory. The DB to query against. The same dbPrefix as used for makedb\n";
-    std::cout << "      --gop val : Gap open score. Default val = " << defaultoptions.gop << "\n";
-    std::cout << "      --gex val : Gap extend score. Default val = " << defaultoptions.gex << "\n";
     std::cout << "      --top val : Output the val best scores. Default val = " << defaultoptions.numTopOutputs << "\n";
     std::cout << "      --maxTempBytes val : Size of temp storage in GPU memory. Can use suffix K,M,G. Default val = " << defaultoptions.maxTempBytes << "\n";
     std::cout << "      --maxBatchBytes val : Process DB in batches of at most val bytes. Can use suffix K,M,G. Default val = " << defaultoptions.maxBatchBytes << "\n";
@@ -268,8 +273,15 @@ void printHelp(int argc, char** argv){
     std::cout << "      --uploadFull : Do not process DB in smaller batches. Copy full DB to GPU before processing queries.\n";
     //std::cout << "      --blosum50 : Use BLOSUM50 substitution matrix.\n";
     //std::cout << "      --blosum62 : Use BLOSUM62 substitution matrix.\n";
-    std::cout << "      --mat val: Set substitution matrix. Supported values: blosum45, blosum50, blosum62, blosum80, blosum50_21, blosum62_21. "
+    #ifdef CAN_USE_FULL_BLOSUM
+    std::cout << "      --mat val: Set substitution matrix. Supported values: blosum45, blosum50, blosum62, blosum80, blosum45_20, blosum50_20, blosum62_20, blosum80_20. "
                         "Default: " << to_string(defaultoptions.blosumType) << "\n";
+    #else 
+    std::cout << "      --mat val: Set substitution matrix. Supported values: blosum45, blosum50, blosum62, blosum80. "
+                        "Default: " << to_string_nodim(defaultoptions.blosumType) << "\n";
+    #endif
+    std::cout << "      --gop val : Gap open score. Overwrites our blosum-dependent default score.\n";
+    std::cout << "      --gex val : Gap extend score. Overwrites our blosum-dependent default score.\n";
 }
 
 
@@ -2660,6 +2672,7 @@ void processQueryOnGpus(
                             d_overflow_positions, 
                             queryLength, gop, gex
                         ); CUERR
+                    #ifdef CAN_USE_FULL_BLOSUM
                     }else if(hostBlosumDim == 25){
                         launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<20,25><<<1,1,0, ws.workStreamForTempUsage>>>(
                             d_overflow_number,
@@ -2673,6 +2686,7 @@ void processQueryOnGpus(
                             d_overflow_positions, 
                             queryLength, gop, gex
                         ); CUERR
+                    #endif
                     }else{
                         assert(false);
                     }
@@ -3197,13 +3211,6 @@ int main(int argc, char* argv[])
             const auto& plan = batchPlans_perChunk[chunkId][gpu][0];
             std::cout << "Upload single batch DB to gpu " << gpu << "\n";
             helpers::CpuTimer copyTimer("copy db");
-            auto& h_chardata_vec = ws.h_chardata_vec;
-            auto& h_lengthdata_vec = ws.h_lengthdata_vec;
-            auto& h_offsetdata_vec = ws.h_offsetdata_vec;
-            auto& d_chardata_vec = ws.d_chardata_vec;
-            auto& d_lengthdata_vec = ws.d_lengthdata_vec;
-            auto& d_offsetdata_vec = ws.d_offsetdata_vec;
-            auto& copyStreams = ws.copyStreams;
             const int currentBuffer = 0;
 
             cudaStream_t H2DcopyStream = ws.copyStreams[currentBuffer];
@@ -3226,18 +3233,18 @@ int main(int argc, char* argv[])
     for(int i = 0; i < numGpus; i++){
         cudaSetDevice(deviceIds[i]);
         switch(options.blosumType){
-            case BlosumType::BLOSUM50_21:
+            case BlosumType::BLOSUM50_20:
                 {
-                    const auto blosum = BLOSUM50_21::get1D();
-                    const int dim = BLOSUM50_21::dim;
+                    const auto blosum = BLOSUM50_20::get1D();
+                    const int dim = BLOSUM50_20::dim;
                     assert(dim == 21);
                     cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));                    
                 }
                 break;
-            default: //BlosumType::BLOSUM62_21
+            default: //BlosumType::BLOSUM62_20
                 {
-                    const auto blosum = BLOSUM62_21::get1D();
-                    const int dim = BLOSUM62_21::dim;
+                    const auto blosum = BLOSUM62_20::get1D();
+                    const int dim = BLOSUM62_20::dim;
                     assert(dim == 21);
                     cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
                 }
@@ -3246,43 +3253,6 @@ int main(int argc, char* argv[])
     }
     //set blosum for new kernels
     setProgramWideBlosum(options.blosumType);
-
-    // for(int i = 0; i < numGpus; i++){
-    //     cudaSetDevice(deviceIds[i]);
-
-    //     // const int permutation[21] = {0,20,4,3,6,13,7,8,9,11,10,12,2,14,5,1,15,16,19,17,18};
-    //     // char BLOSUM62_1D_permutation[21*21];
-    //     // perumte_columns_BLOSUM(BLOSUM62_1D,21,permutation,BLOSUM62_1D_permutation);
-    //     // cudaMemcpyToSymbol(cBLOSUM62_dev, &(BLOSUM62_1D_permutation[0]), 21*21*sizeof(char));
-
-    //     switch(options.blosumType){
-    //         case BlosumType::BLOSUM50:
-    //             {
-    //                 const auto blosum = BLOSUM50::get1D();
-    //                 const int dim = BLOSUM50::dim;
-    //                 assert(dim == 21);
-    //                 cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
-    //                 cudaMemcpyToSymbol(cBlosumDim, &dim, sizeof(int));
-
-    //                 int dim2 = dim * dim;
-    //                 cudaMemcpyToSymbol(cBlosumDimSquared, &dim2, sizeof(int));
-                    
-    //             }
-    //             break;
-    //         default: //BlosumType::BLOSUM62
-    //             {
-    //                 const auto blosum = BLOSUM62::get1D();
-    //                 const int dim = BLOSUM62::dim;
-    //                 assert(dim == 21);
-    //                 cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
-    //                 cudaMemcpyToSymbol(cBlosumDim, &dim, sizeof(int));
-
-    //                 int dim2 = dim * dim;
-    //                 cudaMemcpyToSymbol(cBlosumDimSquared, &dim2, sizeof(int));
-    //             }
-    //             break;
-    //     }
-    // }
 
     cudaSetDevice(masterDeviceId);
 

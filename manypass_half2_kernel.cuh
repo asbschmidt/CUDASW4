@@ -981,7 +981,7 @@ void NW_local_affine_Protein_many_pass_half2_new(
 
 template <int blocksize, int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
 void call_NW_local_affine_Protein_many_pass_half2_new(
-    BlosumType blosumType,
+    BlosumType /*blosumType*/,
     const char * const devChars,
     ScoreOutputIterator const devAlignmentScores,
     __half2 * const devTempHcol2,
@@ -1027,6 +1027,7 @@ void call_NW_local_affine_Protein_many_pass_half2_new(
             gap_open,
             gap_extend
         ); CUERR;
+    #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
         auto kernel = NW_local_affine_Protein_many_pass_half2_new<group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
@@ -1050,6 +1051,7 @@ void call_NW_local_affine_Protein_many_pass_half2_new(
             gap_open,
             gap_extend
         ); CUERR;
+    #endif
     }else{
         assert(false);
     }

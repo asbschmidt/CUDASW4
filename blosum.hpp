@@ -19,8 +19,10 @@ enum class BlosumType{
     BLOSUM50,
     BLOSUM62,
     BLOSUM80,
-    BLOSUM50_21,
-    BLOSUM62_21,
+    BLOSUM45_20,
+    BLOSUM50_20,
+    BLOSUM62_20,
+    BLOSUM80_20,
 };
 
 std::string to_string(BlosumType type){
@@ -29,8 +31,23 @@ std::string to_string(BlosumType type){
         case BlosumType::BLOSUM50: return "BLOSUM50";
         case BlosumType::BLOSUM62: return "BLOSUM62";
         case BlosumType::BLOSUM80: return "BLOSUM80";
-        case BlosumType::BLOSUM50_21: return "BLOSUM50_21";
-        case BlosumType::BLOSUM62_21: return "BLOSUM62_21";
+        case BlosumType::BLOSUM45_20: return "BLOSUM45 (20)";
+        case BlosumType::BLOSUM50_20: return "BLOSUM50 (20)";
+        case BlosumType::BLOSUM62_20: return "BLOSUM62 (20)";
+        case BlosumType::BLOSUM80_20: return "BLOSUM80 (20)";
+        default: return "FORGOT TO NAME THIS BLOSUM TYPE";
+    }
+}
+std::string to_string_nodim(BlosumType type){
+    switch(type){
+        case BlosumType::BLOSUM45: return "BLOSUM45";
+        case BlosumType::BLOSUM50: return "BLOSUM50";
+        case BlosumType::BLOSUM62: return "BLOSUM62";
+        case BlosumType::BLOSUM80: return "BLOSUM80";
+        case BlosumType::BLOSUM45_20: return "BLOSUM45";
+        case BlosumType::BLOSUM50_20: return "BLOSUM50";
+        case BlosumType::BLOSUM62_20: return "BLOSUM62";
+        case BlosumType::BLOSUM80_20: return "BLOSUM80";
         default: return "FORGOT TO NAME THIS BLOSUM TYPE";
     }
 }
@@ -39,13 +56,99 @@ std::string to_string(BlosumType type){
 void setProgramWideBlosum(BlosumType blosumType);
 
 
-struct BLOSUM62_21{
-    static constexpr char low = -4;
-    static constexpr int dim = 21;
+struct BLOSUM45_20{
+    static constexpr char low = -5;
+    static constexpr int dim = 20 + 1;
 
     static constexpr std::array<char, dim*dim> get1D() {
         return  {
-            // A   R   N   D   C   Q   E   G   H   I   L   K   M   F   P   S   T   W   Y   V
+            //A, R, N, D, C, Q, E, G, H, I, L, K, M, F, P, S, T, W, Y, V, other
+            5, -2, -1, -2, -1, -1, -1, 0, -2, -1, -1, -1, -1, -2, -1, 1, 0, -2, -2, 0, low,
+            -2, 7, 0, -1, -3, 1, 0, -2, 0, -3, -2, 3, -1, -2, -2, -1, -1, -2, -1, -2, low,
+            -1, 0, 6, 2, -2, 0, 0, 0, 1, -2, -3, 0, -2, -2, -2, 1, 0, -4, -2, -3, low,
+            -2, -1, 2, 7, -3, 0, 2, -1, 0, -4, -3, 0, -3, -4, -1, 0, -1, -4, -2, -3, low,
+            -1, -3, -2, -3, 12, -3, -3, -3, -3, -3, -2, -3, -2, -2, -4, -1, -1, -5, -3, -1, low,
+            -1, 1, 0, 0, -3, 6, 2, -2, 1, -2, -2, 1, 0, -4, -1, 0, -1, -2, -1, -3, low,
+            -1, 0, 0, 2, -3, 2, 6, -2, 0, -3, -2, 1, -2, -3, 0, 0, -1, -3, -2, -3, low,
+            0, -2, 0, -1, -3, -2, -2, 7, -2, -4, -3, -2, -2, -3, -2, 0, -2, -2, -3, -3, low,
+            -2, 0, 1, 0, -3, 1, 0, -2, 10, -3, -2, -1, 0, -2, -2, -1, -2, -3, 2, -3, low,
+            -1, -3, -2, -4, -3, -2, -3, -4, -3, 5, 2, -3, 2, 0, -2, -2, -1, -2, 0, 3, low,
+            -1, -2, -3, -3, -2, -2, -2, -3, -2, 2, 5, -3, 2, 1, -3, -3, -1, -2, 0, 1, low,
+            -1, 3, 0, 0, -3, 1, 1, -2, -1, -3, -3, 5, -1, -3, -1, -1, -1, -2, -1, -2, low,
+            -1, -1, -2, -3, -2, 0, -2, -2, 0, 2, 2, -1, 6, 0, -2, -2, -1, -2, 0, 1, low,
+            -2, -2, -2, -4, -2, -4, -3, -3, -2, 0, 1, -3, 0, 8, -3, -2, -1, 1, 3, 0, low,
+            -1, -2, -2, -1, -4, -1, 0, -2, -2, -2, -3, -1, -2, -3, 9, -1, -1, -3, -3, -3, low,
+            1, -1, 1, 0, -1, 0, 0, 0, -1, -2, -3, -1, -2, -2, -1, 4, 2, -4, -2, -1, low,
+            0, -1, 0, -1, -1, -1, -1, -2, -2, -1, -1, -1, -1, -1, -1, 2, 5, -3, -1, 0, low,
+            -2, -2, -4, -4, -5, -2, -3, -2, -3, -2, -2, -2, -2, 1, -3, -4, -3, 15, 3, -3, low,
+            -2, -1, -2, -2, -3, -1, -2, -3, 2, 0, 0, -1, 0, 3, -3, -2, -1, 3, 8, -1, low,
+            0, -2, -3, -3, -1, -3, -3, -3, -3, 3, 1, -2, 1, 0, -3, -1, 0, -3, -1, 5, low,
+            low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low,
+        };
+    }
+
+    static constexpr std::array<std::array<char, dim>, dim> get2D() {
+        auto flat = get1D();
+        std::array<std::array<char, dim>, dim> result{};
+        for(int y = 0; y < dim; y++){
+            for(int x = 0; x < dim; x++){
+                result[y][x] = flat[y * dim + x];
+            }
+        }
+        return result;
+    }
+};
+
+struct BLOSUM50_20{
+    static constexpr char low = -5;
+    static constexpr int dim = 20+1;
+
+    static constexpr std::array<char, dim*dim> get1D() {
+        return  {
+            // A   R   N   D   C   Q   E   G   H   I   L   K   M   F   P   S   T   W   Y   V, other
+            5, -2, -1, -2, -1, -1, -1,  0, -2, -1, -2, -1, -1, -3, -1,  1,  0, -3, -2,  0, low,
+            -2,  7, -1, -2, -4,  1,  0, -3,  0, -4, -3,  3, -2, -3, -3, -1, -1, -3, -1, -3, low,
+            -1, -1,  7,  2, -2,  0,  0,  0,  1, -3, -4,  0, -2, -4, -2,  1,  0, -4, -2, -3, low,
+            -2, -2,  2,  8, -4,  0,  2, -1, -1, -4, -4, -1, -4, -5, -1,  0, -1, -5, -3, -4, low,
+            -1, -4, -2, -4, 13, -3, -3, -3, -3, -2, -2, -3, -2, -2, -4, -1, -1, -5, -3, -1, low,
+            -1,  1,  0,  0, -3,  7,  2, -2,  1, -3, -2,  2,  0, -4, -1,  0, -1, -1, -1, -3 , low,
+            -1,  0,  0,  2, -3,  2,  6, -3,  0, -4, -3,  1, -2, -3, -1, -1, -1, -3, -2, -3 , low,
+            0, -3,  0, -1, -3, -2, -3,  8, -2, -4, -4, -2, -3, -4, -2,  0, -2, -3, -3, -4 , low,
+            -2,  0,  1, -1, -3,  1,  0, -2, 10, -4, -3,  0, -1, -1, -2, -1, -2, -3,  2, -4 , low,
+            -1, -4, -3, -4, -2, -3, -4, -4, -4,  5,  2, -3,  2,  0, -3, -3, -1, -3, -1,  4 , low,
+            -2, -3, -4, -4, -2, -2, -3, -4, -3,  2,  5, -3,  3,  1, -4, -3, -1, -2, -1,  1 , low,
+            -1,  3,  0, -1, -3,  2,  1, -2,  0, -3, -3,  6, -2, -4, -1,  0, -1, -3, -2, -3 , low,
+            -1, -2, -2, -4, -2,  0, -2, -3, -1,  2,  3, -2,  7,  0, -3, -2, -1, -1,  0,  1 , low,
+            -3, -3, -4, -5, -2, -4, -3, -4, -1,  0,  1, -4,  0,  8, -4, -3, -2,  1,  4, -1 , low,
+            -1, -3, -2, -1, -4, -1, -1, -2, -2, -3, -4, -1, -3, -4, 10, -1, -1, -4, -3, -3 , low,
+            1, -1,  1,  0, -1,  0, -1,  0, -1, -3, -3,  0, -2, -3, -1,  5,  2, -4, -2, -2 , low,
+            0, -1,  0, -1, -1, -1, -1, -2, -2, -1, -1, -1, -1, -2, -1,  2,  5, -3, -2,  0 , low,
+            -3, -3, -4, -5, -5, -1, -3, -3, -3, -3, -2, -3, -1,  1, -4, -4, -3, 15,  2, -3, low,
+            -2, -1, -2, -3, -3, -1, -2, -3,  2, -1, -1, -2,  0,  4, -3, -2, -2,  2,  8, -1 , low,
+            0, -3, -3, -4, -1, -3, -3, -4, -4,  4,  1, -3,  1, -1, -3, -2,  0, -3, -1,  5, low,
+            low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low
+        };
+    }
+
+    static constexpr std::array<std::array<char, dim>, dim> get2D() {
+        auto flat = get1D();
+        std::array<std::array<char, dim>, dim> result{};
+        for(int y = 0; y < dim; y++){
+            for(int x = 0; x < dim; x++){
+                result[y][x] = flat[y * dim + x];
+            }
+        }
+        return result;
+    }
+};
+
+struct BLOSUM62_20{
+    static constexpr char low = -4;
+    static constexpr int dim = 20+1;
+
+    static constexpr std::array<char, dim*dim> get1D() {
+        return  {
+            // A   R   N   D   C   Q   E   G   H   I   L   K   M   F   P   S   T   W   Y   V, other
             4, -1, -2, -2,  0, -1, -1,  0, -2, -1, -1, -1, -1, -2, -1,  1,  0, -3, -2,  0, low,
             -1,  5,  0, -2, -3,  1,  0, -2,  0, -3, -2,  2, -1, -3, -2, -1, -1, -3, -2, -3, low,
             -2,  0,  6,  1, -3,  0,  0,  0,  1, -3, -3,  0, -2, -3, -2,  1,  0, -4, -2, -3, low,
@@ -82,34 +185,36 @@ struct BLOSUM62_21{
     }
 };
 
-struct BLOSUM50_21{
-    static constexpr char low = -5;
-    static constexpr int dim = 21;
+
+
+struct BLOSUM80_20{
+    static constexpr char low = -6;
+    static constexpr int dim = 20 + 1;
 
     static constexpr std::array<char, dim*dim> get1D() {
         return  {
-            // A   R   N   D   C   Q   E   G   H   I   L   K   M   F   P   S   T   W   Y   V
-            5, -2, -1, -2, -1, -1, -1,  0, -2, -1, -2, -1, -1, -3, -1,  1,  0, -3, -2,  0, low,
-            -2,  7, -1, -2, -4,  1,  0, -3,  0, -4, -3,  3, -2, -3, -3, -1, -1, -3, -1, -3, low,
-            -1, -1,  7,  2, -2,  0,  0,  0,  1, -3, -4,  0, -2, -4, -2,  1,  0, -4, -2, -3, low,
-            -2, -2,  2,  8, -4,  0,  2, -1, -1, -4, -4, -1, -4, -5, -1,  0, -1, -5, -3, -4, low,
-            -1, -4, -2, -4, 13, -3, -3, -3, -3, -2, -2, -3, -2, -2, -4, -1, -1, -5, -3, -1, low,
-            -1,  1,  0,  0, -3,  7,  2, -2,  1, -3, -2,  2,  0, -4, -1,  0, -1, -1, -1, -3 , low,
-            -1,  0,  0,  2, -3,  2,  6, -3,  0, -4, -3,  1, -2, -3, -1, -1, -1, -3, -2, -3 , low,
-            0, -3,  0, -1, -3, -2, -3,  8, -2, -4, -4, -2, -3, -4, -2,  0, -2, -3, -3, -4 , low,
-            -2,  0,  1, -1, -3,  1,  0, -2, 10, -4, -3,  0, -1, -1, -2, -1, -2, -3,  2, -4 , low,
-            -1, -4, -3, -4, -2, -3, -4, -4, -4,  5,  2, -3,  2,  0, -3, -3, -1, -3, -1,  4 , low,
-            -2, -3, -4, -4, -2, -2, -3, -4, -3,  2,  5, -3,  3,  1, -4, -3, -1, -2, -1,  1 , low,
-            -1,  3,  0, -1, -3,  2,  1, -2,  0, -3, -3,  6, -2, -4, -1,  0, -1, -3, -2, -3 , low,
-            -1, -2, -2, -4, -2,  0, -2, -3, -1,  2,  3, -2,  7,  0, -3, -2, -1, -1,  0,  1 , low,
-            -3, -3, -4, -5, -2, -4, -3, -4, -1,  0,  1, -4,  0,  8, -4, -3, -2,  1,  4, -1 , low,
-            -1, -3, -2, -1, -4, -1, -1, -2, -2, -3, -4, -1, -3, -4, 10, -1, -1, -4, -3, -3 , low,
-            1, -1,  1,  0, -1,  0, -1,  0, -1, -3, -3,  0, -2, -3, -1,  5,  2, -4, -2, -2 , low,
-            0, -1,  0, -1, -1, -1, -1, -2, -2, -1, -1, -1, -1, -2, -1,  2,  5, -3, -2,  0 , low,
-            -3, -3, -4, -5, -5, -1, -3, -3, -3, -3, -2, -3, -1,  1, -4, -4, -3, 15,  2, -3, low,
-            -2, -1, -2, -3, -3, -1, -2, -3,  2, -1, -1, -2,  0,  4, -3, -2, -2,  2,  8, -1 , low,
-            0, -3, -3, -4, -1, -3, -3, -4, -4,  4,  1, -3,  1, -1, -3, -2,  0, -3, -1,  5, low,
-            low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low
+            //A, R, N, D, C, Q, E, G, H, I, L, K, M, F, P, S, T, W, Y, V, other
+            5, -2, -2, -2, -1, -1, -1, 0, -2, -2, -2, -1, -1, -3, -1, 1, 0, -3, -2, 0, low,
+            -2, 6, -1, -2, -4, 1, -1, -3, 0, -3, -3, 2, -2, -4, -2, -1, -1, -4, -3, -3, low,
+            -2, -1, 6, 1, -3, 0, -1, -1, 0, -4, -4, 0, -3, -4, -3, 0, 0, -4, -3, -4, low,
+            -2, -2, 1, 6, -4, -1, 1, -2, -2, -4, -5, -1, -4, -4, -2, -1, -1, -6, -4, -4, low,
+            -1, -4, -3, -4, 9, -4, -5, -4, -4, -2, -2, -4, -2, -3, -4, -2, -1, -3, -3, -1, low,
+            -1, 1, 0, -1, -4, 6, 2, -2, 1, -3, -3, 1, 0, -4, -2, 0, -1, -3, -2, -3, low,
+            -1, -1, -1, 1, -5, 2, 6, -3, 0, -4, -4, 1, -2, -4, -2, 0, -1, -4, -3, -3, low,
+            0, -3, -1, -2, -4, -2, -3, 6, -3, -5, -4, -2, -4, -4, -3, -1, -2, -4, -4, -4, low,
+            -2, 0, 0, -2, -4, 1, 0, -3, 8, -4, -3, -1, -2, -2, -3, -1, -2, -3, 2, -4, low,
+            -2, -3, -4, -4, -2, -3, -4, -5, -4, 5, 1, -3, 1, -1, -4, -3, -1, -3, -2, 3, low,
+            -2, -3, -4, -5, -2, -3, -4, -4, -3, 1, 4, -3, 2, 0, -3, -3, -2, -2, -2, 1, low,
+            -1, 2, 0, -1, -4, 1, 1, -2, -1, -3, -3, 5, -2, -4, -1, -1, -1, -4, -3, -3, low,
+            -1, -2, -3, -4, -2, 0, -2, -4, -2, 1, 2, -2, 6, 0, -3, -2, -1, -2, -2, 1, low,
+            -3, -4, -4, -4, -3, -4, -4, -4, -2, -1, 0, -4, 0, 6, -4, -3, -2, 0, 3, -1, low,
+            -1, -2, -3, -2, -4, -2, -2, -3, -3, -4, -3, -1, -3, -4, 8, -1, -2, -5, -4, -3, low,
+            1, -1, 0, -1, -2, 0, 0, -1, -1, -3, -3, -1, -2, -3, -1, 5, 1, -4, -2, -2, low,
+            0, -1, 0, -1, -1, -1, -1, -2, -2, -1, -2, -1, -1, -2, -2, 1, 5, -4, -2, 0, low,
+            -3, -4, -4, -6, -3, -3, -4, -4, -3, -3, -2, -4, -2, 0, -5, -4, -4, 11, 2, -3, low,
+            -2, -3, -3, -4, -3, -2, -3, -4, 2, -2, -2, -3, -2, 3, -4, -2, -2, 2, 7, -2, low,
+            0, -3, -4, -4, -1, -3, -3, -4, -4, 3, 1, -3, 1, -1, -3, -2, 0, -3, -2, 4, low,
+            low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low, low,
         };
     }
 
@@ -124,6 +229,7 @@ struct BLOSUM50_21{
         return result;
     }
 };
+
 
 
 struct BLOSUM45{
@@ -223,7 +329,7 @@ struct BLOSUM50{
 
 
 struct BLOSUM62{
-    static constexpr char low = -5;
+    static constexpr char low = -4;
     static constexpr int dim = 25;
 
     static constexpr std::array<char, dim*dim> get1D() {
@@ -272,7 +378,7 @@ struct BLOSUM62{
 
 
 struct BLOSUM80{
-    static constexpr char low = -5;
+    static constexpr char low = -6;
     static constexpr int dim = 25;
 
     static constexpr std::array<char, dim*dim> get1D() {
@@ -362,20 +468,40 @@ void setProgramWideBlosum(BlosumType blosumType){
                 assert(std::distance(hostBlosum, it) <= 25 * 25);                
             }
             break;
-        case BlosumType::BLOSUM50_21:
+        case BlosumType::BLOSUM45_20:
             {
-                const auto blosum = BLOSUM50_21::get1D();
-                const int dim = BLOSUM50_21::dim;
+                const auto blosum = BLOSUM45_20::get1D();
+                const int dim = BLOSUM45_20::dim;
                 hostBlosumDim = dim;
                 hostBlosumDimSquared = dim * dim;
                 auto it = std::copy(blosum.begin(), blosum.end(), hostBlosum);
                 assert(std::distance(hostBlosum, it) <= 25 * 25);                
             }
             break;
-        case BlosumType::BLOSUM62_21:
+        case BlosumType::BLOSUM50_20:
             {
-                const auto blosum = BLOSUM62_21::get1D();
-                const int dim = BLOSUM62_21::dim;
+                const auto blosum = BLOSUM50_20::get1D();
+                const int dim = BLOSUM50_20::dim;
+                hostBlosumDim = dim;
+                hostBlosumDimSquared = dim * dim;
+                auto it = std::copy(blosum.begin(), blosum.end(), hostBlosum);
+                assert(std::distance(hostBlosum, it) <= 25 * 25);                
+            }
+            break;
+        case BlosumType::BLOSUM62_20:
+            {
+                const auto blosum = BLOSUM62_20::get1D();
+                const int dim = BLOSUM62_20::dim;
+                hostBlosumDim = dim;
+                hostBlosumDimSquared = dim * dim;
+                auto it = std::copy(blosum.begin(), blosum.end(), hostBlosum);
+                assert(std::distance(hostBlosum, it) <= 25 * 25);                
+            }
+            break;
+        case BlosumType::BLOSUM80_20:
+            {
+                const auto blosum = BLOSUM80_20::get1D();
+                const int dim = BLOSUM80_20::dim;
                 hostBlosumDim = dim;
                 hostBlosumDimSquared = dim * dim;
                 auto it = std::copy(blosum.begin(), blosum.end(), hostBlosum);

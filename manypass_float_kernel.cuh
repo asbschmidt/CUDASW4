@@ -948,7 +948,7 @@ void NW_local_affine_read4_float_query_Protein_new(
 
 template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
 void call_NW_local_affine_read4_float_query_Protein_new(
-    BlosumType blosumType,
+    BlosumType /*blosumType*/,
     const char * const devChars,
     ScoreOutputIterator const devAlignmentScores,
     float2 * const devTempHcol2,
@@ -982,6 +982,7 @@ void call_NW_local_affine_read4_float_query_Protein_new(
             gap_open,
             gap_extend
         ); CUERR;
+    #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
         auto kernel = NW_local_affine_read4_float_query_Protein_new<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
@@ -1001,6 +1002,7 @@ void call_NW_local_affine_read4_float_query_Protein_new(
             gap_open,
             gap_extend
         ); CUERR;
+    #endif
     }else{
         assert(false);
     }
