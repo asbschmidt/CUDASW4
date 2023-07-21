@@ -237,13 +237,59 @@ private:
 };
 
 struct DB{
+    friend DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq);
+
+    DBGlobalInfo getInfo() const{
+        return info;
+    }
+
+    const std::vector<DBdata>& getChunks() const{
+        return chunks;
+    }
+
+    // const std::vector<DBdataView>& getChunks() const{
+    //     if(!hasViews){
+    //         for(const auto& x : chunks){
+    //             chunkViews.emplace_back(x);
+    //         }
+    //         hasViews = true;
+    //     }
+    //     return chunkViews;
+    // }
+
+private:
+    //mutable bool hasViews = false;
     DBGlobalInfo info;
     std::vector<DBdata> chunks;
+    //std::vector<DBdataView> chunkViews;
 };
 
 struct PseudoDB{
+    friend PseudoDB loadPseudoDB(size_t num, size_t length, int randomseed);
+
+    DBGlobalInfo getInfo() const{
+        return info;
+    }
+
+    // const std::vector<DBdataView>& getChunks() const{
+    //     if(!hasViews){
+    //         for(const auto& x : chunks){
+    //             chunkViews.emplace_back(x);
+    //         }
+    //         hasViews = true;
+    //     }
+    //     return chunkViews;
+    // }
+
+    const std::vector<PseudoDBdata>& getChunks() const{
+        return chunks;
+    }
+
+private:
+    //mutable bool hasViews = false;
     DBGlobalInfo info;
     std::vector<PseudoDBdata> chunks;
+    //std::vector<DBdataView> chunkViews;
 };
 
 void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const sequence_batch& batch);
@@ -252,6 +298,8 @@ void readGlobalDbInfo(const std::string& prefix, DBGlobalInfo& info);
 
 DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq);
 PseudoDB loadPseudoDB(size_t num, size_t length, int randomseed = 42);
+
+
 
 
 
@@ -359,6 +407,43 @@ private:
     const size_t* parentOffsets;
     const char* parentHeaders;
     const size_t* parentHeaderOffsets;
+};
+
+struct AnyDBWrapper{
+    AnyDBWrapper() = default;
+
+    AnyDBWrapper(std::shared_ptr<DB> db){
+        setDB(*db);
+        dbPtr = db;
+    }
+
+    AnyDBWrapper(std::shared_ptr<PseudoDB> db){
+        setDB(*db);
+        pseudoDBPtr = db;
+    }
+
+    DBGlobalInfo getInfo() const{
+        return info;
+    }
+
+    const std::vector<DBdataView>& getChunks() const{
+        return chunks;
+    }
+
+private:
+    template<class DB>
+    void setDB(const DB& db){
+        info = db.getInfo();
+        for(const auto& x : db.getChunks()){
+            chunks.emplace_back(x);
+        }
+    }
+    std::shared_ptr<DB> dbPtr = nullptr;
+    std::shared_ptr<PseudoDB> pseudoDBPtr = nullptr;
+    
+    DBGlobalInfo info;
+    std::vector<DBdataView> chunks;   
+
 };
 
 

@@ -116,9 +116,12 @@ struct CudaSW4Options{
     */
     bool help = false;
     bool loadFullDBToGpu = false;
+    bool usePseudoDB = false;
     int numTopOutputs = 10;
     int gop = -11;
     int gex = -1;
+    int pseudoDBLength = 0;
+    int pseudoDBSize = 0;
     BlosumType blosumType = BlosumType::BLOSUM62_20;
     size_t maxBatchBytes = 32ull * 1024ull * 1024ull;
     size_t maxBatchSequences = 10'000'000;
@@ -138,8 +141,13 @@ void printOptions(const CudaSW4Options& options){
     std::cout << "maxBatchSequences: " << options.maxBatchSequences << "\n";
     std::cout << "maxTempBytes: " << options.maxTempBytes << "\n";
     std::cout << "queryFile: " << options.queryFile << "\n";
-    std::cout << "dbPrefix: " << options.dbPrefix << "\n";
     std::cout << "blosum: " << to_string(options.blosumType) << "\n";
+    if(options.usePseudoDB){
+        std::cout << "Using built-in pseudo db with " << options.pseudoDBSize << " sequences of length " << options.pseudoDBLength << "\n";
+    }else{
+        std::cout << "Using db file: " << options.dbPrefix << "\n";
+    }
+    
 }
 
 bool parseArgs(int argc, char** argv, CudaSW4Options& options){
@@ -225,6 +233,11 @@ bool parseArgs(int argc, char** argv, CudaSW4Options& options){
             if(val == "blosum62_20") options.blosumType = BlosumType::BLOSUM62_20;
             if(val == "blosum80_20") options.blosumType = BlosumType::BLOSUM80_20;
             #endif
+        }else if(arg == "--pseudodb"){
+            options.usePseudoDB = true;
+            options.pseudoDBSize = std::atoi(argv[++i]);
+            options.pseudoDBLength = std::atoi(argv[++i]);
+            gotDB = true;
         }else{
             std::cout << "Unexpected arg " << arg << "\n";
         }
@@ -283,6 +296,7 @@ void printHelp(int argc, char** argv){
     #endif
     std::cout << "      --gop val : Gap open score. Overwrites our blosum-dependent default score.\n";
     std::cout << "      --gex val : Gap extend score. Overwrites our blosum-dependent default score.\n";
+    std::cout << "      --pseudodb num length : Use a generated DB which contains `num` equal sequences of length `length`.\n";
 }
 
 
@@ -653,6 +667,11 @@ std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlan(
         DeviceBatchCopyToPinnedPlan plan;
 
         while(currentCopyPartition < dbPartitions.size()){
+            if(dbPartitions[currentCopyPartition].numSequences() == 0){
+                currentCopyPartition++;
+                continue;
+            }
+
             //figure out how many sequences to copy to pinned
             size_t remainingBytes = MAX_CHARDATA_BYTES - usedBytes;
             
@@ -741,12 +760,14 @@ std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlan(
         plan.usedSeq = usedSeq;
 
         
-        if(usedSeq == 0 && currentCopyPartition < dbPartitions.size()){
+        if(usedSeq == 0 && currentCopyPartition < dbPartitions.size() && dbPartitions[currentCopyPartition].numSequences() > 0){
             std::cout << "Warning. copy buffer size too small. skipped a db portion. stop\n";
             break;
         }
 
-        result.push_back(plan);
+        if(plan.usedSeq > 0){
+            result.push_back(plan);
+        }
     }
 
     return result;
@@ -2835,42 +2856,76 @@ int main(int argc, char* argv[])
     std::cout << "Number of input sequences Query-File:  " << numQueries<< '\n';
     std::cout << "Number of input characters Query-File: " << totalNumQueryBytes << '\n';
 
+    AnyDBWrapper fullDB;
 
-    #if 1
-	std::cout << "Reading Database: \n";
-	helpers::CpuTimer timer_read_db("READ_DB");
-    constexpr bool writeAccess = false;
-    constexpr bool prefetchSeq = true;
-    DB fullDB = loadDB(options.dbPrefix, writeAccess, prefetchSeq);
-	timer_read_db.print();
-    {
-    #else
-    //for(int pseudodbSeqLength : {64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 768, 896, 1024}){
-    for(int pseudodbSeqLength : {251}){
-       std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
+    if(!options.usePseudoDB){
+        std::cout << "Reading Database: \n";
+        helpers::CpuTimer timer_read_db("READ_DB");
+        constexpr bool writeAccess = false;
+        constexpr bool prefetchSeq = true;
+        //DB fullDB_tmp = loadDB(options.dbPrefix, writeAccess, prefetchSeq);
+        auto fullDB_tmp = std::make_shared<DB>(loadDB(options.dbPrefix, writeAccess, prefetchSeq));
+        timer_read_db.print();
 
-    PseudoDB fullDB = loadPseudoDB(1, pseudodbSeqLength);
-    #endif
+        fullDB = AnyDBWrapper(fullDB_tmp);
+    }else{
+        std::cout << "Generating pseudo db\n";
+        helpers::CpuTimer timer_read_db("READ_DB");
+        //PseudoDB fullDB_tmp = loadPseudoDB(options.pseudoDBSize, options.pseudoDBLength);
+        auto fullDB_tmp = std::make_shared<PseudoDB>(loadPseudoDB(options.pseudoDBSize, options.pseudoDBLength));
+        timer_read_db.print();
+        
+        fullDB = AnyDBWrapper(fullDB_tmp);
+    }
 
-    
 
-
-    const int numDBChunks = fullDB.info.numChunks;
+    const int numDBChunks = fullDB.getInfo().numChunks;
     std::cout << "Number of DB chunks: " << numDBChunks << "\n";
     assert(numDBChunks == 1);
-    for(int i = 0; i < numDBChunks; i++){
-        const auto& chunkData = fullDB.chunks[i];
-        const auto& dbMetaData = chunkData.getMetaData();
-        std::cout << "DB chunk " << i << ": " << chunkData.numSequences() << " sequences, " << chunkData.numChars() << " characters\n";
-        for(int i = 0; i < int(dbMetaData.lengthBoundaries.size()); i++){
-            std::cout << "<= " << dbMetaData.lengthBoundaries[i] << ": " << dbMetaData.numSequencesPerLengthPartition[i] << "\n";
+
+    auto lengthBoundaries = getLengthPartitionBoundaries();
+    const int numLengthPartitions = getLengthPartitionBoundaries().size();
+
+
+    std::vector<size_t> fullDB_numSequencesPerLengthPartition(numLengthPartitions);
+    {
+        const auto& dbData = fullDB.getChunks()[0];
+        auto partitionBegin = dbData.lengths();
+        for(int i = 0; i < numLengthPartitions; i++){
+            //length k is in partition i if boundaries[i-1] < k <= boundaries[i]
+            int searchFor = lengthBoundaries[i];
+            if(searchFor < std::numeric_limits<int>::max()){
+                searchFor += 1;
+            }
+            auto partitionEnd = std::lower_bound(
+                partitionBegin, 
+                dbData.lengths() + dbData.numSequences(), 
+                searchFor
+            );
+            fullDB_numSequencesPerLengthPartition[i] = std::distance(partitionBegin, partitionEnd);
+            partitionBegin = partitionEnd;
         }
     }
+
+    std::cout << "DB chunk " << 0 << ": " << fullDB.getChunks()[0].numSequences() << " sequences, " << fullDB.getChunks()[0].numChars() << " characters\n";
+    for(int i = 0; i < numLengthPartitions; i++){
+        std::cout << "<= " << lengthBoundaries[i] << ": " << fullDB_numSequencesPerLengthPartition[i] << "\n";
+    }
+
+
+    // for(int i = 0; i < numDBChunks; i++){
+    //     const auto& chunkData = fullDB.chunks[i];
+    //     const auto& dbMetaData = chunkData.getMetaData();
+    //     std::cout << "DB chunk " << i << ": " << chunkData.numSequences() << " sequences, " << chunkData.numChars() << " characters\n";
+    //     for(int i = 0; i < int(dbMetaData.lengthBoundaries.size()); i++){
+    //         std::cout << "<= " << dbMetaData.lengthBoundaries[i] << ": " << dbMetaData.numSequencesPerLengthPartition[i] << "\n";
+    //     }
+    // }
 
     size_t totalNumberOfSequencesInDB = 0;
     size_t maximumNumberOfSequencesInDBChunk = 0;
     for(int i = 0; i < numDBChunks; i++){
-        const auto& chunkData = fullDB.chunks[i];
+        const auto& chunkData = fullDB.getChunks()[i];
         totalNumberOfSequencesInDB += chunkData.numSequences();
         maximumNumberOfSequencesInDBChunk = std::max(maximumNumberOfSequencesInDBChunk, chunkData.numSequences());
     }
@@ -2886,7 +2941,7 @@ int main(int argc, char* argv[])
     }
 
     for(int i = 0; i < numDBChunks; i++){
-        const auto& chunkData = fullDB.chunks[i];
+        const auto& chunkData = fullDB.getChunks()[i];
         size_t numSeq = chunkData.numSequences();
 
         for (size_t i=0; i < numSeq; i++) {
@@ -2922,7 +2977,7 @@ int main(int argc, char* argv[])
 
    
 
-    const int numLengthPartitions = getLengthPartitionBoundaries().size();
+    
 
     //partition chars of whole DB amongst the gpus
     std::vector<std::vector<size_t>> numSequencesPerLengthPartitionPrefixSum_perDBchunk(numDBChunks);
@@ -2933,7 +2988,7 @@ int main(int argc, char* argv[])
     std::vector<std::vector<size_t>> numSequencesPerGpuPrefixSum_perDBchunk(numDBChunks);
 
     for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
-        const auto& dbChunk = fullDB.chunks[chunkId];
+        const auto& dbChunk = fullDB.getChunks()[chunkId];
 
         auto& numSequencesPerLengthPartitionPrefixSum = numSequencesPerLengthPartitionPrefixSum_perDBchunk[chunkId];
         auto& dbPartitionsByLengthPartitioning = dbPartitionsByLengthPartitioning_perDBchunk[chunkId];
@@ -2949,12 +3004,12 @@ int main(int argc, char* argv[])
 
         numSequencesPerLengthPartitionPrefixSum.resize(numLengthPartitions, 0);
         for(int i = 0; i < numLengthPartitions-1; i++){
-            numSequencesPerLengthPartitionPrefixSum[i+1] = numSequencesPerLengthPartitionPrefixSum[i] + dbChunk.getMetaData().numSequencesPerLengthPartition[i];
+            numSequencesPerLengthPartitionPrefixSum[i+1] = numSequencesPerLengthPartitionPrefixSum[i] + fullDB_numSequencesPerLengthPartition[i];
         }
 
         for(int i = 0; i < numLengthPartitions; i++){
             size_t begin = numSequencesPerLengthPartitionPrefixSum[i];
-            size_t end = begin + dbChunk.getMetaData().numSequencesPerLengthPartition[i];
+            size_t end = begin + fullDB_numSequencesPerLengthPartition[i];
             dbPartitionsByLengthPartitioning.emplace_back(dbChunk, begin, end);        
         }
 
@@ -3522,7 +3577,7 @@ int main(int argc, char* argv[])
 
     CUERR;
 
-    if(options.numTopOutputs > 0){
+    if(options.numTopOutputs > 0 && !options.usePseudoDB){
 
         //sort the chunk results per query to find overall top results
         std::vector<float> final_alignment_scores_float(numQueries * results_per_query);
@@ -3589,7 +3644,7 @@ int main(int argc, char* argv[])
                 //std::cout << "sortedIndex " << sortedIndex << "\n";
                 const int dbChunkIndex = final_resultDbChunkIndices[arrayIndex];
                 
-                const auto& chunkData = fullDB.chunks[dbChunkIndex];
+                const auto& chunkData = fullDB.getChunks()[dbChunkIndex];
 
                 const char* headerBegin = chunkData.headers() + chunkData.headerOffsets()[sortedIndex];
                 const char* headerEnd = chunkData.headers() + chunkData.headerOffsets()[sortedIndex+1];
@@ -3615,7 +3670,5 @@ int main(int argc, char* argv[])
         CUERR;
 
     }
-
-    } //pseudodb length loop
 
 }
