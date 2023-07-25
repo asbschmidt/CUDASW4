@@ -104,6 +104,8 @@ bool parseArgs(int argc, char** argv, CudaSW4Options& options){
             options.help = true;
         }else if(arg == "--uploadFull"){
             options.loadFullDBToGpu = true;
+        }else if(arg == "--printLengthPartitions"){
+            options.printLengthPartitions = true;            
         }else if(arg == "--top"){
             options.numTopOutputs = std::atoi(argv[++i]);
         }else if(arg == "--gop"){
@@ -240,4 +242,6 @@ void printHelp(int /*argc*/, char** argv){
     std::cout << "      --pseudodb num length : Use a generated DB which contains `num` equal sequences of length `length`.\n";
     std::cout << "      --singlePassType val, --manyPassType_small val, --manyPassType_large val, --overflowType val : Select kernel types for different length partitions. "
                         "Valid values: Half2, DPXs16, DPXs32, Float.\n";
+    std::cout << "      --printLengthPartitions : Print number of sequences per length partition in db.\n";
+            
 }

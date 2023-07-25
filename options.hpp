@@ -24,6 +24,7 @@ struct CudaSW4Options{
     bool help = false;
     bool loadFullDBToGpu = false;
     bool usePseudoDB = false;
+    bool printLengthPartitions = false;
     int numTopOutputs = 10;
     int gop = -11;
     int gex = -1;

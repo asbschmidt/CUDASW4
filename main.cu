@@ -29,8 +29,6 @@
 #include "hpc_helpers/nvtx_markers.cuh"
 #include "hpc_helpers/simple_allocation.cuh"
 
-#include <cuda/annotated_ptr>
-
 #include "sequence_io.h"
 
 #include <omp.h>
@@ -38,13 +36,11 @@
 #include "dbdata.hpp"
 #include "length_partitions.hpp"
 #include "util.cuh"
-#include "convert.cuh"
-#include "kernels.cuh"
+//#include "convert.cuh"
+//#include "kernels.cuh"
 
 
-#include "half2_kernels.cuh"
-#include "dpx_s16_kernels.cuh"
-#include "manypass_float_kernel.cuh"
+#include "new_kernels.cuh"
 #include "blosum.hpp"
 
 template<class T>
@@ -162,31 +158,31 @@ struct HostGpuPartitionOffsets{
         os << "numGpus " << numGpus << "\n";
         os << "numLengthPartitions " << numLengthPartitions << "\n";
         os << "partitionSizes\n";
-        for(size_t gpu = 0; gpu < numGpus; gpu++){
-            for(size_t l = 0; l < numLengthPartitions; l++){
+        for(int gpu = 0; gpu < numGpus; gpu++){
+            for(int l = 0; l < numLengthPartitions; l++){
                 os << partitionSizes[gpu * numLengthPartitions + l] << " ";
             }
             os << "\n";
         }
         os << "\n";
         os << "horizontalPS\n";
-        for(size_t gpu = 0; gpu < numGpus; gpu++){
-            for(size_t l = 0; l < numLengthPartitions; l++){
+        for(int gpu = 0; gpu < numGpus; gpu++){
+            for(int l = 0; l < numLengthPartitions; l++){
                 os << horizontalPS[gpu * numLengthPartitions + l] << " ";
             }
             os << "\n";
         }
         os << "\n";
         os << "verticalPS\n";
-        for(size_t gpu = 0; gpu < numGpus; gpu++){
-            for(size_t l = 0; l < numLengthPartitions; l++){
+        for(int gpu = 0; gpu < numGpus; gpu++){
+            for(int l = 0; l < numLengthPartitions; l++){
                 os << verticalPS[gpu * numLengthPartitions + l] << " ";
             }
             os << "\n";
         }
         os << "\n";
         os << "totalPerLengthPartitionPS\n";
-        for(size_t l = 0; l < numLengthPartitions; l++){
+        for(int l = 0; l < numLengthPartitions; l++){
             os << totalPerLengthPartitionPS[l] << " ";
         }
         os << "\n";
@@ -469,7 +465,7 @@ std::vector<DeviceBatchCopyToPinnedPlan> computeDbCopyPlan(
     size_t currentCopyPartition = 0;
     size_t currentCopySeqInPartition = 0;
 
-    size_t processedSequences = 0;
+    //size_t processedSequences = 0;
     while(currentCopyPartition < dbPartitions.size()){
         
         size_t usedBytes = 0;
@@ -865,7 +861,7 @@ void executePinnedCopyPlanSerialAndTransferToGpu(
     //std::cout << "executePinnedCopyPlanSerialAndTransferToGpu(" << currentBuffer << ")\n";
     auto& h_chardata_vec = ws.h_chardata_vec;
     auto& h_lengthdata_vec = ws.h_lengthdata_vec;
-    auto& h_offsetdata_vec = ws.h_offsetdata_vec;
+    //auto& h_offsetdata_vec = ws.h_offsetdata_vec;
 
     auto& d_chardata_vec = ws.d_chardata_vec;
     auto& d_lengthdata_vec = ws.d_lengthdata_vec;
@@ -2028,10 +2024,10 @@ void processQueryOnGpus(
     const std::vector<cudaStream_t>& gpuStreams,
     const std::vector<std::unique_ptr<GpuWorkingSet>>& workingSets,
     const std::vector<std::vector<DBdataView>>& dbPartitionsPerGpu,
-    const std::vector<std::vector<int>>& lengthPartitionIdsPerGpu, // dbPartitions[i] belongs to the length partition lengthPartitionIds[i]
+    const std::vector<std::vector<int>>& /*lengthPartitionIdsPerGpu*/, // dbPartitions[i] belongs to the length partition lengthPartitionIds[i]
     const std::vector<std::vector<DeviceBatchCopyToPinnedPlan>>& batchPlanPerGpu,
     const std::vector<size_t>& numberOfSequencesPerGpu,
-    const std::vector<size_t>& numberOfSequencesPerGpuPrefixSum,
+    const std::vector<size_t>& /*numberOfSequencesPerGpuPrefixSum*/,
     const char* query, // may be host or device
     const int queryLength,
     bool useExtraThreadForBatchTransfer,
@@ -2175,11 +2171,11 @@ void processQueryOnGpus(
                 auto& ws = *workingSets[gpu];
                 const auto& plan = batchPlanPerGpu[gpu][processedBatchesPerGpu[gpu]];
                 int currentBuffer = 0;
-                int previousBuffer = 0;
-                cudaStream_t H2DcopyStream = ws.copyStreams[currentBuffer];
+                //int previousBuffer = 0;
+                //cudaStream_t H2DcopyStream = ws.copyStreams[currentBuffer];
                 if(!ws.singleBatchDBisOnGpu){
                     currentBuffer = ws.copyBufferIndex;
-                    H2DcopyStream = ws.copyStreams[currentBuffer];
+                    //H2DcopyStream = ws.copyStreams[currentBuffer];
                 }
 
                 const char* const inputChars = ws.d_chardata_vec[currentBuffer].data();
@@ -2314,41 +2310,41 @@ void processQueryOnGpus(
                         
                         }else if(options.singlePassType == KernelType::DPXs16){
 
-                            // constexpr int sh2bs = 256; // dpx s16 blocksize 
-                            // if (partId == 0){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 2, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 1){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 4, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 2){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 10>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 3){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 12>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 4){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 14>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 5){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 6){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 7){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 8){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 9){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 10){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 11){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 12){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 13){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 14){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 15){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 16){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 17){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 18){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 19){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 20){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 21){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 22){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 23){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 24){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 25){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 26){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 27){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 28){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 29){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 30){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 34>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 31){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 36>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 32){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 38>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                            // if (partId == 33){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 40>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            constexpr int sh2bs = 256; // dpx s16 blocksize 
+                            if (partId == 0){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 2, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 1){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 4, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 2){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 10>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 3){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 12>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 4){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 14>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 5){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 6){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 7){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 8){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 9){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 10){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 11){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 12){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 13){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 14){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 15){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 16){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 17){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 18){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 19){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 20){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 21){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 22){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 23){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 24){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 25){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 26){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 27){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 28){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 29){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 30){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 34>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 31){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 36>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 32){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 38>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 33){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 40>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
                         
                         }
                         #endif
@@ -2482,10 +2478,10 @@ void processQueryOnGpus(
                 auto& ws = *workingSets[gpu];
                 const auto& plan = batchPlanPerGpu[gpu][processedBatchesPerGpu[gpu]];
                 int currentBuffer = 0;
-                cudaStream_t H2DcopyStream = ws.copyStreams[currentBuffer];
+                //cudaStream_t H2DcopyStream = ws.copyStreams[currentBuffer];
                 if(!ws.singleBatchDBisOnGpu){
                     currentBuffer = ws.copyBufferIndex;
-                    H2DcopyStream = ws.copyStreams[currentBuffer];
+                    //H2DcopyStream = ws.copyStreams[currentBuffer];
                 }
 
                 const char* const inputChars = ws.d_chardata_vec[currentBuffer].data();
@@ -2672,8 +2668,6 @@ int main(int argc, char* argv[])
         numQueries = std::min(numQueries, maxNumQueries);
     }
 
-    const size_t  offsetBytes = (numQueries+1) * sizeof(size_t);
-
 
     std::cout << "Number of input sequences Query-File:  " << numQueries<< '\n';
     std::cout << "Number of input characters Query-File: " << totalNumQueryBytes << '\n';
@@ -2730,8 +2724,10 @@ int main(int argc, char* argv[])
     }
 
     std::cout << "DB chunk " << 0 << ": " << fullDB.getChunks()[0].numSequences() << " sequences, " << fullDB.getChunks()[0].numChars() << " characters\n";
-    for(int i = 0; i < numLengthPartitions; i++){
-        std::cout << "<= " << lengthBoundaries[i] << ": " << fullDB_numSequencesPerLengthPartition[i] << "\n";
+    if(options.printLengthPartitions){
+        for(int i = 0; i < numLengthPartitions; i++){
+            std::cout << "<= " << lengthBoundaries[i] << ": " << fullDB_numSequencesPerLengthPartition[i] << "\n";
+        }
     }
 
 
@@ -2754,8 +2750,8 @@ int main(int argc, char* argv[])
 
 
     //determine maximal and minimal read lengths
-    int64_t max_length = 0, min_length = std::numeric_limits<int64_t>::max(), avg_length = 0;
-    int64_t max_length_2 = 0, min_length_2 = std::numeric_limits<int64_t>::max(), avg_length_2 = 0;
+    size_t max_length = 0, min_length = std::numeric_limits<size_t>::max(), avg_length = 0;
+    size_t max_length_2 = 0, min_length_2 = std::numeric_limits<size_t>::max(), avg_length_2 = 0;
     for (int i=0; i<numQueries; i++) {
         if (queryLengths[i] > max_length) max_length = queryLengths[i];
         if (queryLengths[i] < min_length) min_length = queryLengths[i];
@@ -2871,7 +2867,7 @@ int main(int argc, char* argv[])
             //     lengthPartitionIdsForGpus[gpu].push_back(lengthPartitionId);
             // }
             for(int gpu = 0; gpu < numGpus; gpu++){
-                if(gpu < partitionedByGpu.size()){
+                if(gpu < int(partitionedByGpu.size())){
                     subPartitionsForGpus[gpu].push_back(partitionedByGpu[gpu]);
                     lengthPartitionIdsForGpus[gpu].push_back(lengthPartitionId);
                 }else{
@@ -2975,7 +2971,7 @@ int main(int argc, char* argv[])
     
 
 
-    const uint results_per_query = std::min(size_t(options.numTopOutputs), totalNumberOfSequencesInDB);
+    const int results_per_query = std::min(size_t(options.numTopOutputs), totalNumberOfSequencesInDB);
     MyPinnedBuffer<float> alignment_scores_float(numQueries *numDBChunks * results_per_query);
     MyPinnedBuffer<size_t> sorted_indices(numQueries *numDBChunks * results_per_query);
     MyPinnedBuffer<int> resultDbChunkIndices(numQueries *numDBChunks * results_per_query);
@@ -3107,28 +3103,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    //set blosum for legacy kernels
-    for(int i = 0; i < numGpus; i++){
-        cudaSetDevice(deviceIds[i]);
-        switch(options.blosumType){
-            case BlosumType::BLOSUM50_20:
-                {
-                    const auto blosum = BLOSUM50_20::get1D();
-                    const int dim = BLOSUM50_20::dim;
-                    assert(dim == 21);
-                    cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));                    
-                }
-                break;
-            default: //BlosumType::BLOSUM62_20
-                {
-                    const auto blosum = BLOSUM62_20::get1D();
-                    const int dim = BLOSUM62_20::dim;
-                    assert(dim == 21);
-                    cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
-                }
-                break;
-        }
-    }
     //set blosum for new kernels
     setProgramWideBlosum(options.blosumType);
 
@@ -3426,31 +3400,6 @@ int main(int argc, char* argv[])
             }        
         }
 
-        auto convert_AA_back = [&](const auto& AA) {
-            if (AA == 0) return 'A';
-            if (AA == 1) return 'R';
-            if (AA == 2) return 'N';
-            if (AA == 3) return 'D';
-            if (AA == 4) return 'C';
-            if (AA == 5) return 'Q';
-            if (AA == 6) return 'E';
-            if (AA == 7) return 'G';
-            if (AA == 8) return 'H';
-            if (AA == 9) return 'I';
-            if (AA == 10) return 'L';
-            if (AA == 11) return 'K';
-            if (AA == 12) return 'M';
-            if (AA == 13) return 'F';
-            if (AA == 14) return 'P';
-            if (AA == 15) return 'S';
-            if (AA == 16) return 'T';
-            if (AA == 17) return 'W';
-            if (AA == 18) return 'Y';
-            if (AA == 19) return 'V';
-            return '-'; //  else
-        };
-
-
         for (int i=0; i<numQueries; i++) {
             int numOverflows = 0;
             for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
@@ -3484,7 +3433,7 @@ int main(int argc, char* argv[])
                 // std::transform(chunkData.chars() + chunkData.offsets()[sortedIndex], 
                 //     chunkData.chars() + chunkData.offsets()[sortedIndex] + chunkData.lengths()[sortedIndex] ,
                 //     std::ostream_iterator<char>{cout},
-                //     convert_AA_back);
+                //     inverse_convert_AA);
                 // std::cout << "\n";
             }
         }

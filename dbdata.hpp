@@ -177,8 +177,8 @@ struct PseudoDBdata{
         metaData.numSequencesPerLengthPartition.resize(boundaries.size());
 
         for(int i = 0; i < int(boundaries.size()); i++){
-            int lower = i == 0 ? 0 : boundaries[i-1];
-            int upper = boundaries[i];
+            size_t lower = i == 0 ? 0 : boundaries[i-1];
+            size_t upper = boundaries[i];
 
             if(lower < length && length <= upper){
                 metaData.numSequencesPerLengthPartition[i] = num;

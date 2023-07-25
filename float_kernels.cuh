@@ -1,5 +1,5 @@
-#ifndef MANYPASS_FLOAT_KERNEL_CUH
-#define MANYPASS_FLOAT_KERNEL_CUH
+#ifndef FLOAT_KERNELS_CUH
+#define FLOAT_KERNELS_CUH
 
 #include <cuda_fp16.h>
 #include "blosum.hpp"
