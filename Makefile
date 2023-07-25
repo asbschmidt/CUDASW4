@@ -30,7 +30,7 @@ COMPILE = $(COMPILER) $(NVCC_FLAGS) $(DIALECT) $(OPTIMIZATION) $(WARNINGS) -c $<
 
 
 # link object files into executable
-$(ARTIFACT): main.o sequence_io.o dbdata.o
+$(ARTIFACT): main.o sequence_io.o dbdata.o options.o
 	$(COMPILER) $^ -o $(ARTIFACT) $(LDFLAGS)
 
 $(MAKEDB): makedb.o sequence_io.o dbdata.o
@@ -52,6 +52,10 @@ sequence_io.o : sequence_io.cpp sequence_io.h
 
 # compile pure C++ files
 dbdata.o : dbdata.cpp dbdata.hpp mapped_file.hpp sequence_io.h length_partitions.hpp
+	$(COMPILE)
+
+# compile pure C++ files
+options.o : options.cpp options.hpp
 	$(COMPILE)
 
 # compile pure C++ files

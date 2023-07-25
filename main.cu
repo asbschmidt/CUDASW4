@@ -34,15 +34,16 @@
 #include "sequence_io.h"
 
 #include <omp.h>
+#include "options.hpp"
 #include "dbdata.hpp"
 #include "length_partitions.hpp"
 #include "util.cuh"
 #include "convert.cuh"
 #include "kernels.cuh"
 
-//#include "manypass_half2_kernel.cuh"
-//#include "singlepass_half2_kernel.cuh"
+
 #include "half2_kernels.cuh"
+#include "dpx_s16_kernels.cuh"
 #include "manypass_float_kernel.cuh"
 #include "blosum.hpp"
 
@@ -107,197 +108,7 @@ struct TopNMaximaArray{
     size_t* d_indices;
 };
 
-struct CudaSW4Options{
-    /*
-        if loadFullDBToGpu == false, create a double buffer for maxBatchBytes and maxBatchSequences
-        in both gpu mem and pinned host mem to stream the DB to the gpu for each query.
-        if loadFullDBToGpu == true, attempt to allocate enough gpu memory to store the full db. if
-        this fails, fall back to double buffer mode
-    */
-    bool help = false;
-    bool loadFullDBToGpu = false;
-    bool usePseudoDB = false;
-    int numTopOutputs = 10;
-    int gop = -11;
-    int gex = -1;
-    int pseudoDBLength = 0;
-    int pseudoDBSize = 0;
-    BlosumType blosumType = BlosumType::BLOSUM62_20;
-    size_t maxBatchBytes = 32ull * 1024ull * 1024ull;
-    size_t maxBatchSequences = 10'000'000;
-    size_t maxTempBytes = 4ull * 1024ull * 1024ull * 1024ull;
 
-    std::string queryFile;
-    std::string dbPrefix;
-};
-
-void printOptions(const CudaSW4Options& options){
-    std::cout << "Selected options:\n";
-    std::cout << "loadFullDBToGpu: " << options.loadFullDBToGpu << "\n";
-    std::cout << "numTopOutputs: " << options.numTopOutputs << "\n";
-    std::cout << "gop: " << options.gop << "\n";
-    std::cout << "gex: " << options.gex << "\n";
-    std::cout << "maxBatchBytes: " << options.maxBatchBytes << "\n";
-    std::cout << "maxBatchSequences: " << options.maxBatchSequences << "\n";
-    std::cout << "maxTempBytes: " << options.maxTempBytes << "\n";
-    std::cout << "queryFile: " << options.queryFile << "\n";
-    std::cout << "blosum: " << to_string(options.blosumType) << "\n";
-    if(options.usePseudoDB){
-        std::cout << "Using built-in pseudo db with " << options.pseudoDBSize << " sequences of length " << options.pseudoDBLength << "\n";
-    }else{
-        std::cout << "Using db file: " << options.dbPrefix << "\n";
-    }
-    
-}
-
-bool parseArgs(int argc, char** argv, CudaSW4Options& options){
-
-    auto parseMemoryString = [](const std::string& string) -> std::size_t{
-        if(string.length() > 0){
-            std::size_t factor = 1;
-            bool foundSuffix = false;
-            switch(string.back()){
-                case 'K':{
-                    factor = std::size_t(1) << 10; 
-                    foundSuffix = true;
-                }break;
-                case 'M':{
-                    factor = std::size_t(1) << 20;
-                    foundSuffix = true;
-                }break;
-                case 'G':{
-                    factor = std::size_t(1) << 30;
-                    foundSuffix = true;
-                }break;
-            }
-            if(foundSuffix){
-                const auto numberString = string.substr(0, string.size()-1);
-                return factor * std::stoull(numberString);
-            }else{
-                return std::stoull(string);
-            }
-        }else{
-            return 0;
-        }
-    };
-
-    bool gotQuery = false;
-    bool gotDB = false;
-    bool gotGex = false;
-    bool gotGop = false;
-
-    for(int i = 1; i < argc; i++){
-        const std::string arg = argv[i];
-        if(arg == "--help"){
-            options.help = true;
-        }else if(arg == "--uploadFull"){
-            options.loadFullDBToGpu = true;
-        }else if(arg == "--top"){
-            options.numTopOutputs = std::atoi(argv[++i]);
-        }else if(arg == "--gop"){
-            options.gop = std::atoi(argv[++i]);
-            gotGop = true;
-        }else if(arg == "--gex"){
-            options.gex = std::atoi(argv[++i]);
-            gotGex = true;
-        }else if(arg == "--maxBatchBytes"){
-            options.maxBatchBytes = parseMemoryString(argv[++i]);
-        }else if(arg == "--maxBatchSequences"){
-            options.maxBatchSequences = std::atoi(argv[++i]);
-        }else if(arg == "--maxTempBytes"){
-            options.maxTempBytes = parseMemoryString(argv[++i]);
-        }else if(arg == "--query"){
-            options.queryFile = argv[++i];
-            gotQuery = true;
-        }else if(arg == "--db"){
-            options.dbPrefix = argv[++i];
-            gotDB = true;
-        }else if(arg == "--mat"){
-            const std::string val = argv[++i];
-            #ifdef CAN_USE_FULL_BLOSUM
-            if(val == "blosum45") options.blosumType = BlosumType::BLOSUM45;
-            if(val == "blosum50") options.blosumType = BlosumType::BLOSUM50;
-            if(val == "blosum62") options.blosumType = BlosumType::BLOSUM62;
-            if(val == "blosum80") options.blosumType = BlosumType::BLOSUM80;
-            if(val == "blosum45_20") options.blosumType = BlosumType::BLOSUM45_20;
-            if(val == "blosum50_20") options.blosumType = BlosumType::BLOSUM50_20;
-            if(val == "blosum62_20") options.blosumType = BlosumType::BLOSUM62_20;
-            if(val == "blosum80_20") options.blosumType = BlosumType::BLOSUM80_20;
-            #else
-            if(val == "blosum45") options.blosumType = BlosumType::BLOSUM45_20;
-            if(val == "blosum50") options.blosumType = BlosumType::BLOSUM50_20;
-            if(val == "blosum62") options.blosumType = BlosumType::BLOSUM62_20;
-            if(val == "blosum80") options.blosumType = BlosumType::BLOSUM80_20;
-            if(val == "blosum45_20") options.blosumType = BlosumType::BLOSUM45_20;
-            if(val == "blosum50_20") options.blosumType = BlosumType::BLOSUM50_20;
-            if(val == "blosum62_20") options.blosumType = BlosumType::BLOSUM62_20;
-            if(val == "blosum80_20") options.blosumType = BlosumType::BLOSUM80_20;
-            #endif
-        }else if(arg == "--pseudodb"){
-            options.usePseudoDB = true;
-            options.pseudoDBSize = std::atoi(argv[++i]);
-            options.pseudoDBLength = std::atoi(argv[++i]);
-            gotDB = true;
-        }else{
-            std::cout << "Unexpected arg " << arg << "\n";
-        }
-    }
-
-    //set specific gop gex for blosum if no gop gex was set
-    if(options.blosumType == BlosumType::BLOSUM45 || options.blosumType == BlosumType::BLOSUM45_20){
-        if(!gotGop) options.gop = -13;
-        if(!gotGex) options.gex = -2;
-    }
-    if(options.blosumType == BlosumType::BLOSUM50 || options.blosumType == BlosumType::BLOSUM50_20){
-        if(!gotGop) options.gop = -13;
-        if(!gotGex) options.gex = -2;
-    }
-    if(options.blosumType == BlosumType::BLOSUM62 || options.blosumType == BlosumType::BLOSUM62_20){
-        if(!gotGop) options.gop = -11;
-        if(!gotGex) options.gex = -1;
-    }
-    if(options.blosumType == BlosumType::BLOSUM80 || options.blosumType == BlosumType::BLOSUM80_20){
-        if(!gotGop) options.gop = -10;
-        if(!gotGex) options.gex = -1;
-    }
-
-    if(!gotQuery){
-        std::cout << "Query is missing\n";
-        return false;
-    }
-    if(!gotDB){
-        std::cout << "DB prefix is missing\n";
-        return false;
-    }
-
-    return true;
-}
-
-void printHelp(int argc, char** argv){
-    CudaSW4Options defaultoptions;
-
-    std::cout << "Usage: " << argv[0] << " [options]\n";
-    std::cout << "Options: \n";
-    std::cout << "      --query queryfile : Mandatory. Fasta or Fastq\n";
-    std::cout << "      --db dbPrefix : Mandatory. The DB to query against. The same dbPrefix as used for makedb\n";
-    std::cout << "      --top val : Output the val best scores. Default val = " << defaultoptions.numTopOutputs << "\n";
-    std::cout << "      --maxTempBytes val : Size of temp storage in GPU memory. Can use suffix K,M,G. Default val = " << defaultoptions.maxTempBytes << "\n";
-    std::cout << "      --maxBatchBytes val : Process DB in batches of at most val bytes. Can use suffix K,M,G. Default val = " << defaultoptions.maxBatchBytes << "\n";
-    std::cout << "      --maxBatchSequences val : Process DB in batches of at most val sequences. Default val = " << defaultoptions.maxBatchSequences << "\n";
-    std::cout << "      --uploadFull : Do not process DB in smaller batches. Copy full DB to GPU before processing queries.\n";
-    //std::cout << "      --blosum50 : Use BLOSUM50 substitution matrix.\n";
-    //std::cout << "      --blosum62 : Use BLOSUM62 substitution matrix.\n";
-    #ifdef CAN_USE_FULL_BLOSUM
-    std::cout << "      --mat val: Set substitution matrix. Supported values: blosum45, blosum50, blosum62, blosum80, blosum45_20, blosum50_20, blosum62_20, blosum80_20. "
-                        "Default: " << to_string(defaultoptions.blosumType) << "\n";
-    #else 
-    std::cout << "      --mat val: Set substitution matrix. Supported values: blosum45, blosum50, blosum62, blosum80. "
-                        "Default: " << to_string_nodim(defaultoptions.blosumType) << "\n";
-    #endif
-    std::cout << "      --gop val : Gap open score. Overwrites our blosum-dependent default score.\n";
-    std::cout << "      --gex val : Gap extend score. Overwrites our blosum-dependent default score.\n";
-    std::cout << "      --pseudodb num length : Use a generated DB which contains `num` equal sequences of length `length`.\n";
-}
 
 
 
@@ -473,7 +284,7 @@ struct GpuWorkingSet{
         cudaMemset(Fillchar.data(), 20, 16*512);
 
         forkStreamEvent = CudaEvent{cudaEventDisableTiming}; CUERR;
-        numWorkStreamsWithoutTemp = 1;
+        numWorkStreamsWithoutTemp = 10;
         workstreamIndex = 0;
         workStreamsWithoutTemp.resize(numWorkStreamsWithoutTemp);
 
@@ -2463,135 +2274,182 @@ void processQueryOnGpus(
                         #endif
 
                         #if 1
-                        constexpr int sh2bs = 256; // single half2 blocksize 
-                        if (partId == 0){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 2, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 1){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 4, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 2){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 10>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 3){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 12>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 4){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 14>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 5){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 6){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 7){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 8){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 9){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 10){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 11){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 12){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 13){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 14){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 15){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 16){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 17){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 18){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 19){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 20){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 21){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 22){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 23){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 24){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 25){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 26){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 27){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 28){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 29){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 30){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 34>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 31){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 36>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 32){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 38>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
-                        if (partId == 33){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 40>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
- 
+                        if(options.singlePassType == KernelType::Half2){
+                            
+                            constexpr int sh2bs = 256; // single half2 blocksize 
+                            if (partId == 0){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 2, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 1){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 4, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 2){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 10>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 3){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 12>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 4){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 14>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 5){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 6){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 7){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 8){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 9){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 10){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 11){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 12){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 13){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 8, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 14){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 15){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 16){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 17){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 18){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 19){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 20){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 21){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 16, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 22){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 23){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 24){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 25){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 26){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 27){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 28){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 29){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 30){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 34>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 31){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 36>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 32){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 38>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            if (partId == 33){call_NW_local_affine_Protein_single_pass_half2_new<sh2bs, 32, 40>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        
+                        }else if(options.singlePassType == KernelType::DPXs16){
+
+                            // constexpr int sh2bs = 256; // dpx s16 blocksize 
+                            // if (partId == 0){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 2, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 1){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 4, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 2){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 10>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 3){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 12>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 4){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 14>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 5){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 16>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 6){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 7){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 8){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 9){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 10){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 11){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 12){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 0, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 13){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 8, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 14){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 15){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 16){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 17){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 18){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 19){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 20){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 21){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 16, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 22){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 18>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 23){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 20>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 24){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 22>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 25){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 24>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 26){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 26>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 27){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 28>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 28){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 30>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 29){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 32>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 30){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 34>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 31){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 36>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 32){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 38>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                            // if (partId == 33){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 40>(options.blosumType,inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, queryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
+                        
+                        }
                         #endif
 
-                        //if (partId > 15 && partId < 44){
-                        //if (partId == 16){
+
                         if(partId == numLengthPartitions - 2){
-                            constexpr int blocksize = 32 * 8;
-                            constexpr int groupsize = 32;
-                            constexpr int groupsPerBlock = blocksize / groupsize;
-                            constexpr int alignmentsPerGroup = 2;
-                            constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
-                            
-                            const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * alignmentsPerBlock * queryLength;
-
-                            const size_t maxNumBlocks = ws.numTempBytes / (tempBytesPerBlockPerBuffer * 2);
-                            const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(numSeq));
-
-                            const size_t numBlocksPerIteration = SDIV(maxSubjectsPerIteration, alignmentsPerBlock);
-                            const size_t requiredTempBytes = tempBytesPerBlockPerBuffer * 2 * numBlocksPerIteration;
-
-                            __half2* d_temp = (__half2*)ws.d_tempStorageHE.data();
-                            __half2* d_tempHcol2 = d_temp;
-                            __half2* d_tempEcol2 = (__half2*)(((char*)d_tempHcol2) + requiredTempBytes / 2);
-
-                            const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
-
-                            for(int iter = 0; iter < numIters; iter++){
-                                const size_t begin = iter * maxSubjectsPerIteration;
-                                const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
-                                const size_t num = end - begin;                      
-
-                                cudaMemsetAsync(d_temp, 0, requiredTempBytes, ws.workStreamForTempUsage); CUERR;
-                                //std::cout << "iter " << iter << " / " << numIters << " gridsize " << SDIV(num, alignmentsPerBlock) << "\n";
-
-                                //cudaDeviceSynchronize(); CUERR;
+                            if(options.manyPassType_small == KernelType::Half2){
+                                constexpr int blocksize = 32 * 8;
+                                constexpr int groupsize = 32;
+                                constexpr int groupsPerBlock = blocksize / groupsize;
+                                constexpr int alignmentsPerGroup = 2;
+                                constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
                                 
-                                //NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
-                                call_NW_local_affine_Protein_many_pass_half2_new<blocksize, groupsize, 22>(
-                                    options.blosumType,
-                                    inputChars, 
-                                    d_scores, 
-                                    d_tempHcol2, 
-                                    d_tempEcol2, 
-                                    inputOffsets, 
-                                    inputLengths, 
-                                    d_selectedPositions + begin, 
-                                    num, 
-                                    d_overflow_positions, 
-                                    d_overflow_number, 
-                                    1, 
-                                    queryLength, 
-                                    gop, 
-                                    gex,
-                                    ws.workStreamForTempUsage
-                                ); CUERR
+                                const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * alignmentsPerBlock * queryLength;
+
+                                const size_t maxNumBlocks = ws.numTempBytes / (tempBytesPerBlockPerBuffer * 2);
+                                const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(numSeq));
+
+                                const size_t numBlocksPerIteration = SDIV(maxSubjectsPerIteration, alignmentsPerBlock);
+                                const size_t requiredTempBytes = tempBytesPerBlockPerBuffer * 2 * numBlocksPerIteration;
+
+                                __half2* d_temp = (__half2*)ws.d_tempStorageHE.data();
+                                __half2* d_tempHcol2 = d_temp;
+                                __half2* d_tempEcol2 = (__half2*)(((char*)d_tempHcol2) + requiredTempBytes / 2);
+
+                                const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
+
+                                for(int iter = 0; iter < numIters; iter++){
+                                    const size_t begin = iter * maxSubjectsPerIteration;
+                                    const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
+                                    const size_t num = end - begin;                      
+
+                                    cudaMemsetAsync(d_temp, 0, requiredTempBytes, ws.workStreamForTempUsage); CUERR;
+                                    //std::cout << "iter " << iter << " / " << numIters << " gridsize " << SDIV(num, alignmentsPerBlock) << "\n";
+
+                                    //cudaDeviceSynchronize(); CUERR;
+                                    
+                                    //NW_local_affine_Protein_many_pass_half2<groupsize, 12><<<SDIV(num, alignmentsPerBlock), blocksize, 0, ws.workStreamForTempUsage>>>(
+                                    call_NW_local_affine_Protein_many_pass_half2_new<blocksize, groupsize, 22>(
+                                        options.blosumType,
+                                        inputChars, 
+                                        d_scores, 
+                                        d_tempHcol2, 
+                                        d_tempEcol2, 
+                                        inputOffsets, 
+                                        inputLengths, 
+                                        d_selectedPositions + begin, 
+                                        num, 
+                                        d_overflow_positions, 
+                                        d_overflow_number, 
+                                        1, 
+                                        queryLength, 
+                                        gop, 
+                                        gex,
+                                        ws.workStreamForTempUsage
+                                    ); CUERR
+                                }
+                            }else{
+                                assert(false);
                             }
                         }
 
-                        //if (partId == 44){
-                        //if (partId == 17){
+
                         if(partId == numLengthPartitions - 1){
-                            const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * SDIV(queryLength,32) * 32;
-                            const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
+                            if(options.manyPassType_large == KernelType::Float){
+                                const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * SDIV(queryLength,32) * 32;
+                                const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
-                            float2* d_temp = (float2*)ws.d_tempStorageHE.data();
-                            float2* d_tempHcol2 = d_temp;
-                            float2* d_tempEcol2 = (float2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+                                float2* d_temp = (float2*)ws.d_tempStorageHE.data();
+                                float2* d_tempHcol2 = d_temp;
+                                float2* d_tempEcol2 = (float2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
 
-                            const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
-                            for(int iter = 0; iter < numIters; iter++){
-                                const size_t begin = iter * maxSubjectsPerIteration;
-                                const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
-                                const size_t num = end - begin;
+                                const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
+                                for(int iter = 0; iter < numIters; iter++){
+                                    const size_t begin = iter * maxSubjectsPerIteration;
+                                    const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
+                                    const size_t num = end - begin;
 
-                                cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, ws.workStreamForTempUsage); CUERR;
+                                    cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, ws.workStreamForTempUsage); CUERR;
 
-                                //cudaDeviceSynchronize(); CUERR;
+                                    //cudaDeviceSynchronize(); CUERR;
 
-                                //NW_local_affine_read4_float_query_Protein<32, 32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
-                                call_NW_local_affine_read4_float_query_Protein_new<20>(
-                                    options.blosumType,
-                                    inputChars, 
-                                    d_scores, 
-                                    d_tempHcol2, 
-                                    d_tempEcol2, 
-                                    inputOffsets, 
-                                    inputLengths, 
-                                    d_selectedPositions + begin, 
-                                    num,
-                                    queryLength, 
-                                    gop, 
-                                    gex,
-                                    ws.workStreamForTempUsage
-                                ); CUERR 
+                                    //NW_local_affine_read4_float_query_Protein<32, 32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
+                                    call_NW_local_affine_read4_float_query_Protein_new<20>(
+                                        options.blosumType,
+                                        inputChars, 
+                                        d_scores, 
+                                        d_tempHcol2, 
+                                        d_tempEcol2, 
+                                        inputOffsets, 
+                                        inputLengths, 
+                                        d_selectedPositions + begin, 
+                                        num,
+                                        queryLength, 
+                                        gop, 
+                                        gex,
+                                        ws.workStreamForTempUsage
+                                    ); CUERR 
+                                }
+                            }else{
+                                assert(false);
                             }
                         }
 
@@ -2636,47 +2494,9 @@ void processQueryOnGpus(
                 int* const d_overflow_number = ws.d_overflow_number.data() + currentBuffer;
                 size_t* const d_overflow_positions = ws.d_overflow_positions_vec[currentBuffer].data();
 
-                //auto maxReduceArray = ws.getMaxReduceArray(numberOfSequencesPerGpuPrefixSum[gpu] + processedSequencesPerGpu[gpu]);
                 auto maxReduceArray = ws.getMaxReduceArray(processedSequencesPerGpu[gpu]);
 
-                // cudaMemcpyAsync(h_overflow_number, d_overflow_number, sizeof(int), D2H, ws.workStreamForTempUsage); CUERR;
-                // cudaStreamSynchronize(ws.workStreamForTempUsage); CUERR;
-                // if(*h_overflow_number > 0){
-                //     //std::cout << "numOverflow " << *h_overflow_number << "\n";
-                //     const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * SDIV(queryLength,32) * 32;
-                //     const size_t maxSubjectsPerIteration = std::min(size_t(*h_overflow_number), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
-
-                //     float2* d_temp = (float2*)ws.d_tempStorageHE.data();
-                //     float2* d_tempHcol2 = d_temp;
-                //     float2* d_tempEcol2 = (float2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
-
-                //     const int numIters =  SDIV(*h_overflow_number, maxSubjectsPerIteration);
-                //     //std::cout << "numIters " << numIters << "\n";
-                //     for(int iter = 0; iter < numIters; iter++){
-                //         const size_t begin = iter * maxSubjectsPerIteration;
-                //         const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : *h_overflow_number;
-                //         const size_t num = end - begin;
-
-                //         cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, ws.workStreamForTempUsage); CUERR;
-
-                //         //NW_local_affine_read4_float_query_Protein<32, 32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
-                //         NW_local_affine_read4_float_query_Protein_new<12><<<num, 32, 0, ws.workStreamForTempUsage>>>(
-                //             inputChars, 
-                //             //ws.devAlignmentScoresFloat.data() + processedSequences, 
-                //             maxReduceArray,
-                //             d_tempHcol2, 
-                //             d_tempEcol2, 
-                //             inputOffsets, 
-                //             inputLengths, 
-                //             d_overflow_positions + begin, 
-                //             queryLength, 
-                //             gop, 
-                //             gex
-                //         ); CUERR 
-                //     }
-                // }
-
-                {
+                if(options.overflowType == KernelType::Float){
                     //std::cerr << "overflow processing\n";
                     float2* d_temp = (float2*)ws.d_tempStorageHE.data();
 
@@ -2712,6 +2532,8 @@ void processQueryOnGpus(
                     }else{
                         assert(false);
                     }
+                }else{
+                    assert(false);
                 }
 
                 //update total num overflows for query
