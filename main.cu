@@ -2402,6 +2402,56 @@ void processQueryOnGpus(
                                         ws.workStreamForTempUsage
                                     ); CUERR
                                 }
+                            }else if(options.manyPassType_small == KernelType::DPXs16){
+                                constexpr int blocksize = 32 * 8;
+                                constexpr int groupsize = 32;
+                                constexpr int groupsPerBlock = blocksize / groupsize;
+                                constexpr int alignmentsPerGroup = 2;
+                                constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
+                                
+                                const size_t tempBytesPerBlockPerBuffer = sizeof(short2) * alignmentsPerBlock * queryLength;
+
+                                const size_t maxNumBlocks = ws.numTempBytes / (tempBytesPerBlockPerBuffer * 2);
+                                const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(numSeq));
+
+                                const size_t numBlocksPerIteration = SDIV(maxSubjectsPerIteration, alignmentsPerBlock);
+                                const size_t requiredTempBytes = tempBytesPerBlockPerBuffer * 2 * numBlocksPerIteration;
+
+                                short2* d_temp = (short2*)ws.d_tempStorageHE.data();
+                                short2* d_tempHcol2 = d_temp;
+                                short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + requiredTempBytes / 2);
+
+                                const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
+
+                                for(int iter = 0; iter < numIters; iter++){
+                                    const size_t begin = iter * maxSubjectsPerIteration;
+                                    const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
+                                    const size_t num = end - begin;                      
+
+                                    cudaMemsetAsync(d_temp, 0, requiredTempBytes, ws.workStreamForTempUsage); CUERR;
+                                    //std::cout << "iter " << iter << " / " << numIters << " gridsize " << SDIV(num, alignmentsPerBlock) << "\n";
+
+                                    //cudaDeviceSynchronize(); CUERR;
+                                    
+                                    call_NW_local_affine_many_pass_s16_DPX_new<blocksize, groupsize, 22>(
+                                        options.blosumType,
+                                        inputChars, 
+                                        d_scores, 
+                                        d_tempHcol2, 
+                                        d_tempEcol2, 
+                                        inputOffsets, 
+                                        inputLengths, 
+                                        d_selectedPositions + begin, 
+                                        num, 
+                                        d_overflow_positions, 
+                                        d_overflow_number, 
+                                        1, 
+                                        queryLength, 
+                                        gop, 
+                                        gex,
+                                        ws.workStreamForTempUsage
+                                    ); CUERR
+                                }
                             }else{
                                 assert(false);
                             }

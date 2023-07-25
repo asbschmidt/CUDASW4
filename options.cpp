@@ -19,7 +19,7 @@ bool isValidSinglePassType(KernelType type){
 }
 
 bool isValidMultiPassType_small(KernelType type){
-    return (type == KernelType::Half2);
+    return (type == KernelType::Half2 || type == KernelType::DPXs16);
 }
 
 bool isValidMultiPassType_large(KernelType type){
