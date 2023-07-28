@@ -1026,12 +1026,12 @@ struct DPXAligner_s16{
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
 template <int group_size, int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
-// #if __CUDA_ARCH__ >= 800
-// __launch_bounds__(256,2)
-// //__launch_bounds__(512,1)
-// #else
-// __launch_bounds__(256)
-// #endif
+#if __CUDA_ARCH__ >= 800
+__launch_bounds__(256,2)
+//__launch_bounds__(512,1)
+#else
+__launch_bounds__(256)
+#endif
 __global__
 void NW_local_affine_many_pass_s16_DPX_new(
     __grid_constant__ const char * const devChars,
@@ -1156,12 +1156,12 @@ void call_NW_local_affine_many_pass_s16_DPX_new(
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
 template <int blocksize, int group_size, int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
-// #if __CUDA_ARCH__ >= 800
-// __launch_bounds__(256,2)
-// //__launch_bounds__(512,1)
-// #else
-// __launch_bounds__(256)
-// #endif
+#if __CUDA_ARCH__ >= 800
+__launch_bounds__(256,2)
+//__launch_bounds__(512,1)
+#else
+__launch_bounds__(256)
+#endif
 __global__
 void NW_local_affine_single_pass_s16_DPX_new(
     __grid_constant__ const char * const devChars,
