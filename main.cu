@@ -30,6 +30,7 @@
 #include "hpc_helpers/simple_allocation.cuh"
 
 #include "sequence_io.h"
+#include "kseqpp/kseqpp.hpp"
 
 #include <omp.h>
 #include "options.hpp"
@@ -2702,16 +2703,38 @@ int main(int argc, char* argv[])
 
 
 	// read all sequences from FASTA or FASTQ file: query file
-	sequence_batch batch = read_all_sequences_and_headers_from_file(options.queryFile);
+	sequence_batch batchOfQueries;
+    {
+        //batchOfQueries = read_all_sequences_and_headers_from_file(options.queryFile);
+        constexpr int ALIGN = 4;
+        kseqpp::KseqPP reader(options.queryFile);
+        batchOfQueries.offsets.push_back(0);
+        while(reader.next() >= 0){
+            const std::string& header = reader.getCurrentHeader();
+            const std::string& sequence = reader.getCurrentSequence();
+            //we ignore quality
+            //const std::string& quality = reader.getCurrentQuality();
+
+            batchOfQueries.chars.insert(batchOfQueries.chars.end(), sequence.begin(), sequence.end());
+            //padding
+            if(batchOfQueries.chars.size() % ALIGN != 0){
+                batchOfQueries.chars.insert(batchOfQueries.chars.end(), ALIGN - batchOfQueries.chars.size() % ALIGN, ' ');
+            }
+
+            batchOfQueries.offsets.push_back(batchOfQueries.chars.size());
+            batchOfQueries.lengths.push_back(sequence.size());
+            batchOfQueries.headers.push_back(header);
+        }
+    }
 	std::cout << "Read Protein Query File 1\n";
 
     // chars   = concatenation of all sequences
     // offsets = starting indices of individual sequences (1st: 0, last: one behind end of 'chars')
-    char*   queryChars       = batch.chars.data();
-    const size_t* queryOffsets     = batch.offsets.data();
-    const size_t* queryLengths      = batch.lengths.data();
-    const size_t  totalNumQueryBytes   = batch.chars.size();
-    int numQueries = batch.lengths.size();
+    char*   queryChars       = batchOfQueries.chars.data();
+    const size_t* queryOffsets     = batchOfQueries.offsets.data();
+    const size_t* queryLengths      = batchOfQueries.lengths.data();
+    const size_t  totalNumQueryBytes   = batchOfQueries.chars.size();
+    int numQueries = batchOfQueries.lengths.size();
     const char* maxNumQueriesString = std::getenv("ALIGNER_MAX_NUM_QUERIES");
     if(maxNumQueriesString != nullptr){
         int maxNumQueries = std::atoi(maxNumQueriesString);
@@ -3457,7 +3480,7 @@ int main(int argc, char* argv[])
             }
             std::cout << numOverflows << " total overflow positions \n";
             std::cout << "Query Length:" << queryLengths[i] << " Header: ";
-            std::cout << batch.headers[i] << '\n';
+            std::cout << batchOfQueries.headers[i] << '\n';
 
             for(int j = 0; j < results_per_query; ++j) {
                 const int arrayIndex = i*results_per_query+j;
