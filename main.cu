@@ -311,7 +311,7 @@ struct GpuWorkingSet{
         if(hasEnoughMemoryForFullDB){
             d_fulldb_chardata.resize(numSubjectBytes);
             d_fulldb_lengthdata.resize(numSubjects);
-            d_fulldb_offsetdata.resize(numSubjects);
+            d_fulldb_offsetdata.resize(numSubjects+1);
             
             //d_selectedPositions.resize(numSubjects);
             
