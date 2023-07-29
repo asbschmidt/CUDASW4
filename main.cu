@@ -252,16 +252,13 @@ struct GpuWorkingSet{
     using MaxReduceArray = TopNMaximaArray<maxReduceArraySize>;
 
     GpuWorkingSet(
-        //size_t gpuMemoryLimit,
+        size_t gpumemlimit,
         size_t num_queries,
         size_t bytesForQueries,
         const CudaSW4Options& options,
         const std::vector<DBdataView>& dbPartitions
     ){
         cudaGetDevice(&deviceId);
-
-        size_t freeGpuMemStart, totalGpuMem;
-        cudaMemGetInfo(&freeGpuMemStart, &totalGpuMem);
 
         size_t numSubjects = 0;
         size_t numSubjectBytes = 0;
@@ -273,6 +270,11 @@ struct GpuWorkingSet{
         devChars.resize(bytesForQueries); CUERR
         devOffsets.resize(num_queries+1); CUERR
         devLengths.resize(num_queries); CUERR
+
+        size_t usedGpuMem = 0;
+        usedGpuMem += sizeof(int) * maxReduceArraySize; // d_maxReduceArrayLocks
+        usedGpuMem += sizeof(float) * maxReduceArraySize; // d_maxReduceArrayScores
+        usedGpuMem += sizeof(size_t) * maxReduceArraySize; // d_maxReduceArrayIndices
 
         d_maxReduceArrayLocks.resize(maxReduceArraySize);
         d_maxReduceArrayScores.resize(maxReduceArraySize);
@@ -289,7 +291,21 @@ struct GpuWorkingSet{
         workstreamIndex = 0;
         workStreamsWithoutTemp.resize(numWorkStreamsWithoutTemp);
 
-        const bool hasEnoughMemoryForFullDB = options.loadFullDBToGpu;
+        size_t memoryRequiredForFullDB = 0;
+        memoryRequiredForFullDB += numSubjectBytes; // d_fulldb_chardata
+        memoryRequiredForFullDB += sizeof(size_t) * numSubjects; //d_fulldb_lengthdata
+        memoryRequiredForFullDB += sizeof(size_t) * (numSubjects+1); //d_fulldb_offsetdata
+        memoryRequiredForFullDB += sizeof(size_t) * numSubjects * 2; //d_overflow_positions_vec
+
+        size_t memoryRequiredForBatchedProcessing = 0;
+        memoryRequiredForBatchedProcessing += options.maxBatchBytes * 2; // d_chardata_vec
+        memoryRequiredForBatchedProcessing += sizeof(size_t) * options.maxBatchSequences * 2; //d_lengthdata_vec
+        memoryRequiredForBatchedProcessing += sizeof(size_t) * (options.maxBatchSequences+1) * 2; //d_offsetdata_vec
+        memoryRequiredForBatchedProcessing += sizeof(size_t) * options.maxBatchSequences * 2; //d_overflow_positions_vec
+
+        //const bool hasEnoughMemoryForFullDB = options.loadFullDBToGpu;
+        const bool hasEnoughMemoryForFullDB = usedGpuMem + memoryRequiredForFullDB + options.maxTempBytes <= gpumemlimit;
+        const bool hasEnoughMemoryForBatchedDB = usedGpuMem + memoryRequiredForBatchedProcessing + options.maxTempBytes <= gpumemlimit;
 
         numCopyBuffers = 2;
 
@@ -306,9 +322,8 @@ struct GpuWorkingSet{
         d_overflow_number.resize(numCopyBuffers);
         h_overflow_number.resize(numCopyBuffers);
         d_overflow_positions_vec.resize(numCopyBuffers);
-        
 
-        if(hasEnoughMemoryForFullDB){
+        auto allocateForFullDBProcessing = [&](){
             d_fulldb_chardata.resize(numSubjectBytes);
             d_fulldb_lengthdata.resize(numSubjects);
             d_fulldb_offsetdata.resize(numSubjects+1);
@@ -324,7 +339,10 @@ struct GpuWorkingSet{
                 d_overflow_positions_vec[i].resize(numSubjects);
             }
             canStoreFullDB = true;
-        }else{
+            usedGpuMem += memoryRequiredForFullDB;
+        };
+
+        auto allocateForBatchedProcessing = [&](){
             //d_selectedPositions.resize(options.maxBatchSequences);
 
             for(int i = 0; i < numCopyBuffers; i++){
@@ -339,6 +357,26 @@ struct GpuWorkingSet{
                 d_overflow_positions_vec[i].resize(options.maxBatchSequences);
             }
             canStoreFullDB = false;
+            usedGpuMem += memoryRequiredForBatchedProcessing;
+        };
+        
+
+        if(hasEnoughMemoryForFullDB){
+            try{
+                allocateForFullDBProcessing();
+            }catch(...){
+                if(hasEnoughMemoryForBatchedDB){
+                    allocateForBatchedProcessing();
+                }else{
+                    throw std::runtime_error("Not enough GPU memory available on device id " + std::to_string(deviceId));
+                }   
+            }
+        }else{
+            if(hasEnoughMemoryForBatchedDB){
+                allocateForBatchedProcessing();
+            }else{
+                throw std::runtime_error("Not enough GPU memory available on device id " + std::to_string(deviceId));
+            }
         }        
         // thrust::sequence(
         //     thrust::device,
@@ -346,14 +384,12 @@ struct GpuWorkingSet{
         //     d_selectedPositions.end(),
         //     size_t(0)
         // );
+        //allocations for db processing did not actually
 
-        size_t free, total;
-        cudaMemGetInfo(&free, &total); CUERR;
-        if(free > options.maxTempBytes){
-            numTempBytes = options.maxTempBytes;
-        }else{
-            numTempBytes = free;
-        }
+        assert(usedGpuMem <= gpumemlimit);
+
+        numTempBytes = std::min(options.maxTempBytes, gpumemlimit - usedGpuMem);
+
         std::cerr << "numTempBytes: " << numTempBytes << "\n";
         d_tempStorageHE.resize(numTempBytes);
     }
@@ -3016,8 +3052,8 @@ int main(int argc, char* argv[])
     //nvtx::push_range("ALLOC_MEM", 0);
 	helpers::CpuTimer allocTimer("ALLOC_MEM");
 
-    for(int i = 0; i < numGpus; i++){
-        cudaSetDevice(deviceIds[i]);
+    for(int gpu = 0; gpu < numGpus; gpu++){
+        cudaSetDevice(deviceIds[gpu]);
 
         // size_t max_batch_char_bytes = 0;
         // size_t max_batch_num_sequences = 0;
@@ -3042,12 +3078,31 @@ int main(int argc, char* argv[])
         // std::cout << "max_batch_num_sequences " << max_batch_num_sequences << "\n";
         // std::cout << "max_batch_offset_bytes " << max_batch_offset_bytes << "\n";
 
-        workingSets[i] = std::make_unique<GpuWorkingSet>(
+        size_t maxGpuMem = options.maxGpuMem;
+
+        size_t freeMem, totalMem;
+        cudaMemGetInfo(&freeMem, &totalMem);
+        constexpr size_t safety = 256*1024*1024;
+        size_t memlimit = std::min(freeMem, maxGpuMem);
+        if(memlimit > safety){
+            memlimit -= safety;
+        }
+
+        std::cout << "gpu " << gpu << " may use " << memlimit << " bytes. ";
+
+        workingSets[gpu] = std::make_unique<GpuWorkingSet>(
+            memlimit,
             numQueries,
             totalNumQueryBytes,
             options,
-            subPartitionsForGpus_perDBchunk[0][i]
+            subPartitionsForGpus_perDBchunk[0][gpu]
         );
+
+        if(workingSets[gpu]->canStoreFullDB){
+            std::cout << "It can store its DB in memory\n";
+        }else{
+            std::cout << "It will process its DB in batches\n";
+        }
 
         //spin up the host callback thread
         auto noop = [](void*){};
@@ -3171,14 +3226,14 @@ int main(int argc, char* argv[])
     std::cout << "Starting FULLSCAN_CUDA: \n";
     helpers::GpuTimer fullscanTimer(masterStream1, "FULLSCAN_CUDA");
 
-    for(int i = 0; i < numGpus; i++){
-        cudaSetDevice(deviceIds[i]);
-        auto& ws = *workingSets[i];
-        cudaMemcpyAsync(ws.devChars.data(), queryChars, totalNumQueryBytes, cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
-        cudaMemcpyAsync(ws.devOffsets.data(), queryOffsets, sizeof(size_t) * (numQueries+1), cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
-        cudaMemcpyAsync(ws.devLengths.data(), queryLengths, sizeof(size_t) * (numQueries), cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
-        NW_convert_protein<<<numQueries, 128, 0, gpuStreams[i]>>>(ws.devChars.data(), ws.devOffsets.data()); CUERR
-    }
+    // for(int i = 0; i < numGpus; i++){
+    //     cudaSetDevice(deviceIds[i]);
+    //     auto& ws = *workingSets[i];
+    //     cudaMemcpyAsync(ws.devChars.data(), queryChars, totalNumQueryBytes, cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
+    //     cudaMemcpyAsync(ws.devOffsets.data(), queryOffsets, sizeof(size_t) * (numQueries+1), cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
+    //     cudaMemcpyAsync(ws.devLengths.data(), queryLengths, sizeof(size_t) * (numQueries), cudaMemcpyHostToDevice, gpuStreams[i]); CUERR
+    //     NW_convert_protein<<<numQueries, 128, 0, gpuStreams[i]>>>(ws.devChars.data(), ws.devOffsets.data()); CUERR
+    // }
 
     std::vector<cudaStream_t> rawGpuStreams;
     for(const auto& s : gpuStreams){

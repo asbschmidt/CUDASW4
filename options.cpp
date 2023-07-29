@@ -50,6 +50,8 @@ void printOptions(const CudaSW4Options& options){
     }else{
         std::cout << "Using db file: " << options.dbPrefix << "\n";
     }
+    std::cout << "memory limit per gpu: " << (options.maxGpuMem == std::numeric_limits<size_t>::max() ? 
+        "unlimited" : std::to_string(options.maxGpuMem)) << "\n"; 
     
 }
 
@@ -120,6 +122,8 @@ bool parseArgs(int argc, char** argv, CudaSW4Options& options){
             options.maxBatchSequences = std::atoi(argv[++i]);
         }else if(arg == "--maxTempBytes"){
             options.maxTempBytes = parseMemoryString(argv[++i]);
+        }else if(arg == "--maxGpuMem"){
+            options.maxGpuMem = parseMemoryString(argv[++i]);
         }else if(arg == "--query"){
             options.queryFile = argv[++i];
             gotQuery = true;
@@ -227,6 +231,8 @@ void printHelp(int /*argc*/, char** argv){
     std::cout << "      --maxTempBytes val : Size of temp storage in GPU memory. Can use suffix K,M,G. Default val = " << defaultoptions.maxTempBytes << "\n";
     std::cout << "      --maxBatchBytes val : Process DB in batches of at most val bytes. Can use suffix K,M,G. Default val = " << defaultoptions.maxBatchBytes << "\n";
     std::cout << "      --maxBatchSequences val : Process DB in batches of at most val sequences. Default val = " << defaultoptions.maxBatchSequences << "\n";
+    std::cout << "      --maxGpuMem val : Try not to use more than val bytes of gpu memory per gpu. Uses all available gpu memory by default";
+    
     std::cout << "      --uploadFull : Do not process DB in smaller batches. Copy full DB to GPU before processing queries.\n";
     //std::cout << "      --blosum50 : Use BLOSUM50 substitution matrix.\n";
     //std::cout << "      --blosum62 : Use BLOSUM62 substitution matrix.\n";
