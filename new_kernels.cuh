@@ -6,7 +6,7 @@
 
 #include "convert.cuh"
 
-__device__ char4 constantQuery4[2048];
+//__device__ char4 constantQuery4[2048];
 
 typedef union
 {
