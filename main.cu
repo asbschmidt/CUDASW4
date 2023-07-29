@@ -1368,6 +1368,7 @@ void processQueryOnGpus(
                                         inputLengths, 
                                         d_selectedPositions + begin, 
                                         num,
+                                        d_query,
                                         queryLength, 
                                         gop, 
                                         gex,
@@ -1412,6 +1413,8 @@ void processQueryOnGpus(
                 int* const d_overflow_number = variables.d_overflow_number;
                 size_t* const d_overflow_positions = variables.d_overflow_positions;
 
+                const char4* const d_query = reinterpret_cast<char4*>(ws.d_query.data());
+
                 auto maxReduceArray = ws.getMaxReduceArray(variables.processedSequences);
 
                 if(options.overflowType == KernelType::Float){
@@ -1430,7 +1433,10 @@ void processQueryOnGpus(
                             inputOffsets, 
                             inputLengths, 
                             d_overflow_positions, 
-                            queryLength, gop, gex
+                            d_query,
+                            queryLength, 
+                            gop, 
+                            gex
                         ); CUERR
                     #ifdef CAN_USE_FULL_BLOSUM
                     }else if(hostBlosumDim == 25){
@@ -1444,7 +1450,10 @@ void processQueryOnGpus(
                             inputOffsets, 
                             inputLengths, 
                             d_overflow_positions, 
-                            queryLength, gop, gex
+                            d_query,
+                            queryLength, 
+                            gop, 
+                            gex
                         ); CUERR
                     #endif
                     }else{
