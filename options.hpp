@@ -40,6 +40,8 @@ struct CudaSW4Options{
     size_t maxBatchSequences = 10'000'000;
     size_t maxTempBytes = 4ull * 1024ull * 1024ull * 1024ull;
 
+    size_t maxGpuMem = std::numeric_limits<size_t>::max();
+
     std::string queryFile;
     std::string dbPrefix;
 };
