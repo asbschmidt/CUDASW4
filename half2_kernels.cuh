@@ -15,7 +15,6 @@ struct Half2Aligner{
     __half2* shared_blosum;
 
     int numSelected;
-    int length_2;
     float gap_open;
     float gap_extend;
     PositionsIterator d_positions_of_selected_lengths;
@@ -35,7 +34,6 @@ struct Half2Aligner{
         const size_t* devLengths_,
         PositionsIterator d_positions_of_selected_lengths_,
         int numSelected_,
-        int length_2_,
         float gap_open_,
         float gap_extend_
     ) : shared_blosum(shared_blosum_),
@@ -46,7 +44,6 @@ struct Half2Aligner{
         devLengths(devLengths_),
         d_positions_of_selected_lengths(d_positions_of_selected_lengths_),
         numSelected(numSelected_),
-        length_2(length_2_),
         gap_open(gap_open_),
         gap_extend(gap_extend_)
     {
@@ -79,8 +76,8 @@ struct Half2Aligner{
     void checkHEindex(int x, int line) const{
         // if(x < 0){printf("line %d\n", line);}
         // assert(x >= 0); //positive index
-        // assert(2*(blockDim.x/group_size)*blockIdx.x * length_2 <= base_3 + x);
-        // assert(base_3+x < 2*(blockDim.x/group_size)*(blockIdx.x+1) * length_2);
+        // assert(2*(blockDim.x/group_size)*blockIdx.x * queryLength <= base_3 + x);
+        // assert(base_3+x < 2*(blockDim.x/group_size)*(blockIdx.x+1) * queryLength);
     };
 
     __device__
@@ -334,20 +331,22 @@ struct Half2Aligner{
 
     __device__
     void computeFirstPass(__half2& maximum, const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1
+        const char* const devS1, const int length_S1,
+        const char4* query4,
+        int queryLength
     ) const{
         // FIRST PASS (of many passes)
         // Note first pass has always full seqeunce length
 
         int counter = 1;
         char query_letter = 20;
-        char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
+        char4 new_query_letter4 = query4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
         int check_last;
         int check_last2;
         computeCheckLast(check_last, check_last2);
-        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x%check_last)/group_size))*size_t(length_2);
+        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x%check_last)/group_size))*size_t(queryLength);
         __half2* const devTempHcol = (&devTempHcol2[base_3]);
         __half2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -385,7 +384,7 @@ struct Half2Aligner{
         shuffle_new_query(new_query_letter4);
         counter++;
 
-        for (int k = 4; k <= length_2+28; k+=4) {
+        for (int k = 4; k <= queryLength+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
@@ -420,29 +419,29 @@ struct Half2Aligner{
                 devTempEcol[offset_out]=E_temp_out;
                 offset_out += group_size;
             }
-            if (k != length_2+28) shuffle_H_E_temp_out(H_temp_out, E_temp_out);
+            if (k != queryLength+28) shuffle_H_E_temp_out(H_temp_out, E_temp_out);
             shuffle_query(new_query_letter4.w, query_letter);
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
             shuffle_new_query(new_query_letter4);
             if (counter%group_size == 0) {
-                new_query_letter4 = constantQuery4[offset];
+                new_query_letter4 = query4[offset];
                 offset += group_size;
             }
             counter++;
         }
-        //if (length_2 % 4 == 0) {
+        //if (queryLength % 4 == 0) {
             //temp = __shfl_up_sync(0xFFFFFFFF, *((int*)(&H_temp_out)), 1, 32);
             //H_temp_out = *((half2*)(&temp));
             //temp = __shfl_up_sync(0xFFFFFFFF, *((int*)(&E_temp_out)), 1, 32);
             //E_temp_out = *((half2*)(&temp));
         //}
-        if (length_2%4 == 1) {
+        if (queryLength%4 == 1) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
         }
 
-        if (length_2%4 == 2) {
+        if (queryLength%4 == 2) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
@@ -453,7 +452,7 @@ struct Half2Aligner{
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
         }
-        if (length_2%4 == 3) {
+        if (queryLength%4 == 3) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
@@ -470,7 +469,7 @@ struct Half2Aligner{
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
         }
-        const int final_out = length_2 % 32;
+        const int final_out = queryLength % 32;
         const int from_thread_id = 32 - final_out;
 
         //printf("tid %d, offset_out %d, from_thread_id %d\n", threadIdx.x, offset_out, from_thread_id);
@@ -483,17 +482,19 @@ struct Half2Aligner{
 
     __device__
     void computeMiddlePass(int pass, __half2& maximum, const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1
+        const char* const devS1, const int length_S1,
+        const char4* query4,
+        int queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
-        char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
+        char4 new_query_letter4 = query4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
         int check_last;
         int check_last2;
         computeCheckLast(check_last, check_last2);
-        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x%check_last)/group_size))*size_t(length_2);
+        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x%check_last)/group_size))*size_t(queryLength);
         __half2* const devTempHcol = (&devTempHcol2[base_3]);
         __half2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -544,7 +545,7 @@ struct Half2Aligner{
         shuffle_new_query(new_query_letter4);
         counter++;
 
-        for (int k = 4; k <= length_2+28; k+=4) {
+        for (int k = 4; k <= queryLength+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
@@ -581,12 +582,12 @@ struct Half2Aligner{
                 devTempEcol[offset_out]=E_temp_out;
                 offset_out += group_size;
             }
-            if (k != length_2+28) shuffle_H_E_temp_out(H_temp_out, E_temp_out);
+            if (k != queryLength+28) shuffle_H_E_temp_out(H_temp_out, E_temp_out);
             shuffle_query(new_query_letter4.w, query_letter);
             shuffle_affine_penalty(H_temp_in, E_temp_in, E, penalty_here31, penalty_diag, penalty_left);
             shuffle_new_query(new_query_letter4);
             if (counter%group_size == 0) {
-                new_query_letter4 = constantQuery4[offset];
+                new_query_letter4 = query4[offset];
                 offset += group_size;
             }
             shuffle_H_E_temp_in(H_temp_in, E_temp_in);
@@ -598,19 +599,19 @@ struct Half2Aligner{
             }
             counter++;
         }
-        //if (length_2 % 4 == 0) {
+        //if (queryLength % 4 == 0) {
             //temp = __shfl_up_sync(0xFFFFFFFF, *((int*)(&H_temp_out)), 1, 32);
             //H_temp_out = *((half2*)(&temp));
             //temp = __shfl_up_sync(0xFFFFFFFF, *((int*)(&E_temp_out)), 1, 32);
             //E_temp_out = *((half2*)(&temp));
         //}
-        if (length_2%4 == 1) {
+        if (queryLength%4 == 1) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
         }
 
-        if (length_2%4 == 2) {
+        if (queryLength%4 == 2) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
@@ -622,7 +623,7 @@ struct Half2Aligner{
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
         }
-        if (length_2%4 == 3) {
+        if (queryLength%4 == 3) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
@@ -641,7 +642,7 @@ struct Half2Aligner{
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
         }
-        const int final_out = length_2 % 32;
+        const int final_out = queryLength % 32;
         const int from_thread_id = 32 - final_out;
 
         if (threadIdx.x>=from_thread_id) {
@@ -653,17 +654,19 @@ struct Half2Aligner{
 
     __device__ 
     void computeFinalPass(int passes, __half2& maximum, const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1
+        const char* const devS1, const int length_S1,
+        const char4* query4,
+        int queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
-        char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
+        char4 new_query_letter4 = query4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
         int check_last;
         int check_last2;
         computeCheckLast(check_last, check_last2);
-        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x%check_last)/group_size))*size_t(length_2);
+        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x%check_last)/group_size))*size_t(queryLength);
         __half2* const devTempHcol = (&devTempHcol2[base_3]);
         __half2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -699,7 +702,7 @@ struct Half2Aligner{
         shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(H_temp_in, E_temp_in, E, penalty_here31, penalty_diag, penalty_left);
         shuffle_H_E_temp_in(H_temp_in, E_temp_in);
-        if (length_2+thread_result >=2) {
+        if (queryLength+thread_result >=2) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.z, query_letter);
@@ -708,7 +711,7 @@ struct Half2Aligner{
             shuffle_H_E_temp_in(H_temp_in, E_temp_in);
         }
 
-        if (length_2+thread_result >=3) {
+        if (queryLength+thread_result >=3) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.w, query_letter);
@@ -718,10 +721,10 @@ struct Half2Aligner{
             shuffle_new_query(new_query_letter4);
             counter++;
         }
-        if (length_2+thread_result >=4) {
+        if (queryLength+thread_result >=4) {
             int k;
             //for (k = 5; k < lane_2+thread_result-2; k+=4) {
-            for (k = 4; k <= length_2+(thread_result-3); k+=4) {
+            for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
 
@@ -751,7 +754,7 @@ struct Half2Aligner{
                 shuffle_affine_penalty(H_temp_in, E_temp_in, E, penalty_here31, penalty_diag, penalty_left);
                 shuffle_new_query(new_query_letter4);
                 if (counter%group_size == 0) {
-                    new_query_letter4 = constantQuery4[offset];
+                    new_query_letter4 = query4[offset];
                     offset += group_size;
                 }
                 shuffle_H_E_temp_in(H_temp_in, E_temp_in);
@@ -764,7 +767,7 @@ struct Half2Aligner{
                 counter++;
             }
 
-            if ((k-1)-(length_2+thread_result) > 0) {
+            if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.x, query_letter);
@@ -774,7 +777,7 @@ struct Half2Aligner{
             }
 
 
-            if ((k-1)-(length_2+thread_result) > 0) {
+            if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.y, query_letter);
@@ -783,7 +786,7 @@ struct Half2Aligner{
                 k++;
             }
 
-            if ((k-1)-(length_2+thread_result) > 0) {
+            if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             }
@@ -792,11 +795,13 @@ struct Half2Aligner{
 
     __device__ 
     void computeSinglePass(__half2& maximum, const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1, const int warpMaxLength
+        const char* const devS1, const int length_S1, const int warpMaxLength,
+        const char4* query4,
+        int queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
-        char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
+        char4 new_query_letter4 = query4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
 
@@ -820,14 +825,14 @@ struct Half2Aligner{
         shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
 
-        if (length_2+thread_result >=2) {
+        if (queryLength+thread_result >=2) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.z, query_letter);
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
         }
 
-        if (length_2+thread_result >=3) {
+        if (queryLength+thread_result >=3) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.w, query_letter);
@@ -835,10 +840,10 @@ struct Half2Aligner{
             shuffle_new_query(new_query_letter4);
             counter++;
         }
-        if (length_2+thread_result >=4) {
+        if (queryLength+thread_result >=4) {
             int k;
             //for (k = 5; k < lane_2+thread_result-2; k+=4) {
-            for (k = 4; k <= length_2+(thread_result-3); k+=4) {
+            for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
 
@@ -861,13 +866,13 @@ struct Half2Aligner{
                 shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
                 shuffle_new_query(new_query_letter4);
                 if (counter%group_size == 0) {
-                    new_query_letter4 = constantQuery4[offset];
+                    new_query_letter4 = query4[offset];
                     offset += group_size;
                 }
                 counter++;
             }
 
-            if ((k-1)-(length_2+thread_result) > 0) {
+            if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.x, query_letter);
@@ -876,7 +881,7 @@ struct Half2Aligner{
             }
 
 
-            if ((k-1)-(length_2+thread_result) > 0) {
+            if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.y, query_letter);
@@ -884,7 +889,7 @@ struct Half2Aligner{
                 k++;
             }
 
-            if ((k-1)-(length_2+thread_result) > 0) {
+            if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             }
@@ -897,7 +902,9 @@ struct Half2Aligner{
         ScoreOutputIterator const devAlignmentScores,
         const bool overflow_check, 
         int* const d_overflow_number, 
-        size_t* const d_overflow_positions
+        size_t* const d_overflow_positions,
+        const char4* query4,
+        int queryLength
     ) const{
         int check_last;
         int check_last2;
@@ -926,13 +933,13 @@ struct Half2Aligner{
 
         __half2 maximum = __float2half2_rn(0.0);
 
-        computeFirstPass(maximum, devS0, length_S0, devS1, length_S1);
+        computeFirstPass(maximum, devS0, length_S0, devS1, length_S1, query4, queryLength);
 
         for (int pass = 1; pass < passes-1; pass++) {
-            computeMiddlePass(pass, maximum, devS0, length_S0, devS1, length_S1);
+            computeMiddlePass(pass, maximum, devS0, length_S0, devS1, length_S1, query4, queryLength);
         }
 
-        computeFinalPass(passes, maximum, devS0, length_S0, devS1, length_S1);
+        computeFinalPass(passes, maximum, devS0, length_S0, devS1, length_S1, query4, queryLength);
 
         for (int offset=group_size/2; offset>0; offset/=2){
             maximum = __hmax2(maximum,__shfl_down_sync(0xFFFFFFFF,maximum,offset,group_size));
@@ -971,11 +978,11 @@ struct Half2Aligner{
                 int check_last2;
                 computeCheckLast(check_last, check_last2);
                 if (blockIdx.x < gridDim.x-1) {
-                    devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-                    devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+                    devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)]] =  maximum.y; // lane_2+thread_result+1-queryLength%4; penalty_here_array[(length-1)%numRegs];
+                    devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-queryLength%4; penalty_here_array[(length-1)%numRegs];
                 } else {
-                    devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-                    if (!check_last2 || (threadIdx.x%check_last) < check_last-group_size) devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+                    devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]] =  maximum.y; // lane_2+thread_result+1-queryLength%4; penalty_here_array[(length-1)%numRegs];
+                    if (!check_last2 || (threadIdx.x%check_last) < check_last-group_size) devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-queryLength%4; penalty_here_array[(length-1)%numRegs];
                 }
             }
         }
@@ -987,7 +994,9 @@ struct Half2Aligner{
         ScoreOutputIterator const devAlignmentScores,
         const bool overflow_check, 
         int* const d_overflow_number, 
-        size_t* const d_overflow_positions
+        size_t* const d_overflow_positions,
+        const char4* query4,
+        int queryLength
     ) const{
         int check_last;
         int check_last2;
@@ -1018,7 +1027,7 @@ struct Half2Aligner{
         if(passes == 1){
             __half2 maximum = __float2half2_rn(0.0);
 
-            computeSinglePass(maximum, devS0, length_S0, devS1, length_S1, warpMaxLength);
+            computeSinglePass(maximum, devS0, length_S0, devS1, length_S1, warpMaxLength, query4, queryLength);
 
             // if(length_S0 == 251){
             //     printf("251 y, %f\n", float(maximum.y));
@@ -1064,11 +1073,11 @@ struct Half2Aligner{
                     int check_last2;
                     computeCheckLast(check_last, check_last2);
                     if (blockIdx.x < gridDim.x-1) {
-                        devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-                        devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+                        devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)]] =  maximum.y; // lane_2+thread_result+1-queryLength%4; penalty_here_array[(length-1)%numRegs];
+                        devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-queryLength%4; penalty_here_array[(length-1)%numRegs];
                     } else {
-                        devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]] =  maximum.y; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
-                        if (!check_last2 || (threadIdx.x%check_last) < check_last-group_size) devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-length_2%4; penalty_here_array[(length-1)%numRegs];
+                        devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]] =  maximum.y; // lane_2+thread_result+1-queryLength%4; penalty_here_array[(length-1)%numRegs];
+                        if (!check_last2 || (threadIdx.x%check_last) < check_last-group_size) devAlignmentScores[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]] =  maximum.x; // lane_2+thread_result+1-queryLength%4; penalty_here_array[(length-1)%numRegs];
                     }
                 }
             }
@@ -1102,7 +1111,8 @@ void NW_local_affine_Protein_many_pass_half2_new(
 	__grid_constant__ size_t* const d_overflow_positions,
 	__grid_constant__ int* const d_overflow_number,
 	__grid_constant__ const bool overflow_check,
-    __grid_constant__ const int length_2,
+    __grid_constant__ const char4* const query4,
+    __grid_constant__ const int queryLength,
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ) {
@@ -1119,12 +1129,11 @@ void NW_local_affine_Protein_many_pass_half2_new(
         devLengths,
         d_positions_of_selected_lengths,
         numSelected,
-        length_2,
         gap_open,
         gap_extend
     );
 
-    processor.computeMultiPass(devAlignmentScores, overflow_check, d_overflow_number, d_overflow_positions);
+    processor.computeMultiPass(devAlignmentScores, overflow_check, d_overflow_number, d_overflow_positions, query4, queryLength);
 }
 
 
@@ -1143,7 +1152,8 @@ void call_NW_local_affine_Protein_many_pass_half2_new(
 	size_t* const d_overflow_positions,
 	int* const d_overflow_number,
 	const bool overflow_check,
-    const int length_2,
+    const char4* query4,
+    const int queryLength,
     const float gap_open,
     const float gap_extend,
     cudaStream_t stream
@@ -1173,7 +1183,8 @@ void call_NW_local_affine_Protein_many_pass_half2_new(
             d_overflow_positions,
             d_overflow_number,
             overflow_check,
-            length_2,
+            query4,
+            queryLength,
             gap_open,
             gap_extend
         ); CUERR;
@@ -1197,7 +1208,8 @@ void call_NW_local_affine_Protein_many_pass_half2_new(
             d_overflow_positions,
             d_overflow_number,
             overflow_check,
-            length_2,
+            query4,
+            queryLength,
             gap_open,
             gap_extend
         ); CUERR;
@@ -1230,7 +1242,8 @@ void NW_local_affine_Protein_single_pass_half2_new(
 	__grid_constant__ size_t* const d_overflow_positions,
 	__grid_constant__ int* const d_overflow_number,
 	__grid_constant__ const bool overflow_check,
-    __grid_constant__ const int length_2,
+    __grid_constant__ const char4* const query4,
+    __grid_constant__ const int queryLength,
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ) {
@@ -1249,7 +1262,7 @@ void NW_local_affine_Protein_single_pass_half2_new(
     //     printf("offset %lu\n", devOffsets[0]);
     //     printf("length %lu\n", devLengths[0]);
     //     printf("d_positions_of_selected_lengths %lu\n", d_positions_of_selected_lengths[0]);
-    //     printf("length_2 %d\n", length_2);
+    //     printf("queryLength %d\n", queryLength);
     //     printf("gap_open %f\n", gap_open);
     //     printf("gap_extend %f\n", gap_extend);
     // }
@@ -1266,12 +1279,11 @@ void NW_local_affine_Protein_single_pass_half2_new(
         devLengths,
         d_positions_of_selected_lengths,
         numSelected,
-        length_2,
         gap_open,
         gap_extend
     );
 
-    processor.computeSinglePass(devAlignmentScores, overflow_check, d_overflow_number, d_overflow_positions);
+    processor.computeSinglePass(devAlignmentScores, overflow_check, d_overflow_number, d_overflow_positions, query4, queryLength);
 }
 
 
@@ -1287,7 +1299,8 @@ void call_NW_local_affine_Protein_single_pass_half2_new(
 	size_t* const d_overflow_positions,
 	int* const d_overflow_number,
 	const bool overflow_check,
-    const int length_2,
+    const char4* query4,
+    const int queryLength,
     const float gap_open,
     const float gap_extend,
     cudaStream_t stream
@@ -1314,7 +1327,8 @@ void call_NW_local_affine_Protein_single_pass_half2_new(
             d_overflow_positions,
             d_overflow_number,
             overflow_check,
-            length_2,
+            query4,
+            queryLength,
             gap_open,
             gap_extend
         );
@@ -1334,7 +1348,8 @@ void call_NW_local_affine_Protein_single_pass_half2_new(
             d_overflow_positions,
             d_overflow_number,
             overflow_check,
-            length_2,
+            query4,
+            queryLength,
             gap_open,
             gap_extend
         );

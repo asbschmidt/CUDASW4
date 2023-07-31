@@ -16,7 +16,6 @@ struct ManyPassFloat{
     float* shared_blosum;
 
     int numSelected;
-    int length_2;
     float gap_open;
     float gap_extend;
     PositionsIterator d_positions_of_selected_lengths;
@@ -35,7 +34,6 @@ struct ManyPassFloat{
         const size_t* devOffsets_,
         const size_t* devLengths_,
         PositionsIterator d_positions_of_selected_lengths_,
-        int length_2_,
         float gap_open_,
         float gap_extend_
     ) : shared_blosum(shared_blosum_),
@@ -45,7 +43,6 @@ struct ManyPassFloat{
         devOffsets(devOffsets_),
         devLengths(devLengths_),
         d_positions_of_selected_lengths(d_positions_of_selected_lengths_),
-        length_2(length_2_),
         gap_open(gap_open_),
         gap_extend(gap_extend_)
     {
@@ -62,8 +59,8 @@ struct ManyPassFloat{
     void checkHEindex(int x, int line) const{
         // if(x < 0){printf("line %d\n", line);}
         // assert(x >= 0); //positive index
-        // assert(2*(blockDim.x/group_size)*blockIdx.x * length_2 <= base_3 + x);
-        // assert(base_3+x < 2*(blockDim.x/group_size)*(blockIdx.x+1) * length_2);
+        // assert(2*(blockDim.x/group_size)*blockIdx.x * queryLength <= base_3 + x);
+        // assert(base_3+x < 2*(blockDim.x/group_size)*(blockIdx.x+1) * queryLength);
     };
 
     __device__
@@ -276,18 +273,23 @@ struct ManyPassFloat{
 
 
     __device__
-    void computeFirstPass(float& maximum, const char* const devS0, const int length_S0
+    void computeFirstPass(
+        float& maximum, 
+        const char* const devS0, 
+        const int length_S0,
+        const char4* query4,
+        int queryLength
     ) const{
         // FIRST PASS (of many passes)
         // Note first pass has always full seqeunce length
 
         int counter = 1;
         char query_letter = 20;
-        char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
+        char4 new_query_letter4 = query4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
 
-        const size_t base_3 = size_t(blockIdx.x)*size_t(length_2);
+        const size_t base_3 = size_t(blockIdx.x)*size_t(queryLength);
         float2* const devTempHcol = (&devTempHcol2[base_3]);
         float2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -348,7 +350,7 @@ struct ManyPassFloat{
             counter++;
         }
 
-        for (int k = 32; k <= length_2+28; k+=4) {
+        for (int k = 32; k <= queryLength+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
@@ -384,26 +386,26 @@ struct ManyPassFloat{
             shuffle_affine_penalty(0.f, negInftyFloat, E, penalty_here31, penalty_diag, penalty_left);
             shuffle_new_query(new_query_letter4);
             if (counter%group_size == 0) {
-                new_query_letter4 = constantQuery4[offset];
+                new_query_letter4 = query4[offset];
                 offset += group_size;
             }
             counter++;
         }
-        if (length_2 % 4 == 0) {
+        if (queryLength % 4 == 0) {
             const double temp1 = __shfl_up_sync(0xFFFFFFFF, *((double*)(&H_temp_out)), 1, 32);
             H_temp_out = *((float2*)(&temp1));
             const double temp2 = __shfl_up_sync(0xFFFFFFFF, *((double*)(&E_temp_out)), 1, 32);
             E_temp_out = *((float2*)(&temp2));
         }
 
-        if (length_2%4 == 1) {
+        if (queryLength%4 == 1) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
             set_H_E_temp_out_y(penalty_here31, E, H_temp_out, E_temp_out);
         }
 
-        if (length_2%4 == 2) {
+        if (queryLength%4 == 2) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
@@ -413,7 +415,7 @@ struct ManyPassFloat{
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_y(penalty_here31, E, H_temp_out, E_temp_out);
         }
-        if (length_2%4 == 3) {
+        if (queryLength%4 == 3) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
@@ -430,7 +432,7 @@ struct ManyPassFloat{
             set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
             set_H_E_temp_out_y(penalty_here31, E, H_temp_out, E_temp_out);
         }
-        const int final_out = length_2 % 64;
+        const int final_out = queryLength % 64;
         const int from_thread_id = 32 - ((final_out+1)/2);
 
         //printf("tid %d, offset_out %d, from_thread_id %d\n", threadIdx.x, offset_out, from_thread_id);
@@ -442,15 +444,21 @@ struct ManyPassFloat{
     }
 
     __device__
-    void computeMiddlePass(int pass, float& maximum, const char* const devS0, const int length_S0
+    void computeMiddlePass(
+        int pass, 
+        float& maximum, 
+        const char* const devS0, 
+        const int length_S0,
+        const char4* query4,
+        int queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
-        char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
+        char4 new_query_letter4 = query4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
 
-        const size_t base_3 = size_t(blockIdx.x)*size_t(length_2);
+        const size_t base_3 = size_t(blockIdx.x)*size_t(queryLength);
         float2* const devTempHcol = (&devTempHcol2[base_3]);
         float2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -526,7 +534,7 @@ struct ManyPassFloat{
 
             counter++;
         }
-        for (int k = 32; k <= length_2+28; k+=4) {
+        for (int k = 32; k <= queryLength+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
@@ -562,7 +570,7 @@ struct ManyPassFloat{
             shuffle_affine_penalty(H_temp_in.y, E_temp_in.y, E, penalty_here31, penalty_diag, penalty_left);
             shuffle_new_query(new_query_letter4);
             if (counter%group_size == 0) {
-                new_query_letter4 = constantQuery4[offset];
+                new_query_letter4 = query4[offset];
                 offset += group_size;
             }
             shuffle_H_E_temp_in(H_temp_in, E_temp_in);
@@ -575,20 +583,20 @@ struct ManyPassFloat{
             counter++;
         }
 
-        if (length_2 % 4 == 0) {
+        if (queryLength % 4 == 0) {
             const double temp1 = __shfl_up_sync(0xFFFFFFFF, *((double*)(&H_temp_out)), 1, 32);
             H_temp_out = *((float2*)(&temp1));
             const double temp2 = __shfl_up_sync(0xFFFFFFFF, *((double*)(&E_temp_out)), 1, 32);
             E_temp_out = *((float2*)(&temp2));
         }
-        if (length_2 % 4 == 1) {
+        if (queryLength % 4 == 1) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
             set_H_E_temp_out_y(penalty_here31, E, H_temp_out, E_temp_out);
         }        
 
-        if (length_2%4 == 2) {
+        if (queryLength%4 == 2) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
@@ -597,7 +605,7 @@ struct ManyPassFloat{
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_y(E, penalty_here31, H_temp_out, E_temp_out);
         }
-        if (length_2%4 == 3) {
+        if (queryLength%4 == 3) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_x(E, penalty_here31, H_temp_out, E_temp_out);
@@ -614,7 +622,7 @@ struct ManyPassFloat{
             set_H_E_temp_out_x(E, penalty_here31, H_temp_out, E_temp_out);
             set_H_E_temp_out_y(E, penalty_here31, H_temp_out, E_temp_out);
         }
-        const int final_out = length_2 % 64;
+        const int final_out = queryLength % 64;
         const int from_thread_id = 32 - ((final_out+1)/2);
 
         if (threadIdx.x>=from_thread_id) {
@@ -625,15 +633,21 @@ struct ManyPassFloat{
     }
 
     __device__ 
-    void computeFinalPass(int passes, float& maximum, const char* const devS0, const int length_S0
+    void computeFinalPass(
+        int passes, 
+        float& maximum, 
+        const char* const devS0, 
+        const int length_S0,
+        const char4* query4,
+        int queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
-        char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
+        char4 new_query_letter4 = query4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
 
-        const size_t base_3 = size_t(blockIdx.x)*size_t(length_2);
+        const size_t base_3 = size_t(blockIdx.x)*size_t(queryLength);
         float2* const devTempHcol = (&devTempHcol2[base_3]);
         float2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -667,7 +681,7 @@ struct ManyPassFloat{
         shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(H_temp_in.y, E_temp_in.y, E, penalty_here31, penalty_diag, penalty_left);
         shuffle_H_E_temp_in(H_temp_in, E_temp_in);
-        if (length_2+thread_result >=2) {
+        if (queryLength+thread_result >=2) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.z, query_letter);
@@ -675,7 +689,7 @@ struct ManyPassFloat{
             shuffle_affine_penalty(H_temp_in.x, E_temp_in.x, E, penalty_here31, penalty_diag, penalty_left);
         }
 
-        if (length_2+thread_result >=3) {
+        if (queryLength+thread_result >=3) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.w, query_letter);
@@ -685,10 +699,10 @@ struct ManyPassFloat{
             shuffle_new_query(new_query_letter4);
             counter++;
         }
-        if (length_2+thread_result >=4) {
+        if (queryLength+thread_result >=4) {
             int k;
             //for (k = 5; k < lane_2+thread_result-2; k+=4) {
-            for (k = 4; k <= length_2+(thread_result-3); k+=4) {
+            for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
 
@@ -716,7 +730,7 @@ struct ManyPassFloat{
                 shuffle_affine_penalty(H_temp_in.y, E_temp_in.y, E, penalty_here31, penalty_diag, penalty_left);
                 shuffle_new_query(new_query_letter4);
                 if (counter%group_size == 0) {
-                    new_query_letter4 = constantQuery4[offset];
+                    new_query_letter4 = query4[offset];
                     offset += group_size;
                 }
                 shuffle_H_E_temp_in(H_temp_in, E_temp_in);
@@ -729,7 +743,7 @@ struct ManyPassFloat{
                 counter++;
             }
 
-            if ((k-1)-(length_2+thread_result) > 0) {
+            if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.x, query_letter);
@@ -738,7 +752,7 @@ struct ManyPassFloat{
             }
 
 
-            if ((k-1)-(length_2+thread_result) > 0) {
+            if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.y, query_letter);
@@ -747,7 +761,7 @@ struct ManyPassFloat{
                 k++;
             }
 
-            if ((k-1)-(length_2+thread_result) > 0) {
+            if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             }
@@ -755,11 +769,16 @@ struct ManyPassFloat{
     }
 
     __device__ 
-    void computeSinglePass(float& maximum, const char* const devS0, const int length_S0
+    void computeSinglePass(
+        float& maximum, 
+        const char* const devS0, 
+        const int length_S0,
+        const char4* query4,
+        int queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
-        char4 new_query_letter4 = constantQuery4[threadIdx.x%group_size];
+        char4 new_query_letter4 = query4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
         const int group_id = threadIdx.x % group_size;
@@ -785,14 +804,14 @@ struct ManyPassFloat{
         shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(0.f, negInftyFloat, E, penalty_here31, penalty_diag, penalty_left);
 
-        if (length_2+thread_result >=2) {
+        if (queryLength+thread_result >=2) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.z, query_letter);
             shuffle_affine_penalty(0.f, negInftyFloat, E, penalty_here31, penalty_diag, penalty_left);
         }
 
-        if (length_2+thread_result >=3) {
+        if (queryLength+thread_result >=3) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.w, query_letter);
@@ -801,10 +820,10 @@ struct ManyPassFloat{
             shuffle_new_query(new_query_letter4);
             counter++;
         }
-        if (length_2+thread_result >=4) {
+        if (queryLength+thread_result >=4) {
             int k;
             //for (k = 5; k < lane_2+thread_result-2; k+=4) {
-            for (k = 4; k <= length_2+(thread_result-3); k+=4) {
+            for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
 
@@ -831,13 +850,13 @@ struct ManyPassFloat{
                 shuffle_affine_penalty(0.f, negInftyFloat, E, penalty_here31, penalty_diag, penalty_left);
                 shuffle_new_query(new_query_letter4);
                 if (counter%group_size == 0) {
-                    new_query_letter4 = constantQuery4[offset];
+                    new_query_letter4 = query4[offset];
                     offset += group_size;
                 }
                 counter++;
             }
 
-            if ((k-1)-(length_2+thread_result) > 0) {
+            if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.x, query_letter);
@@ -846,7 +865,7 @@ struct ManyPassFloat{
             }
 
 
-            if ((k-1)-(length_2+thread_result) > 0) {
+            if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.y, query_letter);
@@ -854,7 +873,7 @@ struct ManyPassFloat{
                 k++;
             }
 
-            if ((k-1)-(length_2+thread_result) > 0) {
+            if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             }
@@ -864,7 +883,9 @@ struct ManyPassFloat{
     template<class ScoreOutputIterator>
     __device__
     void compute(
-        ScoreOutputIterator const devAlignmentScores
+        ScoreOutputIterator const devAlignmentScores,
+        const char4* query4,
+        int queryLength
     ) const{
 
 
@@ -878,16 +899,16 @@ struct ManyPassFloat{
         float maximum = 0.f;
 
         if(passes == 1){
-            computeSinglePass(maximum, devS0, length_S0);
+            computeSinglePass(maximum, devS0, length_S0, query4, queryLength);
         }else{
 
-            computeFirstPass(maximum, devS0, length_S0);
+            computeFirstPass(maximum, devS0, length_S0, query4, queryLength);
 
             for (int pass = 1; pass < passes-1; pass++) {
-                computeMiddlePass(pass, maximum, devS0, length_S0);
+                computeMiddlePass(pass, maximum, devS0, length_S0, query4, queryLength);
             }
 
-            computeFinalPass(passes, maximum, devS0, length_S0);
+            computeFinalPass(passes, maximum, devS0, length_S0, query4, queryLength);
         }
 
         for (int offset=group_size/2; offset>0; offset/=2){
@@ -919,7 +940,8 @@ void NW_local_affine_read4_float_query_Protein_new(
     __grid_constant__ const size_t* const devOffsets,
     __grid_constant__ const size_t* const devLengths,
     __grid_constant__ PositionsIterator const d_positions_of_selected_lengths,
-    __grid_constant__ const int length_2,
+    __grid_constant__ const char4* const query4,
+    __grid_constant__ const int queryLength,
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ) {
@@ -938,12 +960,11 @@ void NW_local_affine_read4_float_query_Protein_new(
         devOffsets,
         devLengths,
         d_positions_of_selected_lengths,
-        length_2,
         gap_open,
         gap_extend
     );
 
-    processor.compute(devAlignmentScores);
+    processor.compute(devAlignmentScores, query4, queryLength);
 }
 
 template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
@@ -957,7 +978,8 @@ void call_NW_local_affine_read4_float_query_Protein_new(
     const size_t* const devLengths,
     PositionsIterator const d_positions_of_selected_lengths,
     const int numSelected,
-    const int length_2,
+    const char4* query4,
+    const int queryLength,
     const float gap_open,
     const float gap_extend,
     cudaStream_t stream
@@ -978,7 +1000,8 @@ void call_NW_local_affine_read4_float_query_Protein_new(
             devOffsets,
             devLengths,
             d_positions_of_selected_lengths,
-            length_2,
+            query4,
+            queryLength,
             gap_open,
             gap_extend
         ); CUERR;
@@ -998,7 +1021,8 @@ void call_NW_local_affine_read4_float_query_Protein_new(
             devOffsets,
             devLengths,
             d_positions_of_selected_lengths,
-            length_2,
+            query4,
+            queryLength,
             gap_open,
             gap_extend
         ); CUERR;
@@ -1021,6 +1045,7 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
     __grid_constant__ const size_t* const devOffsets,
     __grid_constant__ const size_t* const devLengths,
     __grid_constant__ const size_t* const d_positions_of_selected_lengths,
+    __grid_constant__ const char4* const query4,
     __grid_constant__ const int queryLength,
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
@@ -1072,6 +1097,7 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
                 devOffsets, 
                 devLengths, 
                 d_positions_of_selected_lengths + begin, 
+                query4,
                 queryLength, 
                 gap_open, 
                 gap_extend
