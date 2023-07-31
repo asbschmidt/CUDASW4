@@ -1,3 +1,6 @@
+#ifndef UTIL_CUH
+#define UTIL_CUH
+
 #include <thrust/mr/memory_resource.h>
 #include <thrust/host_vector.h>
 #include <thrust/execution_policy.h>
@@ -96,3 +99,5 @@ private:
     size_t preallocatedSize;
     cudaStream_t stream;
 };
+
+#endif
