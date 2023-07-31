@@ -2066,9 +2066,10 @@ int main(int argc, char* argv[])
                     sizeof(char) * ws.d_fulldb_chardata.size(),
                     ws.d_fulldb_lengthdata.size()
                 );
-                std::cout << "Batch plan fulldb chunk " << chunkId << ", gpu " << gpu << ": " << batchPlans_fulldb_perChunk[chunkId][gpu].size() << " batches\n";
+                assert(batchPlans_fulldb_perChunk[chunkId][gpu].size() == 1);
+                //std::cout << "Batch plan fulldb chunk " << chunkId << ", gpu " << gpu << ": " << batchPlans_fulldb_perChunk[chunkId][gpu].size() << " batches\n";
             }else{
-                batchPlans_fulldb_perChunk[chunkId][gpu] = batchPlans_perChunk[chunkId][gpu];
+                batchPlans_fulldb_perChunk[chunkId][gpu] = batchPlans_perChunk[chunkId][gpu]; //won't be used in this case, simply set it to batched plan
             }
 
             // for(int i = 0; i < std::min(5, int(batchPlans_perChunk[chunkId][gpu].size())); i++){
@@ -2094,36 +2095,48 @@ int main(int argc, char* argv[])
     }
 
  
+    if(options.loadFullDBToGpu){
+        std::vector<int> copyIds;
 
+        helpers::CpuTimer copyTimer("transfer DB to GPUs");
+        for(int gpu = 0; gpu < numGpus; gpu++){
+            cudaSetDevice(deviceIds[gpu]);
+            auto& ws = *workingSets[gpu];
+            const int chunkId = 0;
+            if(ws.canStoreFullDB && options.loadFullDBToGpu){
+                const auto& plan = batchPlans_fulldb_perChunk[chunkId][gpu][0];
 
+                const int currentBuffer = 0;
 
+                cudaStream_t H2DcopyStream = ws.copyStreams[currentBuffer];
 
-    // for(int gpu = 0; gpu < numGpus; gpu++){
-    //     cudaSetDevice(deviceIds[gpu]);
-    //     const int chunkId = 0;
-    //     if(true && batchPlans_perChunk[chunkId][gpu].size() == 1){
-    //         auto& ws = *workingSets[gpu];
-    //         const auto& plan = batchPlans_perChunk[chunkId][gpu][0];
-    //         std::cout << "Upload single batch DB to gpu " << gpu << "\n";
-    //         helpers::CpuTimer copyTimer("copy db");
-    //         const int currentBuffer = 0;
-
-    //         cudaStream_t H2DcopyStream = ws.copyStreams[currentBuffer];
-
-    //         executeCopyPlanH2DDirect(
-    //             plan,
-    //             ws.d_chardata_vec[currentBuffer].data(),
-    //             ws.d_lengthdata_vec[currentBuffer].data(),
-    //             ws.d_offsetdata_vec[currentBuffer].data(),
-    //             subPartitionsForGpus_perDBchunk[chunkId][gpu],
-    //             H2DcopyStream
-    //         );
-            
-    //         cudaStreamSynchronize(H2DcopyStream); CUERR;
-    //         copyTimer.print();
-    //         //ws.singleBatchDBisOnGpu = true;
-    //     }
-    // }
+                executeCopyPlanH2DDirect(
+                    plan,
+                    ws.d_fulldb_chardata.data(),
+                    ws.d_fulldb_lengthdata.data(),
+                    ws.d_fulldb_offsetdata.data(),
+                    subPartitionsForGpus_perDBchunk[chunkId][gpu],
+                    H2DcopyStream
+                );
+                
+                ws.fullDBisUploaded = true;
+                copyIds.push_back(gpu);
+            }
+        }
+        for(int gpu = 0; gpu < numGpus; gpu++){
+            cudaSetDevice(deviceIds[gpu]);
+            cudaDeviceSynchronize(); CUERR;
+        }
+        copyTimer.stop();
+        if(copyIds.size() > 0){
+            std::cout << "Transferred DB data in advance to GPU(s) ";
+            for(auto x : copyIds){
+                std::cout << x << " ";
+            }
+            std::cout << "\n";
+            copyTimer.print();
+        }
+    }
 
     //set blosum for new kernels
     setProgramWideBlosum(options.blosumType);
