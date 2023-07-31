@@ -939,6 +939,7 @@ void processQueryOnGpus(
     std::vector<Variables> variables_vec(numGpus);
     //init variables
     for(int gpu = 0; gpu < numGpus; gpu++){
+        cudaSetDevice(deviceIds[gpu]); CUERR;
         const auto& ws = *workingSets[gpu];
         auto& variables = variables_vec[gpu];
         variables.processedSequences = 0;
@@ -958,6 +959,7 @@ void processQueryOnGpus(
     while(totalNumberOfProcessedSequences < totalNumberOfSequencesToProcess){
         //set up gpu variables for current iteration
         for(int gpu = 0; gpu < numGpus; gpu++){
+            cudaSetDevice(deviceIds[gpu]); CUERR;
             auto& ws = *workingSets[gpu];
             auto& variables = variables_vec[gpu];
             if(variables.processedBatches < variables.batchPlansPtr->size()){
@@ -1015,10 +1017,10 @@ void processQueryOnGpus(
         }
         //upload batch
         for(int gpu = 0; gpu < numGpus; gpu++){
+            cudaSetDevice(deviceIds[gpu]); CUERR;
             auto& ws = *workingSets[gpu];
             auto& variables = variables_vec[gpu];
             if(variables.processedBatches < variables.batchPlansPtr->size()){
-                cudaSetDevice(deviceIds[gpu]); CUERR;
                 const auto& plan = (*variables.batchPlansPtr)[variables.processedBatches];
 
                 if((ws.canStoreFullDB && !ws.fullDBisUploaded) || !ws.canStoreFullDB){
@@ -1397,10 +1399,10 @@ void processQueryOnGpus(
 
         //process overflow alignments and finish processing of batch
         for(int gpu = 0; gpu < numGpus; gpu++){
+            cudaSetDevice(deviceIds[gpu]); CUERR;
             auto& ws = *workingSets[gpu];
             const auto& variables = variables_vec[gpu];
             if(variables.processedBatches < variables.batchPlansPtr->size()){
-                cudaSetDevice(deviceIds[gpu]); CUERR;
 
                 const char* const inputChars = variables.d_inputChars;
                 const size_t* const inputLengths = variables.d_inputLengths;
@@ -1490,6 +1492,7 @@ void processQueryOnGpus(
 
 
     for(int gpu = 0; gpu < numGpus; gpu++){
+        cudaSetDevice(deviceIds[gpu]); CUERR;
         auto& ws = *workingSets[gpu];
         if(ws.canStoreFullDB && !ws.fullDBisUploaded){
             ws.fullDBisUploaded = true;
