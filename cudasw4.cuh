@@ -8,7 +8,6 @@
 
 #include "sequence_io.h"
 #include "kseqpp/kseqpp.hpp"
-#include "options.hpp"
 #include "dbdata.hpp"
 #include "length_partitions.hpp"
 #include "util.cuh"
@@ -16,8 +15,9 @@
 #include "blosum.hpp"
 #include "blosumTypes.hpp"
 #include "dbbatching.cuh"
+#include "convert.cuh"
 
-#include <cub/cub.cuh>
+#include <thrust/binary_search.h>
 
 #include <iostream>
 #include <string>
