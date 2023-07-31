@@ -100,4 +100,16 @@ private:
     cudaStream_t stream;
 };
 
+//Call cudaSetDevice on destruction
+struct RevertDeviceId{
+    RevertDeviceId(){
+        cudaGetDevice(&id);
+    }
+    RevertDeviceId(int id_) : id(id){}
+    ~RevertDeviceId(){
+        cudaSetDevice(id);
+    }
+    int id;
+};
+
 #endif

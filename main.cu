@@ -861,7 +861,7 @@ void executePinnedCopyPlanWithHostCallback(
 
 
 
-
+#if 0
 
 
 
@@ -1561,7 +1561,7 @@ void processQueryOnGpus(
 }
 
 
-
+#endif
 
 
 
@@ -1673,7 +1673,7 @@ int main(int argc, char* argv[])
     std::cout << "Number of input characters Query-File: " << totalNumQueryBytes << '\n';
     
 #if 1  
-    CudaSW4 cudaSW4(deviceIds);
+    cudasw4::CudaSW4 cudaSW4(deviceIds, options.blosumType);
 
     if(!options.usePseudoDB){
         std::cout << "Reading Database: \n";
@@ -1696,8 +1696,55 @@ int main(int argc, char* argv[])
     }
 
     cudaSW4.printDBInfo();
-    cudaSW4.printDBLengthPartitions();
+    if(options.printLengthPartitions){
+        cudaSW4.printDBLengthPartitions();
+    }
 
+    if(options.loadFullDBToGpu){
+        cudaSW4.prefetchFullDBToGpus();
+    }
+
+    using ScanResult = cudasw4::CudaSW4::ScanResult;
+    std::vector<ScanResult> scanResults(numQueries);
+
+    for(int query_num = 0; query_num < numQueries; ++query_num) {
+        const size_t offset = batchOfQueries.offsets[query_num];
+        const int length = batchOfQueries.lengths[query_num];
+        const char* sequence = batchOfQueries.chars.data() + offset;
+        ScanResult scanResult = cudaSW4.scan(sequence, length);
+        scanResults[query_num] = scanResult;
+    }
+
+    for(int query_num = 0; query_num < numQueries; ++query_num) {
+        const ScanResult& scanResult = scanResults[query_num];
+
+        std::cout << "Query " << query_num << ", header" <<  batchOfQueries.headers[query_num] << ", length " << batchOfQueries.lengths[query_num] << "\n";
+        const int n = scanResult.scores.size();
+        for(int i = 0; i < n; i++){
+            std::cout << i << ". Score: " << scanResult.scores[i] << ", header " << scanResult.headers[i] << "\n";
+        }
+    }
+
+
+    // kseqpp::KseqPP reader(options.queryFile);
+    // int queryNumber = 0;
+    // while(reader.next() >= 0){
+    //     const std::string& header = reader.getCurrentHeader();
+    //     const std::string& sequence = reader.getCurrentSequence();
+    //     //we ignore quality
+    //     //const std::string& quality = reader.getCurrentQuality();
+
+    //     std::cout << "Process query " << queryNumber << "\n";
+    //     ScanResult scanResult = cudaSW4.scan(sequence, sequence.size());
+
+    //     const int n = scanResult.scores.size();
+    //     std::cout <<
+    //     for(int i = 0; i < n; i++){
+
+    //     }
+
+    //     queryNumber++;
+    // }
     
 
 #else
@@ -2405,11 +2452,11 @@ int main(int argc, char* argv[])
 
     if(options.numTopOutputs > 0 && !options.usePseudoDB){
 
-        //sort the chunk results per query to find overall top results
         std::vector<float> final_alignment_scores_float(numQueries * results_per_query);
         std::vector<size_t> final_sorted_indices(numQueries * results_per_query);
         std::vector<int> final_resultDbChunkIndices(numQueries * results_per_query);
-
+        
+        //sort the chunk results per query to find overall top results
         for (int query_num=0; query_num < numQueries; query_num++) {
             float* scores =  &alignment_scores_float[query_num * numDBChunks * results_per_query];
             size_t* indices =  &sorted_indices[query_num * numDBChunks * results_per_query];
