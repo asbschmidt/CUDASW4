@@ -1,5 +1,6 @@
 #include "options.hpp"
 #include "blosumTypes.hpp"
+#include "hpc_helpers/all_helpers.cuh"
 
 #include <string>
 #include <iostream>
@@ -224,6 +225,7 @@ void printHelp(int /*argc*/, char** argv){
     CudaSW4Options defaultoptions;
 
     std::cout << "Usage: " << argv[0] << " [options]\n";
+    std::cout << "The GPUs to use are set via CUDA_VISIBLE_DEVICES environment variable.\n";
     std::cout << "Options: \n";
     std::cout << "      --query queryfile : Mandatory. Fasta or Fastq\n";
     std::cout << "      --db dbPrefix : Mandatory. The DB to query against. The same dbPrefix as used for makedb\n";

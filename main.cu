@@ -44,6 +44,8 @@
 #include "new_kernels.cuh"
 #include "blosum.hpp"
 
+#include "cudasw4.cuh"
+
 template<class T>
 using MyPinnedBuffer = helpers::SimpleAllocationPinnedHost<T, 0>;
 template<class T>
@@ -1655,7 +1657,36 @@ int main(int argc, char* argv[])
 
     std::cout << "Number of input sequences Query-File:  " << numQueries<< '\n';
     std::cout << "Number of input characters Query-File: " << totalNumQueryBytes << '\n';
+    
+#if 1  
+    CudaSW4 cudaSW4(deviceIds);
 
+    if(!options.usePseudoDB){
+        std::cout << "Reading Database: \n";
+        helpers::CpuTimer timer_read_db("READ_DB");
+        constexpr bool writeAccess = false;
+        constexpr bool prefetchSeq = true;
+        //DB fullDB_tmp = loadDB(options.dbPrefix, writeAccess, prefetchSeq);
+        auto fullDB_tmp = std::make_shared<DB>(loadDB(options.dbPrefix, writeAccess, prefetchSeq));
+        timer_read_db.print();
+
+        cudaSW4.setDatabase(fullDB_tmp);
+    }else{
+        std::cout << "Generating pseudo db\n";
+        helpers::CpuTimer timer_read_db("READ_DB");
+        //PseudoDB fullDB_tmp = loadPseudoDB(options.pseudoDBSize, options.pseudoDBLength);
+        auto fullDB_tmp = std::make_shared<PseudoDB>(loadPseudoDB(options.pseudoDBSize, options.pseudoDBLength));
+        timer_read_db.print();
+        
+        cudaSW4.setDatabase(fullDB_tmp);
+    }
+
+    cudaSW4.printDBInfo();
+    cudaSW4.printDBLengthPartitions();
+
+    
+
+#else
     AnyDBWrapper fullDB;
 
     if(!options.usePseudoDB){
@@ -1679,6 +1710,9 @@ int main(int argc, char* argv[])
     }
 
 
+
+
+  
     const int numDBChunks = fullDB.getInfo().numChunks;
     std::cout << "Number of DB chunks: " << numDBChunks << "\n";
     assert(numDBChunks == 1);
@@ -2040,9 +2074,9 @@ int main(int argc, char* argv[])
     std::vector<std::vector<std::vector<DeviceBatchCopyToPinnedPlan>>> batchPlans_perChunk(numDBChunks);
     std::vector<std::vector<std::vector<DeviceBatchCopyToPinnedPlan>>> batchPlans_fulldb_perChunk(numDBChunks);
 
-    MyDeviceBuffer<char> d_fulldb_chardata;
-    MyDeviceBuffer<size_t> d_fulldb_lengthdata;
-    MyDeviceBuffer<size_t> d_fulldb_offsetdata;
+    // MyDeviceBuffer<char> d_fulldb_chardata;
+    // MyDeviceBuffer<size_t> d_fulldb_lengthdata;
+    // MyDeviceBuffer<size_t> d_fulldb_offsetdata;
     
     for(int chunkId = 0; chunkId < numDBChunks; chunkId++){
         batchPlans_perChunk[chunkId].resize(numGpus);
@@ -2423,5 +2457,5 @@ int main(int argc, char* argv[])
         CUERR;
 
     }
-
+#endif
 }
