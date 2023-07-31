@@ -255,8 +255,8 @@ struct GpuWorkingSet{
 
     GpuWorkingSet(
         size_t gpumemlimit,
-        size_t num_queries,
-        size_t bytesForQueries,
+        size_t /*num_queries*/,
+        size_t /*bytesForQueries*/,
         const CudaSW4Options& options,
         const std::vector<DBdataView>& dbPartitions
     ){
@@ -1673,7 +1673,22 @@ int main(int argc, char* argv[])
     std::cout << "Number of input characters Query-File: " << totalNumQueryBytes << '\n';
     
 #if 1  
-    cudasw4::CudaSW4 cudaSW4(deviceIds, options.blosumType);
+    using KernelTypeConfig = cudasw4::CudaSW4::KernelTypeConfig;
+    using MemoryConfig = cudasw4::CudaSW4::MemoryConfig;
+
+    KernelTypeConfig kernelTypeConfig;
+    kernelTypeConfig.singlePassType = options.singlePassType;
+    kernelTypeConfig.manyPassType_small = options.manyPassType_small;
+    kernelTypeConfig.manyPassType_large = options.manyPassType_large;
+    kernelTypeConfig.overflowType = options.overflowType;
+
+    MemoryConfig memoryConfig;
+    memoryConfig.maxBatchBytes = options.maxBatchBytes;
+    memoryConfig.maxBatchSequences = options.maxBatchSequences;
+    memoryConfig.maxTempBytes = options.maxTempBytes;
+    memoryConfig.maxGpuMem = options.maxGpuMem;
+
+    cudasw4::CudaSW4 cudaSW4(deviceIds, options.blosumType, kernelTypeConfig, memoryConfig);
 
     if(!options.usePseudoDB){
         std::cout << "Reading Database: \n";
@@ -1707,21 +1722,41 @@ int main(int argc, char* argv[])
     using ScanResult = cudasw4::CudaSW4::ScanResult;
     std::vector<ScanResult> scanResults(numQueries);
 
+    cudaSW4.totalTimerStart();
+
     for(int query_num = 0; query_num < numQueries; ++query_num) {
         const size_t offset = batchOfQueries.offsets[query_num];
         const int length = batchOfQueries.lengths[query_num];
         const char* sequence = batchOfQueries.chars.data() + offset;
         ScanResult scanResult = cudaSW4.scan(sequence, length);
         scanResults[query_num] = scanResult;
+        std::cout << "Query " << query_num << ". Scan time: " << scanResult.stats.seconds << " s, " << scanResult.stats.gcups << " GCUPS\n";
     }
+
+    auto totalBenchmarkStats = cudaSW4.totalTimerStop();
+
+    std::cout << "Total time: " << totalBenchmarkStats.seconds << " s, " << totalBenchmarkStats.gcups << " GCUPS\n";
 
     for(int query_num = 0; query_num < numQueries; ++query_num) {
         const ScanResult& scanResult = scanResults[query_num];
 
-        std::cout << "Query " << query_num << ", header" <<  batchOfQueries.headers[query_num] << ", length " << batchOfQueries.lengths[query_num] << "\n";
+        std::cout << "Query " << query_num << ", header" <<  batchOfQueries.headers[query_num] 
+            << ", length " << batchOfQueries.lengths[query_num]
+            << ", num overflows " << scanResult.stats.numOverflows << "\n";
         const int n = scanResult.scores.size();
         for(int i = 0; i < n; i++){
-            std::cout << i << ". Score: " << scanResult.scores[i] << ", header " << scanResult.headers[i] << "\n";
+            const size_t referenceId = scanResult.referenceIds[i];
+            std::cout << "Result " << i << ".";
+            std::cout << " Score: " << scanResult.scores[i] << ".";
+            std::cout << " Length: " << cudaSW4.getReferenceLength(referenceId) << ".";
+            std::cout << " Header " << cudaSW4.getReferenceHeader(referenceId) << ".";
+            std::cout << "\n";
+            //std::cout << " Sequence " << cudaSW4.getReferenceSequence(referenceId) << "\n";
+
+            // std::cout << i << "," 
+            //     << scanResult.scores[i] << ","
+            //     << cudaSW4.getReferenceLength(referenceId) << ","
+            //     << cudaSW4.getReferenceHeader(referenceId) << "\n";
         }
     }
 

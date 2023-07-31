@@ -105,7 +105,7 @@ struct RevertDeviceId{
     RevertDeviceId(){
         cudaGetDevice(&id);
     }
-    RevertDeviceId(int id_) : id(id){}
+    RevertDeviceId(int id_) : id(id_){}
     ~RevertDeviceId(){
         cudaSetDevice(id);
     }
