@@ -292,13 +292,11 @@ private:
     std::vector<PseudoDBdata> chunks;
 };
 
-void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const sequence_batch& batch);
 void writeGlobalDbInfo(const std::string& outputPrefix, const DBGlobalInfo& info);
 void readGlobalDbInfo(const std::string& prefix, DBGlobalInfo& info);
 
 DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq);
 PseudoDB loadPseudoDB(size_t num, size_t length, int randomseed = 42);
-
 
 
 
@@ -446,8 +444,6 @@ private:
 
 };
 
-
-void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const sequence_batch& batch);
 
 
 std::vector<DBdataView> partitionDBdata_by_numberOfSequences(const DBdataView& parent, size_t maxNumSequencesPerPartition);

@@ -1,136 +1,358 @@
 
+#define THRUST_DEVICE_SYSTEM THRUST_DEVICE_SYSTEM_OMP
 
 #include <algorithm>
 #include <iterator>
 #include <iostream>
 #include <chrono>
 
+#include <unistd.h>
+#include <sys/resource.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+
+#include "hpc_helpers/all_helpers.cuh"
 #include "sequence_io.h"
 #include "dbdata.hpp"
 #include "convert.cuh"
 #include "kseqpp/kseqpp.hpp"
+#include "length_partitions.hpp"
+#include "mmapbuffer.hpp"
 
-#define TIMERSTART(label)                                                  \
-    std::chrono::time_point<std::chrono::system_clock>                     \
-        timerstart##label,                                                 \
-        timerstop##label;                                                  \
-    timerstart##label = std::chrono::system_clock::now();
+#include <thrust/iterator/transform_iterator.h>
+#include <thrust/execution_policy.h>
+#include <thrust/transform.h>
 
-#define TIMERSTOP(label)                                                   \
-    timerstop##label = std::chrono::system_clock::now();                   \
-    std::chrono::duration<double>                                          \
-        timerdelta##label = timerstop##label-timerstart##label;            \
-    std::cout << "# elapsed time ("<< #label <<"): "                       \
-              << timerdelta##label.count()  << "s" << std::endl;
+std::size_t getAvailableMemoryInKB_linux(){
+    //https://stackoverflow.com/questions/349889/how-do-you-determine-the-amount-of-linux-system-ram-in-c
+    std::string token;
+    std::ifstream file("/proc/meminfo");
+    assert(bool(file));
+    while(file >> token) {
+        if(token == "MemAvailable:") {
+            std::size_t mem;
+            if(file >> mem) {
+                return mem;
+            } else {
+                return 0;       
+            }
+        }
+        file.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+    return 0;
+}
 
 
+std::size_t getCurrentRSS_linux(){
+    std::ifstream in("/proc/self/statm");
+    std::size_t tmp, rss;
+    in >> tmp >> rss;
+    
+    return rss * sysconf(_SC_PAGESIZE);
+}
 
-//void Func(const sequence_batch& batch, int batchId)
-template<class Func>
-void forEachSequenceBatchInFile(const std::string& inputfilename, Func callback){
+std::size_t getRSSLimit_linux(){
+    rlimit rlim;
+    int ret = getrlimit(RLIMIT_RSS, &rlim);
+    if(ret != 0){
+        std::perror("Could not get RSS limit!");
+        return 0;
+    }
+    return rlim.rlim_cur;    
+}
+
+
+std::size_t getAvailableMemoryInKB(){
+    return std::min(getAvailableMemoryInKB_linux(), (getRSSLimit_linux() - getCurrentRSS_linux()) / 1024);
+}
+
+
+struct InMemoryBatch{
+    std::vector<char> chars;               
+    std::vector<std::size_t> offsets;  
+    std::vector<std::size_t> lengths;  
+    std::vector<char> headers;  
+    std::vector<std::size_t> headerOffsets;  
+};
+
+struct HybridBatch{
+    static constexpr size_t charweight = 50;
+    static constexpr size_t offsetweight = 7;
+    static constexpr size_t lengthweight = 7;
+    static constexpr size_t headersweight = 29;
+    static constexpr size_t headeroffsetweight = 7;
+
+    static_assert(charweight + offsetweight + lengthweight + headersweight + headeroffsetweight == 100);
+
+    HybridBatch(const std::string& temppath, size_t memoryLimit) : 
+        chars(0, (memoryLimit / 100) * charweight, temppath + "_cudasw4tmpchars"),
+        offsets(0, (memoryLimit / 100) * offsetweight, temppath + "_cudasw4tmpoffsets"),
+        lengths(0, (memoryLimit / 100) * lengthweight, temppath + "_cudasw4tmplengths"),
+        headers(0, (memoryLimit / 100) * headersweight, temppath + "_cudasw4tmpheaders"),
+        headerOffsets(0, (memoryLimit / 100) * headeroffsetweight, temppath + "_cudasw4tmpheaderOffsets")
+    {
+
+    }
+    cudasw4::FileBackedUVector<char> chars;               
+    cudasw4::FileBackedUVector<std::size_t> offsets;  
+    cudasw4::FileBackedUVector<std::size_t> lengths;  
+    cudasw4::FileBackedUVector<char> headers;  
+    cudasw4::FileBackedUVector<std::size_t> headerOffsets;  
+};
+
+
+template<class Batch>
+void loadWholeFileIntoBatch_withPaddedSequences(const std::string& inputfilename, Batch& batch){
     constexpr int ALIGN = 4;
-    //constexpr size_t maxCharactersInBatch = 50'000'000'000ull;
-    constexpr size_t maxCharactersInBatch = std::numeric_limits<size_t>::max();
 
-    auto resetBatch = [](auto& batch){
-        batch.chars.clear();
-        batch.offsets.clear();
-        batch.lengths.clear();
-        batch.headers.clear();
-        batch.qualities.clear();
-
-        batch.offsets.push_back(0);
-    };
-
-    sequence_batch batch;
-    resetBatch(batch);
-
-    int batchId = 0;
+    batch.chars.clear();
+    batch.offsets.clear();
+    batch.lengths.clear();
+    batch.headers.clear();
+    batch.headerOffsets.clear();
+    batch.offsets.push_back(0);
+    batch.headerOffsets.push_back(0);
 
     kseqpp::KseqPP reader(inputfilename);
     while(reader.next() >= 0){
         const std::string& header = reader.getCurrentHeader();
         const std::string& sequence = reader.getCurrentSequence();
-        //we ignore quality
-        //const std::string& quality = reader.getCurrentQuality();
+
+        const size_t sequencepadding = (sequence.size() % ALIGN == 0) ? 0 : ALIGN - sequence.size() % ALIGN;
 
         batch.chars.insert(batch.chars.end(), sequence.begin(), sequence.end());
-        //padding
-        if(batch.chars.size() % ALIGN != 0){
-            batch.chars.insert(batch.chars.end(), ALIGN - batch.chars.size() % ALIGN, ' ');
-        }
-
+        batch.chars.insert(batch.chars.end(), sequencepadding, ' ');
         batch.offsets.push_back(batch.chars.size());
         batch.lengths.push_back(sequence.size());
-        batch.headers.push_back(header);
 
-        if(batch.chars.size() >= maxCharactersInBatch){
-            std::transform(batch.chars.begin(), batch.chars.end(), batch.chars.begin(), &cudasw4::convert_AA);
-            callback(batch, batchId);
-            resetBatch(batch);
-            batchId++;
+        batch.headers.insert(batch.headers.end(), header.begin(), header.end());
+        batch.headerOffsets.push_back(batch.headers.size());
+    }
+}
+
+template<class Batch>
+void loadWholeFileIntoBatch_withPaddedConvertedSequences(const std::string& inputfilename, Batch& batch){
+    constexpr int ALIGN = 4;
+
+    batch.chars.clear();
+    batch.offsets.clear();
+    batch.lengths.clear();
+    batch.headers.clear();
+    batch.headerOffsets.clear();
+    batch.offsets.push_back(0);
+    batch.headerOffsets.push_back(0);
+
+    kseqpp::KseqPP reader(inputfilename);
+    while(reader.next() >= 0){
+        const std::string& header = reader.getCurrentHeader();
+        const std::string& sequence = reader.getCurrentSequence();
+
+        const size_t sequencepadding = (sequence.size() % ALIGN == 0) ? 0 : ALIGN - sequence.size() % ALIGN;
+
+        const size_t oldCharsSize = batch.chars.size();
+        const size_t newCharsSize = oldCharsSize + sequence.size() + sequencepadding;
+        batch.chars.resize(newCharsSize);
+        auto it = std::transform(sequence.begin(), sequence.end(), batch.chars.begin() + oldCharsSize, &cudasw4::convert_AA);
+        std::fill(it, batch.chars.end(), cudasw4::convert_AA(' ')); // add converted padding
+        batch.offsets.push_back(newCharsSize);
+        batch.lengths.push_back(sequence.size());
+
+        batch.headers.insert(batch.headers.end(), header.begin(), header.end());
+        batch.headerOffsets.push_back(batch.headers.size());
+    }
+}
+
+template<class Batch>
+void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const Batch& batch){
+    using cudasw4::DBdataIoConfig;
+
+    const size_t numSequences = batch.lengths.size();
+
+    std::vector<size_t> indices(numSequences);
+    std::iota(indices.begin(), indices.end(), 0);
+
+    auto compareIndicesByLength = [&](const auto& l, const auto& r){
+        return batch.lengths[l] < batch.lengths[r];
+    };
+
+    std::sort(indices.begin(), indices.end(), compareIndicesByLength);
+
+    const auto sortedLengthsIterator = thrust::make_transform_iterator(
+        indices.begin(),
+        [&](auto i){ return batch.lengths[i]; }
+    );
+    const auto sortedLengths_endIterator = sortedLengthsIterator + numSequences;
+
+    auto lengthBoundaries = cudasw4::getLengthPartitionBoundaries();
+    const int numPartitions = lengthBoundaries.size();
+
+    std::vector<size_t> numSequencesPerPartition(numPartitions);
+
+    auto partitionBegin = sortedLengthsIterator;
+    for(int i = 0; i < numPartitions; i++){
+        //length k is in partition i if boundaries[i-1] < k <= boundaries[i]
+        int searchFor = lengthBoundaries[i];
+        if(searchFor < std::numeric_limits<int>::max()){
+            searchFor += 1;
         }
+        auto partitionEnd = std::lower_bound(
+            partitionBegin, 
+            sortedLengths_endIterator, 
+            searchFor
+        );
+        numSequencesPerPartition[i] = std::distance(partitionBegin, partitionEnd);
+        partitionBegin = partitionEnd;
+    }
+    for(int i = 0; i < numPartitions; i++){
+        std::cout << "numInPartition " << i << " (<= " << lengthBoundaries[i] << " ) : " << numSequencesPerPartition[i] << "\n";
     }
 
-    //if there is any sequence left (even sequence with 0 chars), process remainder
-    if(batch.lengths.size() > 0){
-        std::transform(batch.chars.begin(), batch.chars.end(), batch.chars.begin(), &cudasw4::convert_AA);
-        callback(batch, batchId);
-        resetBatch(batch);
-        batchId++;
+    //write partition data to metadata file
+    std::ofstream metadataout(outputPrefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
+    if(!metadataout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::metadatafilename());
+
+    metadataout.write((const char*)&numPartitions, sizeof(int));
+    for(int i = 0; i < numPartitions; i++){
+        const int limit = lengthBoundaries[i];
+        metadataout.write((const char*)&limit, sizeof(int));
+    }
+    metadataout.write((const char*)numSequencesPerPartition.data(), sizeof(size_t) * numPartitions);
+
+
+    //write db files with sequences sorted by length
+
+    std::ofstream headersout(outputPrefix + DBdataIoConfig::headerfilename(), std::ios::binary);
+    if(!headersout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::headerfilename());
+    std::ofstream headersoffsetsout(outputPrefix + DBdataIoConfig::headeroffsetsfilename(), std::ios::binary);
+    if(!headersoffsetsout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::headeroffsetsfilename());
+    std::ofstream charsout(outputPrefix + DBdataIoConfig::sequencesfilename(), std::ios::binary);
+    if(!charsout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::sequencesfilename());
+    std::ofstream offsetsout(outputPrefix + DBdataIoConfig::sequenceoffsetsfilename(), std::ios::binary);
+    if(!offsetsout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::sequenceoffsetsfilename());
+    std::ofstream lengthsout(outputPrefix + DBdataIoConfig::sequencelengthsfilename(), std::ios::binary);
+    if(!lengthsout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::sequencelengthsfilename());
+
+    size_t currentHeaderOffset = 0;
+    size_t currentCharOffset = 0;
+    headersoffsetsout.write((const char*)&currentHeaderOffset, sizeof(size_t));
+    offsetsout.write((const char*)&currentCharOffset, sizeof(size_t));
+    for(size_t i = 0; i < numSequences; i++){
+        const size_t sortedIndex = indices[i];
+
+        const char* const header = batch.headers.data() + batch.headerOffsets[sortedIndex];
+        const int headerLength = batch.headerOffsets[sortedIndex+1] - batch.headerOffsets[sortedIndex];
+
+        headersout.write(header, headerLength);
+        currentHeaderOffset += headerLength;
+        headersoffsetsout.write((const char*)&currentHeaderOffset, sizeof(size_t));
+
+        const size_t numChars = batch.offsets[sortedIndex+1] - batch.offsets[sortedIndex];
+        const size_t length = batch.lengths[sortedIndex];
+        const char* const sequence = batch.chars.data() + batch.offsets[sortedIndex];
+
+
+        charsout.write(sequence, numChars);
+        lengthsout.write((const char*)&length, sizeof(size_t));
+        currentCharOffset += numChars;
+        offsetsout.write((const char*)&currentCharOffset, sizeof(size_t));
     }
 }
 
 
-
 int main(int argc, char* argv[])
 {
-    using std::cout;
 
-    if(argc < 2) {
-        cout << "Usage:\n  " << argv[0] << " <FASTA/FASTQ filename> [outputprefix]\n";
+
+    if(argc < 3) {
+        std::cout << "Usage:\n  " << argv[0] << " <FASTA/FASTQ filename> pathtodb/dbname [options]\n";
+        std::cout << "Input file may be gzip'ed. pathtodb must exist.\n";
+        std::cout << "Options:\n";
+        std::cout << "    --mem val : Memory limit. Can use suffix K,M,G. If makedb requires more memory, temp files in temp directory will be used. Default all available memory.\n";
+        std::cout << "    --tempdir val : Temp directory for temporary files. Must exist. Default is db output directory.\n";
         return 0;
     }
 
+    auto parseMemoryString = [](const std::string& string){
+        std::size_t result = 0;
+        if(string.length() > 0){
+            std::size_t factor = 1;
+            bool foundSuffix = false;
+            switch(string.back()){
+                case 'K':{
+                    factor = std::size_t(1) << 10; 
+                    foundSuffix = true;
+                }break;
+                case 'M':{
+                    factor = std::size_t(1) << 20;
+                    foundSuffix = true;
+                }break;
+                case 'G':{
+                    factor = std::size_t(1) << 30;
+                    foundSuffix = true;
+                }break;
+            }
+            if(foundSuffix){
+                const auto numberString = string.substr(0, string.size()-1);
+                result = factor * std::stoull(numberString);
+            }else{
+                result = std::stoull(string);
+            }
+        }else{
+            result = 0;
+        }
+        return result;
+    };
+
     const std::string fastafilename = argv[1];
-    std::string outputPrefix = "./mydb_";
-    if(argc > 2){
-        outputPrefix = argv[2];
+    const std::string outputPrefix = argv[2];
+    std::string temppath = outputPrefix;
+    size_t availableMem = getAvailableMemoryInKB() * 1024;
+    constexpr size_t GB = 1024*1024*1024;
+    if(availableMem > 1*GB){
+        availableMem -= 1*GB;
     }
 
-
-    /*
-        Partition the input file in N chunks.
-        Creates the following files:
-        - outputPrefix+metadata
-        for chunk i
-            -outputPrefix+i+metadata
-            -outputPrefix+i+chars
-            -outputPrefix+i+lengths
-            -outputPrefix+i+offsets
-            -outputPrefix+i+headers
-            -outputPrefix+i+headeroffsets
-    */
+    for(int i = 3; i < argc; i++){
+        const std::string arg = argv[i];
+        if(arg == "--mem"){
+            availableMem = parseMemoryString(argv[++i]);
+        }else if(arg == "--tempdir"){
+           temppath = argv[++i];
+           if(temppath.back() != '/'){
+                temppath += '/';
+           }
+        }else{
+            std::cout << "Unexpected arg " << arg << "\n";
+        }
+    }
+    std::cout << "availableMem: " << availableMem << "\n";
 
     int processedNumBatches = 0;
 
-    auto processBatch = [&](const sequence_batch& batch, int batchId){
-        std::cout << "Converting sequence batch " << batchId << "\n";
-        std::cout << "Number of input sequences:  " << batch.offsets.size() - 1 << '\n';
-        std::cout << "Number of input characters: " << batch.chars.size() << '\n';
+    //InMemoryBatch batch;
+    HybridBatch batch(temppath, availableMem);
 
-        const std::string batchOutputPrefix = outputPrefix + std::to_string(batchId);
-        TIMERSTART(CONVERT_TO_DB_FORMAT)
-        cudasw4::createDBfilesFromSequenceBatch(batchOutputPrefix, batch);
-        TIMERSTOP(CONVERT_TO_DB_FORMAT)
+    std::cout << "Parsing file\n";
+    helpers::CpuTimer timer1("file parsing");
+    //loadWholeFileIntoBatch_withPaddedConvertedSequences(fastafilename, batch);
+    loadWholeFileIntoBatch_withPaddedSequences(fastafilename, batch);
+    timer1.print();
 
-        processedNumBatches++;
-    };
+    std::cout << "Number of input sequences:  " << batch.offsets.size() - 1 << '\n';
+    std::cout << "Number of input characters: " << batch.chars.size() << '\n';
 
-    forEachSequenceBatchInFile(
-        fastafilename,
-        processBatch
-    );
+    std::cout << "Converting amino acids\n";
+    helpers::CpuTimer timer2("amino conversion");
+    thrust::transform(thrust::omp::par, batch.chars.begin(), batch.chars.end(), batch.chars.begin(), &cudasw4::convert_AA);
+    timer2.print();
+
+    std::cout << "Creating DB files\n";
+    const std::string batchOutputPrefix = outputPrefix + std::to_string(processedNumBatches);
+    helpers::CpuTimer timer3("db creation");
+    createDBfilesFromSequenceBatch(batchOutputPrefix, batch);
+    timer3.print();
+    processedNumBatches = 1;
+
 
     cudasw4::DBGlobalInfo info;
     info.numChunks = processedNumBatches;

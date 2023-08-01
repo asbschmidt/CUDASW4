@@ -3,31 +3,8 @@
 
 #include <thrust/device_malloc_allocator.h>
 
-// #include <thrust/mr/memory_resource.h>
-// #include <thrust/host_vector.h>
-// #include <thrust/execution_policy.h>
-// #include <thrust/device_malloc_allocator.h>
-
-// #include <thrust/copy.h>
-// #include <thrust/iterator/counting_iterator.h>
-// #include <thrust/iterator/constant_iterator.h>
-// #include <thrust/iterator/transform_iterator.h>
-// #include <thrust/scatter.h>
-// #include <thrust/device_vector.h>
-// #include <thrust/host_vector.h>
-// #include <thrust/sort.h>
-// #include <thrust/execution_policy.h>
-// #include <thrust/count.h>
-// #include <thrust/equal.h>
-
 namespace cudasw4{
 
-// using pinned_mr = thrust::system::cuda::universal_host_pinned_memory_resource;
-// template<class T>
-// using pinned_allocator = thrust::mr::stateless_resource_allocator<T, pinned_mr>;
-
-// template <class T>
-// using pinned_vector = thrust::host_vector<T, pinned_allocator<T>>;
 
 
 template <class T>
