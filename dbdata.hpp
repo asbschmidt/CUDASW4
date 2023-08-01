@@ -13,6 +13,8 @@
 #include <vector>
 #include <iostream>
 
+namespace cudasw4{
+
 struct DBdataIoConfig{
     static const std::string metadatafilename(){ return "metadata"; }
     static const std::string headerfilename(){ return "headers"; }
@@ -40,6 +42,12 @@ struct DBdata{
     DBdata(const std::string& inputPrefix, bool writeAccess, bool prefetchSeq, size_t globalSequenceOffset = 0){
         loadDBdata(inputPrefix, *this, writeAccess, prefetchSeq, globalSequenceOffset);
     }
+
+    DBdata() = delete;
+    DBdata(const DBdata&) = delete;
+    DBdata(DBdata&&) = default;
+    DBdata& operator=(const DBdata&) = delete;
+    DBdata& operator=(DBdata&&) = default;
 
     size_t getGlobalSequenceOffset() const noexcept{
         return globalSequenceOffset;
@@ -99,7 +107,6 @@ struct DBdata{
 
     
 private:
-    DBdata() = default;
 
     size_t globalSequenceOffset;
     std::unique_ptr<MappedFile> mappedFileSequences;
@@ -188,6 +195,12 @@ struct PseudoDBdata{
         }
     }
 
+    PseudoDBdata() = delete;
+    PseudoDBdata(const PseudoDBdata&) = delete;
+    PseudoDBdata(PseudoDBdata&&) = default;
+    PseudoDBdata& operator=(const PseudoDBdata&) = delete;
+    PseudoDBdata& operator=(PseudoDBdata&&) = default;
+
     size_t getGlobalSequenceOffset() const noexcept{
         return 0;
     }
@@ -225,7 +238,6 @@ struct PseudoDBdata{
     }
     
 private:
-    PseudoDBdata() = default;
 
     size_t lengthRounded;
     std::vector<char> charvec;
@@ -239,6 +251,12 @@ private:
 struct DB{
     friend DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq);
 
+    DB() = default;
+    DB(const DB&) = delete;
+    DB(DB&&) = default;
+    DB& operator=(const DB&) = delete;
+    DB& operator=(DB&&) = default;
+
     DBGlobalInfo getInfo() const{
         return info;
     }
@@ -247,49 +265,31 @@ struct DB{
         return chunks;
     }
 
-    // const std::vector<DBdataView>& getChunks() const{
-    //     if(!hasViews){
-    //         for(const auto& x : chunks){
-    //             chunkViews.emplace_back(x);
-    //         }
-    //         hasViews = true;
-    //     }
-    //     return chunkViews;
-    // }
-
 private:
-    //mutable bool hasViews = false;
     DBGlobalInfo info;
     std::vector<DBdata> chunks;
-    //std::vector<DBdataView> chunkViews;
 };
 
 struct PseudoDB{
     friend PseudoDB loadPseudoDB(size_t num, size_t length, int randomseed);
 
+    PseudoDB() = default;
+    PseudoDB(const PseudoDB&) = delete;
+    PseudoDB(PseudoDB&&) = default;
+    PseudoDB& operator=(const PseudoDB&) = delete;
+    PseudoDB& operator=(PseudoDB&&) = default;
+
     DBGlobalInfo getInfo() const{
         return info;
     }
-
-    // const std::vector<DBdataView>& getChunks() const{
-    //     if(!hasViews){
-    //         for(const auto& x : chunks){
-    //             chunkViews.emplace_back(x);
-    //         }
-    //         hasViews = true;
-    //     }
-    //     return chunkViews;
-    // }
 
     const std::vector<PseudoDBdata>& getChunks() const{
         return chunks;
     }
 
 private:
-    //mutable bool hasViews = false;
     DBGlobalInfo info;
     std::vector<PseudoDBdata> chunks;
-    //std::vector<DBdataView> chunkViews;
 };
 
 void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const sequence_batch& batch);
@@ -455,5 +455,7 @@ std::vector<DBdataView> partitionDBdata_by_numberOfSequences(const DBdataView& p
 std::vector<DBdataView> partitionDBdata_by_numberOfChars(const DBdataView& parent, size_t numCharsPerPartition);
 
 void assertValidPartitioning(const std::vector<DBdataView>& views, const DBdataView& parent);
+
+} //namespace cudasw4
 
 #endif

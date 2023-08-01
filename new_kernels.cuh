@@ -6,6 +6,8 @@
 
 #include "convert.cuh"
 
+namespace cudasw4{
+
 //__device__ char4 constantQuery4[2048];
 
 typedef union
@@ -111,6 +113,7 @@ void NW_convert_protein_single(
     }
 }
 
+} //namespace cudasw4
 
 #include "half2_kernels.cuh"
 #include "dpx_s16_kernels.cuh"

@@ -2,8 +2,9 @@
 #define DPX_S16_KERNELS_CUH
 
 
-#include <cuda_fp16.h>
 #include "blosum.hpp"
+
+namespace cudasw4{
 
 template <int group_size, int numRegs, int blosumDim, class PositionsIterator> 
 struct DPXAligner_s16{
@@ -1299,5 +1300,6 @@ void call_NW_local_affine_single_pass_s16_DPX_new(
 }
 
 
+} // namespace cudasw4
 
 #endif

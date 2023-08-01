@@ -1,6 +1,8 @@
 #ifndef CONVERT_CUH
 #define CONVERT_CUH
 
+namespace cudasw4{
+
 #ifdef __CUDACC__
 __host__ __device__ __forceinline__
 #endif
@@ -68,5 +70,7 @@ char inverse_convert_AA(const char& AA) {
     if (AA == 19) return 'V';
     return '-'; //  else
 };
+
+} //namespace cudasw4
 
 #endif

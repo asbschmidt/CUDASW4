@@ -4,6 +4,8 @@
 #include <array>
 #include <limits>
 
+namespace cudasw4{
+
 //length k is in partition i if boundaries[i-1] < k <= boundaries[i]
 
 constexpr auto getLengthPartitionBoundaries(){
@@ -161,6 +163,6 @@ constexpr auto getLengthPartitionBoundaries(){
 }
     
 
-
+} //namespace cudasw4
 
 #endif

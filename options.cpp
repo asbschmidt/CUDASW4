@@ -74,12 +74,12 @@ bool parseArgs(int argc, char** argv, ProgramOptions& options){
     };
 
     auto stringToKernelType = [&](const std::string& string){
-        if(string == "Half2") return KernelType::Half2;
-        if(string == "DPXs16") return KernelType::DPXs16;
-        if(string == "DPXs32") return KernelType::DPXs32;
-        if(string == "Float") return KernelType::Float;
+        if(string == "Half2") return cudasw4::KernelType::Half2;
+        if(string == "DPXs16") return cudasw4::KernelType::DPXs16;
+        if(string == "DPXs32") return cudasw4::KernelType::DPXs32;
+        if(string == "Float") return cudasw4::KernelType::Float;
         assert(false);
-        return KernelType::Half2;
+        return cudasw4::KernelType::Half2;
     };
 
     bool gotQuery = false;
@@ -126,23 +126,23 @@ bool parseArgs(int argc, char** argv, ProgramOptions& options){
         }else if(arg == "--mat"){
             const std::string val = argv[++i];
             #ifdef CAN_USE_FULL_BLOSUM
-            if(val == "blosum45") options.blosumType = BlosumType::BLOSUM45;
-            if(val == "blosum50") options.blosumType = BlosumType::BLOSUM50;
-            if(val == "blosum62") options.blosumType = BlosumType::BLOSUM62;
-            if(val == "blosum80") options.blosumType = BlosumType::BLOSUM80;
-            if(val == "blosum45_20") options.blosumType = BlosumType::BLOSUM45_20;
-            if(val == "blosum50_20") options.blosumType = BlosumType::BLOSUM50_20;
-            if(val == "blosum62_20") options.blosumType = BlosumType::BLOSUM62_20;
-            if(val == "blosum80_20") options.blosumType = BlosumType::BLOSUM80_20;
+            if(val == "blosum45") options.blosumType = cudasw4::BlosumType::BLOSUM45;
+            if(val == "blosum50") options.blosumType = cudasw4::BlosumType::BLOSUM50;
+            if(val == "blosum62") options.blosumType = cudasw4::BlosumType::BLOSUM62;
+            if(val == "blosum80") options.blosumType = cudasw4::BlosumType::BLOSUM80;
+            if(val == "blosum45_20") options.blosumType = cudasw4::BlosumType::BLOSUM45_20;
+            if(val == "blosum50_20") options.blosumType = cudasw4::BlosumType::BLOSUM50_20;
+            if(val == "blosum62_20") options.blosumType = cudasw4::BlosumType::BLOSUM62_20;
+            if(val == "blosum80_20") options.blosumType = cudasw4::BlosumType::BLOSUM80_20;
             #else
-            if(val == "blosum45") options.blosumType = BlosumType::BLOSUM45_20;
-            if(val == "blosum50") options.blosumType = BlosumType::BLOSUM50_20;
-            if(val == "blosum62") options.blosumType = BlosumType::BLOSUM62_20;
-            if(val == "blosum80") options.blosumType = BlosumType::BLOSUM80_20;
-            if(val == "blosum45_20") options.blosumType = BlosumType::BLOSUM45_20;
-            if(val == "blosum50_20") options.blosumType = BlosumType::BLOSUM50_20;
-            if(val == "blosum62_20") options.blosumType = BlosumType::BLOSUM62_20;
-            if(val == "blosum80_20") options.blosumType = BlosumType::BLOSUM80_20;
+            if(val == "blosum45") options.blosumType = cudasw4::BlosumType::BLOSUM45_20;
+            if(val == "blosum50") options.blosumType = cudasw4::BlosumType::BLOSUM50_20;
+            if(val == "blosum62") options.blosumType = cudasw4::BlosumType::BLOSUM62_20;
+            if(val == "blosum80") options.blosumType = cudasw4::BlosumType::BLOSUM80_20;
+            if(val == "blosum45_20") options.blosumType = cudasw4::BlosumType::BLOSUM45_20;
+            if(val == "blosum50_20") options.blosumType = cudasw4::BlosumType::BLOSUM50_20;
+            if(val == "blosum62_20") options.blosumType = cudasw4::BlosumType::BLOSUM62_20;
+            if(val == "blosum80_20") options.blosumType = cudasw4::BlosumType::BLOSUM80_20;
             #endif
         }else if(arg == "--singlePassType"){
             options.singlePassType = stringToKernelType(argv[++i]);
@@ -163,19 +163,19 @@ bool parseArgs(int argc, char** argv, ProgramOptions& options){
     }
 
     //set specific gop gex for blosum if no gop gex was set
-    if(options.blosumType == BlosumType::BLOSUM45 || options.blosumType == BlosumType::BLOSUM45_20){
+    if(options.blosumType == cudasw4::BlosumType::BLOSUM45 || options.blosumType == cudasw4::BlosumType::BLOSUM45_20){
         if(!gotGop) options.gop = -13;
         if(!gotGex) options.gex = -2;
     }
-    if(options.blosumType == BlosumType::BLOSUM50 || options.blosumType == BlosumType::BLOSUM50_20){
+    if(options.blosumType == cudasw4::BlosumType::BLOSUM50 || options.blosumType == cudasw4::BlosumType::BLOSUM50_20){
         if(!gotGop) options.gop = -13;
         if(!gotGex) options.gex = -2;
     }
-    if(options.blosumType == BlosumType::BLOSUM62 || options.blosumType == BlosumType::BLOSUM62_20){
+    if(options.blosumType == cudasw4::BlosumType::BLOSUM62 || options.blosumType == cudasw4::BlosumType::BLOSUM62_20){
         if(!gotGop) options.gop = -11;
         if(!gotGex) options.gex = -1;
     }
-    if(options.blosumType == BlosumType::BLOSUM80 || options.blosumType == BlosumType::BLOSUM80_20){
+    if(options.blosumType == cudasw4::BlosumType::BLOSUM80 || options.blosumType == cudasw4::BlosumType::BLOSUM80_20){
         if(!gotGop) options.gop = -10;
         if(!gotGex) options.gex = -1;
     }

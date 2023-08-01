@@ -1,6 +1,14 @@
 #ifndef DBBATCHING_CUH
 #define DBBATCHING_CUH
 
+#include <vector>
+#include <iostream>
+#include <algorithm>
+
+#include <thrust/for_each.h>
+#include <thrust/iterator/transform_iterator.h>
+#include <thrust/scan.h>
+
 namespace cudasw4{
 
     struct DeviceBatchCopyToPinnedPlan{

@@ -9,6 +9,7 @@
 
 #include <thrust/iterator/transform_iterator.h>
 
+namespace cudasw4{
 
 void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess, bool prefetchSeq, size_t globalSequenceOffset){
 
@@ -327,3 +328,5 @@ void assertValidPartitioning(const std::vector<DBdataView>& views, const DBdataV
         }
     }
 }
+
+} //namespace cudasw4

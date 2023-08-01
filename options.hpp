@@ -19,11 +19,11 @@ struct ProgramOptions{
     int gex = -1;
     int pseudoDBLength = 0;
     int pseudoDBSize = 0;
-    BlosumType blosumType = BlosumType::BLOSUM62_20;
-    KernelType singlePassType = KernelType::Half2;
-    KernelType manyPassType_small = KernelType::Half2;
-    KernelType manyPassType_large = KernelType::Float;
-    KernelType overflowType = KernelType::Float;
+    cudasw4::BlosumType blosumType = cudasw4::BlosumType::BLOSUM62_20;
+    cudasw4::KernelType singlePassType = cudasw4::KernelType::Half2;
+    cudasw4::KernelType manyPassType_small = cudasw4::KernelType::Half2;
+    cudasw4::KernelType manyPassType_large = cudasw4::KernelType::Float;
+    cudasw4::KernelType overflowType = cudasw4::KernelType::Float;
 
     size_t maxBatchBytes = 128ull * 1024ull * 1024ull;
     size_t maxBatchSequences = 10'000'000;

@@ -6,24 +6,14 @@
 #include <array>
 #include <string>
 
+namespace cudasw4{
+
 enum class KernelType{
     Half2,
     DPXs16,
     DPXs32,
     Float
 };
-
-__inline__
-std::string to_string(KernelType type){
-    switch(type){
-        case KernelType::Half2: return "Half2"; break;
-        case KernelType::DPXs16: return "DPXs16"; break;
-        case KernelType::DPXs32: return "DPXs32"; break;
-        case KernelType::Float: return "Float"; break;
-        default: return "Missing name for KernelType";
-    }
-}
-
 
 enum class BlosumType{
     BLOSUM45,
@@ -35,37 +25,6 @@ enum class BlosumType{
     BLOSUM62_20,
     BLOSUM80_20,
 };
-
-__inline__
-std::string to_string(BlosumType type){
-    switch(type){
-        case BlosumType::BLOSUM45: return "BLOSUM45";
-        case BlosumType::BLOSUM50: return "BLOSUM50";
-        case BlosumType::BLOSUM62: return "BLOSUM62";
-        case BlosumType::BLOSUM80: return "BLOSUM80";
-        case BlosumType::BLOSUM45_20: return "BLOSUM45 (20)";
-        case BlosumType::BLOSUM50_20: return "BLOSUM50 (20)";
-        case BlosumType::BLOSUM62_20: return "BLOSUM62 (20)";
-        case BlosumType::BLOSUM80_20: return "BLOSUM80 (20)";
-        default: return "FORGOT TO NAME THIS BLOSUM TYPE";
-    }
-}
-
-__inline__
-std::string to_string_nodim(BlosumType type){
-    switch(type){
-        case BlosumType::BLOSUM45: return "BLOSUM45";
-        case BlosumType::BLOSUM50: return "BLOSUM50";
-        case BlosumType::BLOSUM62: return "BLOSUM62";
-        case BlosumType::BLOSUM80: return "BLOSUM80";
-        case BlosumType::BLOSUM45_20: return "BLOSUM45";
-        case BlosumType::BLOSUM50_20: return "BLOSUM50";
-        case BlosumType::BLOSUM62_20: return "BLOSUM62";
-        case BlosumType::BLOSUM80_20: return "BLOSUM80";
-        default: return "FORGOT TO NAME THIS BLOSUM TYPE";
-    }
-}
-
 
 struct BLOSUM45_20{
     static constexpr char low = -5;
@@ -435,6 +394,50 @@ struct BLOSUM80{
         return result;
     }
 };
+
+} //namespace cudasw4
+
+
+__inline__
+std::string to_string(cudasw4::KernelType type){
+    switch(type){
+        case cudasw4::KernelType::Half2: return "Half2"; break;
+        case cudasw4::KernelType::DPXs16: return "DPXs16"; break;
+        case cudasw4::KernelType::DPXs32: return "DPXs32"; break;
+        case cudasw4::KernelType::Float: return "Float"; break;
+        default: return "Missing name for KernelType";
+    }
+}
+
+__inline__
+std::string to_string(cudasw4::BlosumType type){
+    switch(type){
+        case cudasw4::BlosumType::BLOSUM45: return "BLOSUM45";
+        case cudasw4::BlosumType::BLOSUM50: return "BLOSUM50";
+        case cudasw4::BlosumType::BLOSUM62: return "BLOSUM62";
+        case cudasw4::BlosumType::BLOSUM80: return "BLOSUM80";
+        case cudasw4::BlosumType::BLOSUM45_20: return "BLOSUM45 (20)";
+        case cudasw4::BlosumType::BLOSUM50_20: return "BLOSUM50 (20)";
+        case cudasw4::BlosumType::BLOSUM62_20: return "BLOSUM62 (20)";
+        case cudasw4::BlosumType::BLOSUM80_20: return "BLOSUM80 (20)";
+        default: return "FORGOT TO NAME THIS BLOSUM TYPE";
+    }
+}
+
+__inline__
+std::string to_string_nodim(cudasw4::BlosumType type){
+    switch(type){
+        case cudasw4::BlosumType::BLOSUM45: return "BLOSUM45";
+        case cudasw4::BlosumType::BLOSUM50: return "BLOSUM50";
+        case cudasw4::BlosumType::BLOSUM62: return "BLOSUM62";
+        case cudasw4::BlosumType::BLOSUM80: return "BLOSUM80";
+        case cudasw4::BlosumType::BLOSUM45_20: return "BLOSUM45";
+        case cudasw4::BlosumType::BLOSUM50_20: return "BLOSUM50";
+        case cudasw4::BlosumType::BLOSUM62_20: return "BLOSUM62";
+        case cudasw4::BlosumType::BLOSUM80_20: return "BLOSUM80";
+        default: return "FORGOT TO NAME THIS BLOSUM TYPE";
+    }
+}
 
 
 #endif

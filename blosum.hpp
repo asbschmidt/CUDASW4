@@ -2,9 +2,12 @@
 #define BLOSUM_HPP
 
 #include "types.hpp"
-
+#include "util.cuh"
 #include <array>
 #include <string>
+#include <vector>
+
+namespace cudasw4{
 
 #ifdef __CUDACC__
 __constant__ char deviceBlosum[25*25];
@@ -17,9 +20,9 @@ int hostBlosumDim;
 int hostBlosumDimSquared;
 
 //set host and device global variables
-void setProgramWideBlosum(BlosumType blosumType);
 
-void setProgramWideBlosum(BlosumType blosumType){
+
+void setProgramWideBlosum(BlosumType blosumType, const std::vector<int>& deviceIds){
     switch(blosumType){
         case BlosumType::BLOSUM45:
             {
@@ -106,19 +109,19 @@ void setProgramWideBlosum(BlosumType blosumType){
             break;
     }
 #ifdef __CUDACC__
-    int numGpus = 0;
-    cudaGetDeviceCount(&numGpus); CUERR;
+    RevertDeviceId rdi{};
 
-    int old = 0;
-    cudaGetDevice(&old); CUERR;
+    int numGpus = deviceIds.size();
+
     for(int gpu = 0; gpu < numGpus; gpu++){
-        cudaSetDevice(gpu); CUERR;
+        cudaSetDevice(deviceIds[gpu]); CUERR;
         cudaMemcpyToSymbol(deviceBlosum, &(hostBlosum[0]), sizeof(char) * hostBlosumDim * hostBlosumDim); CUERR;
         cudaMemcpyToSymbol(deviceBlosumDim, &hostBlosumDim, sizeof(int)); CUERR;
         cudaMemcpyToSymbol(deviceBlosumDimSquared, &hostBlosumDimSquared, sizeof(int)); CUERR;
     }
-    cudaSetDevice(old); CUERR;
 #endif    
 }
+
+} //namespace cudasw4
 
 #endif

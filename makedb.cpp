@@ -65,7 +65,7 @@ void forEachSequenceBatchInFile(const std::string& inputfilename, Func callback)
         batch.headers.push_back(header);
 
         if(batch.chars.size() >= maxCharactersInBatch){
-            std::transform(batch.chars.begin(), batch.chars.end(), batch.chars.begin(), &convert_AA);
+            std::transform(batch.chars.begin(), batch.chars.end(), batch.chars.begin(), &cudasw4::convert_AA);
             callback(batch, batchId);
             resetBatch(batch);
             batchId++;
@@ -74,7 +74,7 @@ void forEachSequenceBatchInFile(const std::string& inputfilename, Func callback)
 
     //if there is any sequence left (even sequence with 0 chars), process remainder
     if(batch.lengths.size() > 0){
-        std::transform(batch.chars.begin(), batch.chars.end(), batch.chars.begin(), &convert_AA);
+        std::transform(batch.chars.begin(), batch.chars.end(), batch.chars.begin(), &cudasw4::convert_AA);
         callback(batch, batchId);
         resetBatch(batch);
         batchId++;
@@ -121,7 +121,7 @@ int main(int argc, char* argv[])
 
         const std::string batchOutputPrefix = outputPrefix + std::to_string(batchId);
         TIMERSTART(CONVERT_TO_DB_FORMAT)
-        createDBfilesFromSequenceBatch(batchOutputPrefix, batch);
+        cudasw4::createDBfilesFromSequenceBatch(batchOutputPrefix, batch);
         TIMERSTOP(CONVERT_TO_DB_FORMAT)
 
         processedNumBatches++;
@@ -132,9 +132,9 @@ int main(int argc, char* argv[])
         processBatch
     );
 
-    DBGlobalInfo info;
+    cudasw4::DBGlobalInfo info;
     info.numChunks = processedNumBatches;
 
-    writeGlobalDbInfo(outputPrefix, info);
+    cudasw4::writeGlobalDbInfo(outputPrefix, info);
 
 }

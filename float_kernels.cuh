@@ -1,8 +1,9 @@
 #ifndef FLOAT_KERNELS_CUH
 #define FLOAT_KERNELS_CUH
 
-#include <cuda_fp16.h>
 #include "blosum.hpp"
+
+namespace cudasw4{
 
 template <int numRegs, int blosumDim, class PositionsIterator> 
 struct ManyPassFloat{
@@ -1104,6 +1105,8 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
             );
         }
     }
+}
+
 }
 
 #endif

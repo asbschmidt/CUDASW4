@@ -117,7 +117,7 @@ int main(int argc, char* argv[])
         helpers::CpuTimer timer_read_db("Read DB");
         constexpr bool writeAccess = false;
         constexpr bool prefetchSeq = true;
-        auto fullDB_tmp = std::make_shared<DB>(loadDB(options.dbPrefix, writeAccess, prefetchSeq));
+        auto fullDB_tmp = std::make_shared<cudasw4::DB>(cudasw4::loadDB(options.dbPrefix, writeAccess, prefetchSeq));
         if(options.verbose){
             timer_read_db.print();
         }
@@ -128,7 +128,7 @@ int main(int argc, char* argv[])
             std::cout << "Generating pseudo db\n";
         }
         helpers::CpuTimer timer_read_db("Generate DB");
-        auto fullDB_tmp = std::make_shared<PseudoDB>(loadPseudoDB(options.pseudoDBSize, options.pseudoDBLength));
+        auto fullDB_tmp = std::make_shared<cudasw4::PseudoDB>(cudasw4::loadPseudoDB(options.pseudoDBSize, options.pseudoDBLength));
         if(options.verbose){
             timer_read_db.print();
         }

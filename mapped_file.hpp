@@ -13,6 +13,7 @@
 #include <iostream>
 #include <cassert>
 
+namespace cudasw4{
 
 struct MappedFile{
     struct Options{
@@ -104,6 +105,6 @@ private:
 };
 
 
-
+} //namespace cudasw4
 
 #endif

@@ -5,6 +5,8 @@
 #include <cuda_fp16.h>
 #include "blosum.hpp"
 
+namespace cudasw4{
+
 template <int group_size, int numRegs, int blosumDim, class PositionsIterator> 
 struct Half2Aligner{
     static constexpr float negInftyFloat = -1000.0f;
@@ -1360,6 +1362,6 @@ void call_NW_local_affine_Protein_single_pass_half2_new(
 
 }
 
-
+} //namespace cudasw4
 
 #endif
