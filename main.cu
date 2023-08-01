@@ -104,7 +104,7 @@ int main(int argc, char* argv[])
 
     cudasw4::CudaSW4 cudaSW4(
         deviceIds, 
-        option.numTop,
+        options.numTopOutputs,
         options.blosumType, 
         kernelTypeConfig, 
         memoryConfig, 
