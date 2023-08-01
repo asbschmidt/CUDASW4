@@ -1,10 +1,28 @@
-#ifndef BLOSUMTYPES_HPP
-#define BLOSUMTYPES_HPP
+#ifndef TYPES_HPP
+#define TYPES_HPP
 
 #include "hpc_helpers/all_helpers.cuh"
 
 #include <array>
 #include <string>
+
+enum class KernelType{
+    Half2,
+    DPXs16,
+    DPXs32,
+    Float
+};
+
+__inline__
+std::string to_string(KernelType type){
+    switch(type){
+        case KernelType::Half2: return "Half2"; break;
+        case KernelType::DPXs16: return "DPXs16"; break;
+        case KernelType::DPXs32: return "DPXs32"; break;
+        case KernelType::Float: return "Float"; break;
+        default: return "Missing name for KernelType";
+    }
+}
 
 
 enum class BlosumType{

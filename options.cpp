@@ -1,38 +1,16 @@
 #include "options.hpp"
-#include "blosumTypes.hpp"
+#include "types.hpp"
 #include "hpc_helpers/all_helpers.cuh"
 
 #include <string>
 #include <iostream>
 
-std::string to_string(KernelType type){
-    switch(type){
-        case KernelType::Half2: return "Half2"; break;
-        case KernelType::DPXs16: return "DPXs16"; break;
-        case KernelType::DPXs32: return "DPXs32"; break;
-        case KernelType::Float: return "Float"; break;
-        default: return "Missing name for KernelType";
-    }
-}
 
-bool isValidSinglePassType(KernelType type){
-    return (type == KernelType::Half2 || type == KernelType::DPXs16);
-}
 
-bool isValidMultiPassType_small(KernelType type){
-    return (type == KernelType::Half2 || type == KernelType::DPXs16);
-}
-
-bool isValidMultiPassType_large(KernelType type){
-    return (type == KernelType::Float);
-}
-
-bool isValidOverflowType(KernelType type){
-    return (type == KernelType::Float);
-}
-
-void printOptions(const CudaSW4Options& options){
+void printOptions(const ProgramOptions& options){
     std::cout << "Selected options:\n";
+    std::cout << "verbose: " << options.verbose << "\n";
+    std::cout << "interactive: " << options.interactive << "\n";
     std::cout << "loadFullDBToGpu: " << options.loadFullDBToGpu << "\n";
     std::cout << "numTopOutputs: " << options.numTopOutputs << "\n";
     std::cout << "gop: " << options.gop << "\n";
@@ -40,8 +18,14 @@ void printOptions(const CudaSW4Options& options){
     std::cout << "maxBatchBytes: " << options.maxBatchBytes << "\n";
     std::cout << "maxBatchSequences: " << options.maxBatchSequences << "\n";
     std::cout << "maxTempBytes: " << options.maxTempBytes << "\n";
-    std::cout << "queryFile: " << options.queryFile << "\n";
+    for(size_t i = 0; i < options.queryFiles.size(); i++){
+        std::cout << "queryFile " << i  << " : " << options.queryFiles[i] << "\n";
+    }
+    #ifdef CAN_USE_FULL_BLOSUM
     std::cout << "blosum: " << to_string(options.blosumType) << "\n";
+    #else
+    std::cout << "blosum: " << to_string_nodim(options.blosumType) << "\n";
+    #endif
     std::cout << "singlePassType: " << to_string(options.singlePassType) << "\n";
     std::cout << "manyPassType_small: " << to_string(options.manyPassType_small) << "\n";
     std::cout << "manyPassType_large: " << to_string(options.manyPassType_large) << "\n";
@@ -56,9 +40,10 @@ void printOptions(const CudaSW4Options& options){
     
 }
 
-bool parseArgs(int argc, char** argv, CudaSW4Options& options){
+bool parseArgs(int argc, char** argv, ProgramOptions& options){
 
-    auto parseMemoryString = [](const std::string& string) -> std::size_t{
+    auto parseMemoryString = [](const std::string& string){
+        std::size_t result = 0;
         if(string.length() > 0){
             std::size_t factor = 1;
             bool foundSuffix = false;
@@ -78,13 +63,14 @@ bool parseArgs(int argc, char** argv, CudaSW4Options& options){
             }
             if(foundSuffix){
                 const auto numberString = string.substr(0, string.size()-1);
-                return factor * std::stoull(numberString);
+                result = factor * std::stoull(numberString);
             }else{
-                return std::stoull(string);
+                result = std::stoull(string);
             }
         }else{
-            return 0;
+            result = 0;
         }
+        return result;
     };
 
     auto stringToKernelType = [&](const std::string& string){
@@ -101,12 +87,18 @@ bool parseArgs(int argc, char** argv, CudaSW4Options& options){
     bool gotGex = false;
     bool gotGop = false;
 
+    options.queryFiles.clear();
+
     for(int i = 1; i < argc; i++){
         const std::string arg = argv[i];
         if(arg == "--help"){
             options.help = true;
         }else if(arg == "--uploadFull"){
             options.loadFullDBToGpu = true;
+        }else if(arg == "--verbose"){
+            options.verbose = true;            
+        }else if(arg == "--interactive"){
+            options.interactive = true;            
         }else if(arg == "--printLengthPartitions"){
             options.printLengthPartitions = true;            
         }else if(arg == "--top"){
@@ -126,7 +118,7 @@ bool parseArgs(int argc, char** argv, CudaSW4Options& options){
         }else if(arg == "--maxGpuMem"){
             options.maxGpuMem = parseMemoryString(argv[++i]);
         }else if(arg == "--query"){
-            options.queryFile = argv[++i];
+            options.queryFiles.push_back(argv[++i]);
             gotQuery = true;
         }else if(arg == "--db"){
             options.dbPrefix = argv[++i];
@@ -197,37 +189,16 @@ bool parseArgs(int argc, char** argv, CudaSW4Options& options){
         return false;
     }
 
-    if(!isValidSinglePassType(options.singlePassType)){
-        std::cout << "Invalid singlepass kernel type\n";
-        return false;
-    }
-
-    if(!isValidMultiPassType_small(options.manyPassType_small)){
-        std::cout << "Invalid manyPassType_small kernel type\n";
-        return false;
-    }
-
-    if(!isValidMultiPassType_large(options.manyPassType_large)){
-        std::cout << "Invalid manyPassType_large kernel type\n";
-        return false;
-    }
-
-    if(!isValidOverflowType(options.overflowType)){
-        std::cout << "Invalid overflow kernel type\n";
-        return false;
-    }
-
-
     return true;
 }
 
 void printHelp(int /*argc*/, char** argv){
-    CudaSW4Options defaultoptions;
+    ProgramOptions defaultoptions;
 
     std::cout << "Usage: " << argv[0] << " [options]\n";
     std::cout << "The GPUs to use are set via CUDA_VISIBLE_DEVICES environment variable.\n";
     std::cout << "Options: \n";
-    std::cout << "      --query queryfile : Mandatory. Fasta or Fastq\n";
+    std::cout << "      --query queryfile : Mandatory. Fasta or Fastq. Can be gzip'ed. Repeat this option for multiple query files\n";
     std::cout << "      --db dbPrefix : Mandatory. The DB to query against. The same dbPrefix as used for makedb\n";
     std::cout << "      --top val : Output the val best scores. Default val = " << defaultoptions.numTopOutputs << "\n";
     std::cout << "      --maxTempBytes val : Size of temp storage in GPU memory. Can use suffix K,M,G. Default val = " << defaultoptions.maxTempBytes << "\n";
@@ -251,5 +222,7 @@ void printHelp(int /*argc*/, char** argv){
     std::cout << "      --singlePassType val, --manyPassType_small val, --manyPassType_large val, --overflowType val : Select kernel types for different length partitions. "
                         "Valid values: Half2, DPXs16, DPXs32, Float.\n";
     std::cout << "      --printLengthPartitions : Print number of sequences per length partition in db.\n";
+    std::cout << "      --interactive\n";
+    std::cout << "      --verbose\n";
             
 }

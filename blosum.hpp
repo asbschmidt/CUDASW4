@@ -1,7 +1,7 @@
 #ifndef BLOSUM_HPP
 #define BLOSUM_HPP
 
-#include "blosumTypes.hpp"
+#include "types.hpp"
 
 #include <array>
 #include <string>

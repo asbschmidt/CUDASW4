@@ -1,30 +1,19 @@
 #ifndef OPTIONS_HPP
 #define OPTIONS_HPP
 
-#include "blosumTypes.hpp"
+#include "types.hpp"
 #include <string>
 #include <iostream>
 
-enum class KernelType{
-    Half2,
-    DPXs16,
-    DPXs32,
-    Float
-};
 
-std::string to_string(KernelType type);
-
-bool isValidSinglePassType(KernelType type);
-bool isValidMultiPassType_small(KernelType type);
-bool isValidMultiPassType_large(KernelType type);
-bool isValidOverflowType(KernelType type);
-
-struct CudaSW4Options{
+struct ProgramOptions{
 
     bool help = false;
     bool loadFullDBToGpu = false;
     bool usePseudoDB = false;
     bool printLengthPartitions = false;
+    bool interactive = false;
+    bool verbose = false;
     int numTopOutputs = 10;
     int gop = -11;
     int gex = -1;
@@ -42,13 +31,13 @@ struct CudaSW4Options{
 
     size_t maxGpuMem = std::numeric_limits<size_t>::max();
 
-    std::string queryFile;
     std::string dbPrefix;
+    std::vector<std::string> queryFiles;
 };
 
-void printOptions(const CudaSW4Options& options);
+void printOptions(const ProgramOptions& options);
 
-bool parseArgs(int argc, char** argv, CudaSW4Options& options);
+bool parseArgs(int argc, char** argv, ProgramOptions& options);
 
 void printHelp(int argc, char** argv);
 

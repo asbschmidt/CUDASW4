@@ -43,7 +43,7 @@ $(GRIDSEARCH): gridsearch.o sequence_io.o dbdata.o
 	$(COMPILER) $^ -o $(GRIDSEARCH) $(LDFLAGS)
 
 # compile CUDA files
-main.o : main.cu sequence_io.h length_partitions.hpp dbdata.hpp new_kernels.cuh convert.cuh float_kernels.cuh half2_kernels.cuh dpx_s16_kernels.cuh blosum.hpp blosumTypes.hpp
+main.o : main.cu sequence_io.h length_partitions.hpp dbdata.hpp new_kernels.cuh convert.cuh float_kernels.cuh half2_kernels.cuh dpx_s16_kernels.cuh blosum.hpp types.hpp
 	$(COMPILE)
 
 # compile pure C++ files
@@ -55,7 +55,7 @@ dbdata.o : dbdata.cpp dbdata.hpp mapped_file.hpp sequence_io.h length_partitions
 	$(COMPILE)
 
 # compile pure C++ files
-options.o : options.cpp options.hpp blosumTypes.hpp
+options.o : options.cpp options.hpp types.hpp
 	$(COMPILE)
 
 # compile pure C++ files
