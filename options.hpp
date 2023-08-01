@@ -14,6 +14,7 @@ struct ProgramOptions{
     bool printLengthPartitions = false;
     bool interactive = false;
     bool verbose = false;
+    bool prefetchDBFile = false;
     int numTopOutputs = 10;
     int gop = -11;
     int gex = -1;

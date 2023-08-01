@@ -517,6 +517,7 @@ namespace cudasw4{
     public:
         CudaSW4(
             std::vector<int> deviceIds_, 
+            int numTop,
             BlosumType blosumType,
             const KernelTypeConfig& kernelTypeConfig,
             const MemoryConfig& memoryConfig,
@@ -532,9 +533,6 @@ namespace cudasw4{
             initializeGpus();
 
             const int numDBChunks = 1;
-            alignment_scores_float.resize(numDBChunks * numTop);
-            sorted_indices.resize(numDBChunks * numTop);
-            resultDbChunkIndices.resize(numDBChunks * numTop);
             resultNumOverflows.resize(numDBChunks);
 
             const int numGpus = deviceIds.size();
@@ -546,7 +544,7 @@ namespace cudasw4{
             totalTimer = std::make_unique<helpers::GpuTimer>("Total");
 
             setBlosum(blosumType);
-            setNumTop(10);
+            setNumTop(numTop);
             setKernelTypeConfig(kernelTypeConfig);
             setMemoryConfig(memoryConfig);
 
@@ -592,6 +590,11 @@ namespace cudasw4{
             if(value >= 0){
                 numTop = value;
                 updateNumResultsPerQuery();
+
+                const int numDBChunks = 1;
+                alignment_scores_float.resize(numDBChunks * results_per_query);
+                sorted_indices.resize(numDBChunks * results_per_query);
+                resultDbChunkIndices.resize(numDBChunks * results_per_query);
             }
         }
 
@@ -706,6 +709,9 @@ namespace cudasw4{
 
             const int masterDeviceId = deviceIds[0];
             cudaSetDevice(masterDeviceId);
+
+            scanTimer->reset();
+            scanTimer->start();
 
             setQuery(query, queryLength);
 
@@ -1236,8 +1242,8 @@ namespace cudasw4{
             auto& masterevent1 = gpuEvents[0];
 
             cudaSetDevice(masterDeviceId);
-            scanTimer->reset();
-            scanTimer->start();
+            // scanTimer->reset();
+            // scanTimer->start();
 
             thrust::fill(
                 thrust::cuda::par_nosync.on(masterStream1),

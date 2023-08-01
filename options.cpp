@@ -12,6 +12,7 @@ void printOptions(const ProgramOptions& options){
     std::cout << "verbose: " << options.verbose << "\n";
     std::cout << "interactive: " << options.interactive << "\n";
     std::cout << "loadFullDBToGpu: " << options.loadFullDBToGpu << "\n";
+    std::cout << "prefetchDBFile: " << options.prefetchDBFile << "\n";
     std::cout << "numTopOutputs: " << options.numTopOutputs << "\n";
     std::cout << "gop: " << options.gop << "\n";
     std::cout << "gex: " << options.gex << "\n";
@@ -100,7 +101,9 @@ bool parseArgs(int argc, char** argv, ProgramOptions& options){
         }else if(arg == "--interactive"){
             options.interactive = true;            
         }else if(arg == "--printLengthPartitions"){
-            options.printLengthPartitions = true;            
+            options.printLengthPartitions = true;
+        }else if(arg == "--prefetchDBFile"){
+            options.prefetchDBFile = true;
         }else if(arg == "--top"){
             options.numTopOutputs = std::atoi(argv[++i]);
         }else if(arg == "--gop"){
@@ -206,9 +209,8 @@ void printHelp(int /*argc*/, char** argv){
     std::cout << "      --maxBatchSequences val : Process DB in batches of at most val sequences. Default val = " << defaultoptions.maxBatchSequences << "\n";
     std::cout << "      --maxGpuMem val : Try not to use more than val bytes of gpu memory per gpu. Uses all available gpu memory by default";
     
-    std::cout << "      --uploadFull : Do not process DB in smaller batches. Copy full DB to GPU before processing queries.\n";
-    //std::cout << "      --blosum50 : Use BLOSUM50 substitution matrix.\n";
-    //std::cout << "      --blosum62 : Use BLOSUM62 substitution matrix.\n";
+    std::cout << "      --prefetchDBFile : Load DB into RAM immediately at program start instead of waiting for the first access. For benchmarking purposes.\n";
+    std::cout << "      --uploadFull : If enough GPU memory is available to store full db, copy full DB to GPU before processing queries. For benchmarking purposes.\n";
     #ifdef CAN_USE_FULL_BLOSUM
     std::cout << "      --mat val: Set substitution matrix. Supported values: blosum45, blosum50, blosum62, blosum80, blosum45_20, blosum50_20, blosum62_20, blosum80_20. "
                         "Default: " << to_string(defaultoptions.blosumType) << "\n";
