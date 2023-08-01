@@ -21,6 +21,7 @@
 #include <thrust/sort.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
+#include <thrust/iterator/constant_iterator.h>
 
 #include <iostream>
 #include <string>
@@ -818,7 +819,7 @@ namespace cudasw4{
         }
 
         bool isValidMultiPassType_large(KernelType type) const{
-            return (type == KernelType::Float);
+            return (type == KernelType::Float || type == KernelType::DPXs32);
         }
 
         bool isValidOverflowType(KernelType type) const{
@@ -1652,7 +1653,6 @@ namespace cudasw4{
                                 //const size_t* const d_selectedPositions = ws.d_selectedPositions.data() + start;
                                 auto d_selectedPositions = thrust::make_counting_iterator<size_t>(start);
         
-                                #if 1
                                 if(kernelTypeConfig.singlePassType == KernelType::Half2){
                                     
                                     constexpr int sh2bs = 256; // single half2 blocksize 
@@ -1729,9 +1729,7 @@ namespace cudasw4{
                                     if (partId == 32){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 38>(blosumType, inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, d_query, currentQueryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
                                     if (partId == 33){call_NW_local_affine_single_pass_s16_DPX_new<sh2bs, 32, 40>(blosumType, inputChars, d_scores, inputOffsets , inputLengths, d_selectedPositions, numSeq, d_overflow_positions, d_overflow_number, 1, d_query, currentQueryLength, gop, gex, nextWorkStreamNoTemp()); CUERR }
 
-                                }
-                                #endif
-        
+                                }       
         
                                 if(partId == numLengthPartitions - 2){
                                     if(kernelTypeConfig.manyPassType_small == KernelType::Half2){
@@ -1864,6 +1862,39 @@ namespace cudasw4{
         
                                             //NW_local_affine_read4_float_query_Protein<32, 32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
                                             call_NW_local_affine_read4_float_query_Protein_new<20>(
+                                                blosumType,
+                                                inputChars, 
+                                                d_scores, 
+                                                d_tempHcol2, 
+                                                d_tempEcol2, 
+                                                inputOffsets, 
+                                                inputLengths, 
+                                                d_selectedPositions + begin, 
+                                                num,
+                                                d_query,
+                                                currentQueryLength, 
+                                                gop, 
+                                                gex,
+                                                ws.workStreamForTempUsage
+                                            ); CUERR 
+                                        }
+                                    }else if(kernelTypeConfig.manyPassType_large == KernelType::DPXs32){
+                                        const size_t tempBytesPerSubjectPerBuffer = sizeof(int2) * SDIV(currentQueryLength,32) * 32;
+                                        const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
+        
+                                        int2* d_temp = (int2*)ws.d_tempStorageHE.data();
+                                        int2* d_tempHcol2 = d_temp;
+                                        int2* d_tempEcol2 = (int2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
+        
+                                        const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
+                                        for(int iter = 0; iter < numIters; iter++){
+                                            const size_t begin = iter * maxSubjectsPerIteration;
+                                            const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
+                                            const size_t num = end - begin;
+        
+                                            cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, ws.workStreamForTempUsage); CUERR;
+
+                                            call_NW_local_affine_s32_DPX_new<20>(
                                                 blosumType,
                                                 inputChars, 
                                                 d_scores, 

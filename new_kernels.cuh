@@ -117,6 +117,7 @@ void NW_convert_protein_single(
 
 #include "half2_kernels.cuh"
 #include "dpx_s16_kernels.cuh"
+#include "dpx_s32_kernels.cuh"
 #include "float_kernels.cuh"
 
 #endif
