@@ -4,7 +4,7 @@ DIALECT      = -std=c++17
 OPTIMIZATION = -O3
 WARNINGS     = -Xcompiler="-Wall -Wextra"
 # NVCC_FLAGS   = -arch=sm_61 -lineinfo --expt-relaxed-constexpr -rdc=true
-NVCC_FLAGS   = -arch=native -lineinfo --expt-relaxed-constexpr -rdc=true --extended-lambda -lnvToolsExt -Xcompiler="-fopenmp" #-res-usage #-Xptxas "-v"
+NVCC_FLAGS   = -arch=native -lineinfo --expt-relaxed-constexpr -rdc=true --extended-lambda -lnvToolsExt -Xcompiler="-fopenmp" -res-usage #-Xptxas "-v"
 LDFLAGS      = -Xcompiler="-pthread -s"  $(NVCC_FLAGS) -lz
 #LDFLAGS      = -Xcompiler="-pthread"  $(NVCC_FLAGS) -lz
 COMPILER     = nvcc
@@ -65,6 +65,6 @@ makedb.o : makedb.cpp dbdata.hpp sequence_io.h
 modifydb.o : modifydb.cpp dbdata.hpp sequence_io.h
 	$(COMPILE)
 
-gridsearch.o : gridsearch.cu length_partitions.hpp kernels.cuh dbdata.hpp manypass_half2_kernel.cuh
+gridsearch.o : gridsearch.cu length_partitions.hpp dbdata.hpp
 	$(COMPILE)
 

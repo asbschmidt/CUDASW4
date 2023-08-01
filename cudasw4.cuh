@@ -1228,7 +1228,7 @@ namespace cudasw4{
             for(int gpu = 0; gpu < numGpus; gpu++){
                 cudaSetDevice(deviceIds[gpu]); CUERR;
                 auto& ws = *workingSets[gpu];
-                const int roundedLength = SDIV(queryLength, 128) * 128;
+                const int roundedLength = SDIV(queryLength, 128) * 128 + 128;
                 ws.d_query.resize(roundedLength);
                 cudaMemsetAsync(ws.d_query.data(), 20, roundedLength, gpuStreams[gpu]);
                 cudaMemcpyAsync(ws.d_query.data(), query, queryLength, cudaMemcpyDefault, gpuStreams[gpu]); CUERR

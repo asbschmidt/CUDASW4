@@ -7,10 +7,11 @@
 #include "length_partitions.hpp"
 #include "convert.cuh"
 #include "blosum.hpp"
+#include "types.hpp"
+#include "new_kernels.cuh"
+
+
 #include "kernels.cuh"
-#include "half2_kernels.cuh"
-#include "manypass_float_kernel.cuh"
-#include "dpx_s16_kernels.cuh"
 
 #include <thrust/sequence.h>
 #include <thrust/execution_policy.h>
@@ -36,43 +37,48 @@ using MyPinnedBuffer = helpers::SimpleAllocationPinnedHost<T, 0>;
 template<class T>
 using MyDeviceBuffer = helpers::SimpleAllocationDevice<T, 0>;
 
-int main(){
+//using namespace cudasw4;
+
+int main(int argc, char** argv){
+    if(argc < 4){
+        std::cout << "Usage: " << argv[0] << " querylength pseudosize pseudolength\n";
+        return 0;
+    }
     const int deviceId = 0;
     cudaStream_t stream = 0;
-    const int queryLength = 256;
-    const int numSubjects = 512*1024;
+    const int queryLength = std::atoi(argv[1]);
+    const int numSubjects = std::atoi(argv[2]);
+    const int pseudolength = std::atoi(argv[3]);
 
     const int timingLoopIters = 1;
 
     const int gop = -11;
     const int gex = -1;
 
-    BlosumType blosumType = BlosumType::BLOSUM62_20;
-    constexpr int blosumDim = BLOSUM62_20::dim;
+    cudasw4::BlosumType blosumType = cudasw4::BlosumType::BLOSUM62_20;
 
     cudaSetDevice(deviceId);
 
     switch(blosumType){
-        case BlosumType::BLOSUM50_20:
-            {
-                const auto blosum = BLOSUM50_20::get1D();
-                const int dim = BLOSUM50_20::dim;
-                assert(dim == 21);
-                cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));                    
-            }
-            break;
-        default: //BlosumType::BLOSUM62_20
-            {
-                const auto blosum = BLOSUM62_20::get1D();
-                const int dim = BLOSUM62_20::dim;
-                assert(dim == 21);
-                cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
-            }
-            break;
+    case cudasw4::BlosumType::BLOSUM50_20:
+        {
+            const auto blosum = cudasw4::BLOSUM50_20::get1D();
+            const int dim = cudasw4::BLOSUM50_20::dim;
+            assert(dim == 21);
+            cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));                    
+        }
+        break;
+    default: //cudasw4::BlosumType::BLOSUM62_20
+        {
+            const auto blosum = cudasw4::BLOSUM62_20::get1D();
+            const int dim = cudasw4::BLOSUM62_20::dim;
+            assert(dim == 21);
+            cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
+        }
+        break;
     }
 
-    //set blosum for new kernels
-    setProgramWideBlosum(blosumType);
+    setProgramWideBlosum(blosumType,{deviceId});
 
 
     const char* letters = "ARNDCQEGHILKMFPSTWYV";
@@ -84,9 +90,6 @@ int main(){
         querySeq[i] = letters[dist(gen)];
     }
 
-    MyDeviceBuffer<char> d_query(queryLength);
-    MyDeviceBuffer<size_t> d_offsets(2);
-    MyDeviceBuffer<size_t> d_lengths(1);
 
     std::vector<size_t> offsets(2);
     offsets[0] = 0;
@@ -94,11 +97,12 @@ int main(){
     std::vector<size_t> lengths(1);
     lengths[0] = queryLength;
 
-
-    cudaMemcpyAsync(d_query.data(), querySeq.data(), queryLength, cudaMemcpyHostToDevice, stream); CUERR
-    cudaMemcpyAsync(d_offsets.data(), offsets.data(), sizeof(size_t) * (2), cudaMemcpyHostToDevice, stream); CUERR
-    cudaMemcpyAsync(d_lengths.data(), lengths.data(), sizeof(size_t) * (1), cudaMemcpyHostToDevice, stream); CUERR
-    NW_convert_protein<<<1, 128, 0, stream>>>(d_query.data(), d_offsets.data()); CUERR
+    const int roundedLength = SDIV(queryLength, 128) * 128 + 128;
+    MyDeviceBuffer<char> d_query(roundedLength);
+    std::cout << "d_query : " << (void*)d_query.data() << ", " << roundedLength << " bytes\n";
+    cudaMemsetAsync(d_query.data(), 20, roundedLength, stream);
+    cudaMemcpyAsync(d_query.data(), querySeq.data(), queryLength, cudaMemcpyDefault, stream); CUERR
+    cudasw4::NW_convert_protein_single<<<SDIV(queryLength, 128), 128, 0, stream>>>(d_query.data(), queryLength); CUERR
 
     std::vector<char> FillChar(512*16, 20);
 
@@ -648,17 +652,19 @@ int main(){
 
     // MANY PASS FLOAT BENCHMARKS
 
-    #if 0
+    #if 1
 
         std::cout << "NW_local_affine_read4_float_query_Protein\n";
 
         //for(int pseudodbSeqLength : {1500, 2000, 2048, 3333, 4096, 6666, 7000}){
-        for(int pseudodbSeqLength : {4096}){
+        //for(int pseudodbSeqLength : {4096})
+        {
         //for(int pseudodbSeqLength = 1024+256; pseudodbSeqLength <= 8192; pseudodbSeqLength += 256){
+            const int pseudodbSeqLength = pseudolength;
             std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
     
-            PseudoDB fullDB = loadPseudoDB(numSubjects, pseudodbSeqLength);
-            const auto& dbData = fullDB.chunks[0];
+            cudasw4::PseudoDB fullDB = cudasw4::loadPseudoDB(numSubjects, pseudodbSeqLength);
+            const auto& dbData = fullDB.getChunks()[0];
 
             std::vector<MyDeviceBuffer<float>> d_scores_vec(std::max(2, timingLoopIters));
             for(int i = 0; i < std::max(2, timingLoopIters); i++){
@@ -749,12 +755,12 @@ int main(){
             #define runManyPassFloat_new(blocksize, groupsize, numRegs){ \
                 assert(groupsize == 32); \
                 assert(blocksize == 32); \
-                constexpr int alignmentsPerBlock = 1; \
+                const char4* d_query4 = (const char4*)d_query.data(); \
                 helpers::GpuTimer timer1(stream, "Timer_" + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
                 for(int i = 0; i < timingLoopIters; i++){ \
                     cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(short2), stream); CUERR; \
                     cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(short2), stream); CUERR; \
-                    call_NW_local_affine_read4_float_query_Protein_new<numRegs>( \
+                    cudasw4::call_NW_local_affine_read4_float_query_Protein_new<numRegs>( \
                         blosumType, \
                         d_subjects.data(),  \
                         d_scores_vec[i].data(),  \
@@ -764,6 +770,7 @@ int main(){
                         d_subjectLengths.data(),  \
                         d_selectedPositions.data(),  \
                         numSubjects, \
+                        d_query4, \
                         queryLength,  \
                         gop,  \
                         gex, \
@@ -779,6 +786,7 @@ int main(){
             #define compareManyPassFloatNew(blocksize, groupsize, numRegs){ \
                 assert(groupsize == 32); \
                 assert(blocksize == 32); \
+                const char4* d_query4 = (const char4*)d_query.data(); \
                 constexpr int alignmentsPerBlock = 1; \
                     cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(short2), stream); CUERR; \
                     cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(short2), stream); CUERR; \
@@ -799,7 +807,7 @@ int main(){
                     cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(short2), stream); CUERR; \
                     cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(short2), stream); CUERR; \
                     helpers::GpuTimer timer2(stream, "new " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-                    call_NW_local_affine_read4_float_query_Protein_new<numRegs>( \
+                    cudasw4::call_NW_local_affine_read4_float_query_Protein_new<numRegs>( \
                         blosumType, \
                         d_subjects.data(),  \
                         d_scores_vec[1].data(),  \
@@ -809,6 +817,7 @@ int main(){
                         d_subjectLengths.data(),  \
                         d_selectedPositions.data(),  \
                         numSubjects, \
+                        d_query4, \
                         queryLength,  \
                         gop,  \
                         gex, \
@@ -817,7 +826,6 @@ int main(){
                     timer2.printGCUPS(((double(queryLength) * pseudodbSeqLength * numSubjects)));\
                 checkIfEqualResultsNew(); \
             }
-
 
             compareManyPassFloatNew(32, 32, 12);
 
@@ -837,7 +845,7 @@ int main(){
             // runManyPassFloat(32, 32, 14);
             // runManyPassFloat(32, 32, 16);
             // runManyPassFloat(32, 32, 18);
-            // runManyPassFloat(32, 32, 20);
+            runManyPassFloat(32, 32, 20);
             // runManyPassFloat(32, 32, 22);
             // runManyPassFloat(32, 32, 24);
             // runManyPassFloat(32, 32, 26);
@@ -854,7 +862,6 @@ int main(){
             std::cout << "\n";
             gcupsVec.clear();
 
-
             // runManyPassFloat_new(32, 32, 6);
             // runManyPassFloat_new(32, 32, 8);
             // runManyPassFloat_new(32, 32, 10);
@@ -862,7 +869,7 @@ int main(){
             // runManyPassFloat_new(32, 32, 14);
             // runManyPassFloat_new(32, 32, 16);
             // runManyPassFloat_new(32, 32, 18);
-            // runManyPassFloat_new(32, 32, 20);
+            runManyPassFloat_new(32, 32, 20);
             // runManyPassFloat_new(32, 32, 22);
             // runManyPassFloat_new(32, 32, 24);
             // runManyPassFloat_new(32, 32, 26);
@@ -886,7 +893,7 @@ int main(){
 
 
     // single pass dpx s16
-    #if 1
+    #if 0
         std::cout << "NW_local_affine_single_pass_s16_DPX\n";
 
         //for(int pseudodbSeqLength : {48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 256, 288, 320, 352, 384, 416, 448, 480, 512, 576, 640, 704, 768, 832, 896, 960, 1024, 1088, 1152, 1216, 1280}){
