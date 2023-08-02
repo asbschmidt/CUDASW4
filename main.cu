@@ -244,13 +244,15 @@ int main(int argc, char* argv[])
             if(options.verbose){
                 std::cout << "Total time: " << totalBenchmarkStats.seconds << " s, " << totalBenchmarkStats.gcups << " GCUPS\n";
             }
-            for(int query_num = 0; query_num < numQueries; ++query_num) {
-                const ScanResult& scanResult = scanResults[query_num];
+            if(options.numTopOutputs > 0){
+                for(int query_num = 0; query_num < numQueries; ++query_num) {
+                    const ScanResult& scanResult = scanResults[query_num];
 
-                std::cout << "Query " << query_num << ", header" <<  batchOfQueries.headers[query_num] 
-                    << ", length " << batchOfQueries.lengths[query_num]
-                    << ", num overflows " << scanResult.stats.numOverflows << "\n";
-                printScanResult(scanResult, cudaSW4);
+                    std::cout << "Query " << query_num << ", header" <<  batchOfQueries.headers[query_num] 
+                        << ", length " << batchOfQueries.lengths[query_num]
+                        << ", num overflows " << scanResult.stats.numOverflows << "\n";
+                    printScanResult(scanResult, cudaSW4);
+                }
             }
         #endif
 
