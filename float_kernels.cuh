@@ -1090,7 +1090,7 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
             // cudaMemsetAsync(d_tempHcol2, 0, tempBytesPerSubjectPerBuffer * num, 0);
             // cudaMemsetAsync(d_tempEcol2, 0, tempBytesPerSubjectPerBuffer * num, 0);
 
-            NW_local_affine_read4_float_query_Protein_new<12, blosumDim><<<num, 32>>>(
+            NW_local_affine_read4_float_query_Protein_new<numRegs, blosumDim><<<num, 32>>>(
                 devChars, 
                 devAlignmentScores,
                 d_tempHcol2, 
@@ -1104,6 +1104,66 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
                 gap_extend
             );
         }
+    }
+}
+
+
+template <int numRegs, class ScoreOutputIterator> 
+void call_launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new(
+    const int* const d_overflow_number,
+    float2* const d_temp,
+    const size_t maxTempBytes,
+    const char * const devChars,
+    ScoreOutputIterator const devAlignmentScores,
+    const size_t* const devOffsets,
+    const size_t* const devLengths,
+    const size_t* const d_positions_of_selected_lengths,
+    const char4* const query4,
+    const int queryLength,
+    const float gap_open,
+    const float gap_extend,
+    cudaStream_t stream
+){
+    if(hostBlosumDim == 21){
+        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<numRegs, 21, ScoreOutputIterator>;
+        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
+
+        kernel<<<1, 1, 0, stream>>>(
+            d_overflow_number,
+            d_temp,
+            maxTempBytes,
+            devChars,
+            devAlignmentScores,
+            devOffsets,
+            devLengths,
+            d_positions_of_selected_lengths,
+            query4,
+            queryLength,
+            gap_open,
+            gap_extend
+        ); CUERR;
+    #ifdef CAN_USE_FULL_BLOSUM
+    }else if(hostBlosumDim == 25){
+        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<numRegs, 25, ScoreOutputIterator>;
+        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
+
+        kernel<<<1, 1, 0, stream>>>(
+            d_overflow_number,
+            d_temp,
+            maxTempBytes,
+            devChars,
+            devAlignmentScores,
+            devOffsets,
+            devLengths,
+            d_positions_of_selected_lengths,
+            query4,
+            queryLength,
+            gap_open,
+            gap_extend
+        ); CUERR;
+    #endif
+    }else{
+        assert(false);
     }
 }
 

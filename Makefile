@@ -30,7 +30,7 @@ COMPILE = $(COMPILER) $(NVCC_FLAGS) $(DIALECT) $(OPTIMIZATION) $(WARNINGS) -c $<
 
 
 # link object files into executable
-$(ARTIFACT): main.o sequence_io.o dbdata.o options.o blosum.o half2_kernel_instantiations.o
+$(ARTIFACT): main.o sequence_io.o dbdata.o options.o blosum.o half2_kernel_instantiations.o float_kernel_instantiations.o dpx_s32_kernel_instantiations.o dpx_s16_kernel_instantiations.o
 	$(COMPILER) $^ -o $(ARTIFACT) $(LDFLAGS)
 
 $(MAKEDB): makedb.o sequence_io.o dbdata.o
@@ -62,6 +62,15 @@ blosum.o : blosum.cu blosum.hpp
 	$(COMPILE)
 
 half2_kernel_instantiations.o: half2_kernel_instantiations.cu half2_kernels.cuh
+	$(COMPILE)
+
+float_kernel_instantiations.o: float_kernel_instantiations.cu float_kernels.cuh
+	$(COMPILE)
+
+dpx_s16_kernel_instantiations.o: dpx_s16_kernel_instantiations.cu dpx_s16_kernels.cuh
+	$(COMPILE)
+
+dpx_s32_kernel_instantiations.o: dpx_s32_kernel_instantiations.cu dpx_s32_kernels.cuh
 	$(COMPILE)
 
 # compile pure C++ files

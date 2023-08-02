@@ -1874,45 +1874,21 @@ namespace cudasw4{
                         if(kernelTypeConfig.overflowType == KernelType::Float){
                             //std::cerr << "overflow processing\n";
                             float2* d_temp = (float2*)ws.d_tempStorageHE.data();
-        
-                            //launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein<32,32><<<1,1,0, ws.workStreamForTempUsage>>>(
-                            if(hostBlosumDim == 21){
-                                launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<20,21><<<1,1,0, ws.workStreamForTempUsage>>>(
-                                    d_overflow_number,
-                                    d_temp, 
-                                    ws.numTempBytes,
-                                    inputChars, 
-                                    //ws.devAlignmentScoresFloat.data() + variables.processedSequences, 
-                                    maxReduceArray,
-                                    inputOffsets, 
-                                    inputLengths, 
-                                    d_overflow_positions, 
-                                    d_query,
-                                    currentQueryLength, 
-                                    gop, 
-                                    gex
-                                ); CUERR
-                            #ifdef CAN_USE_FULL_BLOSUM
-                            }else if(hostBlosumDim == 25){
-                                launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<20,25><<<1,1,0, ws.workStreamForTempUsage>>>(
-                                    d_overflow_number,
-                                    d_temp, 
-                                    ws.numTempBytes,
-                                    inputChars, 
-                                    //ws.devAlignmentScoresFloat.data() + variables.processedSequences, 
-                                    maxReduceArray,
-                                    inputOffsets, 
-                                    inputLengths, 
-                                    d_overflow_positions, 
-                                    d_query,
-                                    currentQueryLength, 
-                                    gop, 
-                                    gex
-                                ); CUERR
-                            #endif
-                            }else{
-                                assert(false);
-                            }
+                            call_launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<20>(
+                                d_overflow_number,
+                                d_temp, 
+                                ws.numTempBytes,
+                                inputChars, 
+                                maxReduceArray,
+                                inputOffsets, 
+                                inputLengths, 
+                                d_overflow_positions, 
+                                d_query,
+                                currentQueryLength, 
+                                gop, 
+                                gex,
+                                ws.workStreamForTempUsage
+                            );
                         }else{
                             assert(false);
                         }

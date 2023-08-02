@@ -1,7 +1,7 @@
-#include "util.cuh"
+//#include "util.cuh"
 #include "new_kernels.cuh"
 
-#include "thrust/iterator/counting_iterator.h"
+//#include "thrust/iterator/counting_iterator.h"
 
 namespace cudasw4{
 
@@ -43,5 +43,7 @@ template void call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 36, Sc
 template void call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 38, ScoreIterInst, PosIterInst>(BlosumType, const char * const, ScoreIterInst const, const size_t* const, const size_t* const, PosIterInst const, const int, size_t* const, int* const, const bool, const char4*, const int, const float, const float, cudaStream_t);
 template void call_NW_local_affine_Protein_single_pass_half2_new<256, 32, 40, ScoreIterInst, PosIterInst>(BlosumType, const char * const, ScoreIterInst const, const size_t* const, const size_t* const, PosIterInst const, const int, size_t* const, int* const, const bool, const char4*, const int, const float, const float, cudaStream_t);
 
+
+template void call_NW_local_affine_Protein_many_pass_half2_new<256, 32, 22, ScoreIterInst, PosIterInst>(BlosumType, const char * const, ScoreIterInst const, __half2*, __half2*, const size_t* const, const size_t* const, PosIterInst const, const int, size_t* const, int* const, const bool, const char4*, const int, const float, const float, cudaStream_t);
 
 } // namespace cudasw4
