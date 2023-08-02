@@ -30,7 +30,7 @@ COMPILE = $(COMPILER) $(NVCC_FLAGS) $(DIALECT) $(OPTIMIZATION) $(WARNINGS) -c $<
 
 
 # link object files into executable
-$(ARTIFACT): main.o sequence_io.o dbdata.o options.o
+$(ARTIFACT): main.o sequence_io.o dbdata.o options.o blosum.o
 	$(COMPILER) $^ -o $(ARTIFACT) $(LDFLAGS)
 
 $(MAKEDB): makedb.o sequence_io.o dbdata.o
@@ -39,7 +39,7 @@ $(MAKEDB): makedb.o sequence_io.o dbdata.o
 $(MODIFYDB): modifydb.o sequence_io.o dbdata.o
 	$(COMPILER) $^ -o $(MODIFYDB) $(LDFLAGS)
 
-$(GRIDSEARCH): gridsearch.o sequence_io.o dbdata.o
+$(GRIDSEARCH): gridsearch.o sequence_io.o dbdata.o blosum.o
 	$(COMPILER) $^ -o $(GRIDSEARCH) $(LDFLAGS)
 
 # compile CUDA files
@@ -56,6 +56,9 @@ dbdata.o : dbdata.cpp dbdata.hpp mapped_file.hpp sequence_io.h length_partitions
 
 # compile pure C++ files
 options.o : options.cpp options.hpp types.hpp
+	$(COMPILE)
+
+blosum.o : blosum.cu blosum.hpp
 	$(COMPILE)
 
 # compile pure C++ files
