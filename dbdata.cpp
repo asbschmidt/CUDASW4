@@ -97,20 +97,18 @@ void writeTrivialVectorToFile(const std::vector<T>& vec, const std::string& file
 
 
 
-void writeGlobalDbInfo(const std::string& outputPrefix, const DBGlobalInfo& info){
+void writeGlobalDbInfo(const std::string& outputPrefix, const DBGlobalInfo& /*info*/){
     //write info data to metadata file
     std::ofstream metadataout(outputPrefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
     if(!metadataout) throw std::runtime_error("Cannot open output file " + outputPrefix + DBdataIoConfig::metadatafilename());
 
-    metadataout.write((const char*)&info.numChunks, sizeof(int));
 }
 
-void readGlobalDbInfo(const std::string& prefix, DBGlobalInfo& info){
+void readGlobalDbInfo(const std::string& prefix, DBGlobalInfo& /*info*/){
     //write info data to metadata file
     std::ifstream metadatain(prefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
     if(!metadatain) throw std::runtime_error("Cannot open file " + prefix + DBdataIoConfig::metadatafilename());
 
-    metadatain.read((char*)&info.numChunks, sizeof(int));
 }
 
 
@@ -119,12 +117,8 @@ DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq){
     DB result;
     readGlobalDbInfo(prefix, result.info);
 
-    size_t totalNumSequences = 0;
-    for(int i = 0; i < result.info.numChunks; i++){
-        const std::string chunkPrefix = prefix + std::to_string(i);
-        result.chunks.emplace_back(chunkPrefix, writeAccess, prefetchSeq, totalNumSequences);
-        totalNumSequences += result.chunks.back().numSequences();
-    }
+    const std::string chunkPrefix = prefix + std::to_string(0);
+    result.data = DBdata(chunkPrefix, writeAccess, prefetchSeq, 0);
 
     return result;
 }
@@ -132,8 +126,7 @@ DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq){
 
 PseudoDB loadPseudoDB(size_t num, size_t length, int randomseed){
     PseudoDB result;
-    result.info.numChunks = 1;
-    result.chunks.emplace_back(num, length, randomseed);
+    result.data = PseudoDBdata(num, length, randomseed);
 
     return result;
 }

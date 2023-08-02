@@ -4,6 +4,7 @@
 #include "mapped_file.hpp"
 #include "sequence_io.h"
 #include "length_partitions.hpp"
+#include "convert.cuh"
 
 #include <memory>
 #include <fstream>
@@ -26,7 +27,7 @@ struct DBdataIoConfig{
 
 
 struct DBGlobalInfo{
-    int numChunks;
+    
 };
 
 
@@ -37,13 +38,12 @@ struct DBdataMetaData{
 
 struct DBdata{
     friend void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess, bool prefetchSeq, size_t globalSequenceOffset);
-
+    friend struct DB;
 
     DBdata(const std::string& inputPrefix, bool writeAccess, bool prefetchSeq, size_t globalSequenceOffset = 0){
         loadDBdata(inputPrefix, *this, writeAccess, prefetchSeq, globalSequenceOffset);
     }
 
-    DBdata() = delete;
     DBdata(const DBdata&) = delete;
     DBdata(DBdata&&) = default;
     DBdata& operator=(const DBdata&) = delete;
@@ -107,6 +107,7 @@ struct DBdata{
 
     
 private:
+    DBdata() = default;
 
     size_t globalSequenceOffset;
     std::unique_ptr<MappedFile> mappedFileSequences;
@@ -118,7 +119,7 @@ private:
 };
 
 struct PseudoDBdata{
-
+    friend struct PseudoDB;
 
     PseudoDBdata(size_t num, size_t length, int randomseed = 42)
     : lengthRounded(((length + 3) / 4) * 4),
@@ -151,31 +152,8 @@ struct PseudoDBdata{
         std::fill(headervec.begin(), headervec.end(), 'H');
         std::iota(headeroffsetvec.begin(), headeroffsetvec.end(), size_t(0));
 
-        //convert nucs to integers
-        auto convert_AA = [](const char& AA) {
-            if (AA == 'A') return 0;
-            if (AA == 'R') return 1;
-            if (AA == 'N') return 2;
-            if (AA == 'D') return 3;
-            if (AA == 'C') return 4;
-            if (AA == 'Q') return 5;
-            if (AA == 'E') return 6;
-            if (AA == 'G') return 7;
-            if (AA == 'H') return 8;
-            if (AA == 'I') return 9;
-            if (AA == 'L') return 10;
-            if (AA == 'K') return 11;
-            if (AA == 'M') return 12;
-            if (AA == 'F') return 13;
-            if (AA == 'P') return 14;
-            if (AA == 'S') return 15;
-            if (AA == 'T') return 16;
-            if (AA == 'W') return 17;
-            if (AA == 'Y') return 18;
-            if (AA == 'V') return 19;
-            return 20; //  else
-        };
-        std::transform(charvec.begin(), charvec.end(), charvec.begin(), convert_AA);
+        //convert amino acids to integers
+        std::transform(charvec.begin(), charvec.end(), charvec.begin(), &convert_AA);
         
 
         auto boundaries = getLengthPartitionBoundaries();
@@ -195,7 +173,6 @@ struct PseudoDBdata{
         }
     }
 
-    PseudoDBdata() = delete;
     PseudoDBdata(const PseudoDBdata&) = delete;
     PseudoDBdata(PseudoDBdata&&) = default;
     PseudoDBdata& operator=(const PseudoDBdata&) = delete;
@@ -239,6 +216,8 @@ struct PseudoDBdata{
     
 private:
 
+    PseudoDBdata() = default;
+
     size_t lengthRounded;
     std::vector<char> charvec;
     std::vector<size_t> lengthvec;
@@ -251,7 +230,7 @@ private:
 struct DB{
     friend DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq);
 
-    DB() = default;
+    
     DB(const DB&) = delete;
     DB(DB&&) = default;
     DB& operator=(const DB&) = delete;
@@ -261,13 +240,15 @@ struct DB{
         return info;
     }
 
-    const std::vector<DBdata>& getChunks() const{
-        return chunks;
+    const DBdata& getData() const{
+        return data;
     }
 
 private:
+    DB() = default;
+
     DBGlobalInfo info;
-    std::vector<DBdata> chunks;
+    DBdata data;
 };
 
 struct PseudoDB{
@@ -283,13 +264,13 @@ struct PseudoDB{
         return info;
     }
 
-    const std::vector<PseudoDBdata>& getChunks() const{
-        return chunks;
+    const PseudoDBdata& getData() const{
+        return data;
     }
 
 private:
     DBGlobalInfo info;
-    std::vector<PseudoDBdata> chunks;
+    PseudoDBdata data;
 };
 
 void writeGlobalDbInfo(const std::string& outputPrefix, const DBGlobalInfo& info);
@@ -324,6 +305,18 @@ PseudoDB loadPseudoDB(size_t num, size_t length, int randomseed = 42);
 
 */
 struct DBdataView{
+    DBdataView(): firstSequence(0), 
+        lastSequence_excl(0), 
+        globalSequenceOffset(0),
+        parentChars(nullptr),
+        parentLengths(nullptr),
+        parentOffsets(nullptr),
+        parentHeaders(nullptr),
+        parentHeaderOffsets(nullptr)
+    {
+
+    }
+
     DBdataView(const DBdata& parent, size_t globalSequenceOffset_ = 0) 
         : firstSequence(0), 
         lastSequence_excl(parent.numSequences()), 
@@ -424,23 +417,21 @@ struct AnyDBWrapper{
         return info;
     }
 
-    const std::vector<DBdataView>& getChunks() const{
-        return chunks;
+    const DBdataView& getData() const{
+        return data;
     }
 
 private:
     template<class DB>
     void setDB(const DB& db){
         info = db.getInfo();
-        for(const auto& x : db.getChunks()){
-            chunks.emplace_back(x);
-        }
+        data = DBdataView(db.getData());
     }
     std::shared_ptr<DB> dbPtr = nullptr;
     std::shared_ptr<PseudoDB> pseudoDBPtr = nullptr;
     
     DBGlobalInfo info;
-    std::vector<DBdataView> chunks;   
+    DBdataView data;   
 
 };
 
