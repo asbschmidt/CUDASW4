@@ -1072,8 +1072,8 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
         //     printf("%lu ", d_positions_of_selected_lengths[i]);
         // }
         // printf("\n");
-    
-        const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * queryLength;
+        const int currentQueryLengthWithPadding = SDIV(queryLength, 4) * 4 + sizeof(char4) * 32;
+        const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * currentQueryLengthWithPadding;
         const size_t maxSubjectsPerIteration = std::min(size_t(numOverflow), maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
         float2* d_tempHcol2 = d_temp;

@@ -699,12 +699,16 @@ namespace cudasw4{
         }
 
         void totalTimerStart(){
+            RevertDeviceId rdi{};
+            cudaSetDevice(deviceIds[0]);
             totalProcessedQueryLengths = 0;
             totalNumOverflows = 0;
             totalTimer->start();
         }
 
         BenchmarkStats totalTimerStop(){
+            RevertDeviceId rdi{};
+            cudaSetDevice(deviceIds[0]);
             totalTimer->stop();
 
             const auto& sequenceLengthStatistics = getSequenceLengthStatistics();
@@ -1096,13 +1100,16 @@ namespace cudasw4{
         void setQuery(const char* query, int queryLength){
             currentQueryLength = queryLength;
 
+            //pad query to multiple of 4 for char4 access
+            //add sizeof(char4) * warpsize for unguarded accesses outside of the DP matrix
+            currentQueryLengthWithPadding = SDIV(queryLength, 4) * 4 + sizeof(char4) * 32;
+
             const int numGpus = deviceIds.size();
             for(int gpu = 0; gpu < numGpus; gpu++){
                 cudaSetDevice(deviceIds[gpu]); CUERR;
                 auto& ws = *workingSets[gpu];
-                const int roundedLength = SDIV(queryLength, 128) * 128 + 128;
-                ws.d_query.resize(roundedLength);
-                cudaMemsetAsync(ws.d_query.data(), 20, roundedLength, gpuStreams[gpu]);
+                ws.d_query.resize(currentQueryLengthWithPadding);
+                cudaMemsetAsync(ws.d_query.data() + currentQueryLength, 20, currentQueryLengthWithPadding - currentQueryLength, gpuStreams[gpu]);
                 cudaMemcpyAsync(ws.d_query.data(), query, queryLength, cudaMemcpyDefault, gpuStreams[gpu]); CUERR
 
                 thrust::transform(
@@ -1661,7 +1668,7 @@ namespace cudasw4{
                                         constexpr int alignmentsPerGroup = 2;
                                         constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
                                         
-                                        const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * alignmentsPerBlock * currentQueryLength;
+                                        const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * alignmentsPerBlock * currentQueryLengthWithPadding;
         
                                         const size_t maxNumBlocks = ws.numTempBytes / (tempBytesPerBlockPerBuffer * 2);
                                         const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(numSeq));
@@ -1709,7 +1716,7 @@ namespace cudasw4{
                                         constexpr int alignmentsPerGroup = 2;
                                         constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
                                         
-                                        const size_t tempBytesPerBlockPerBuffer = sizeof(short2) * alignmentsPerBlock * currentQueryLength;
+                                        const size_t tempBytesPerBlockPerBuffer = sizeof(short2) * alignmentsPerBlock * currentQueryLengthWithPadding;
         
                                         const size_t maxNumBlocks = ws.numTempBytes / (tempBytesPerBlockPerBuffer * 2);
                                         const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(numSeq));
@@ -1761,7 +1768,7 @@ namespace cudasw4{
         
                                 if(partId == numLengthPartitions - 1){
                                     if(kernelTypeConfig.manyPassType_large == KernelType::Float){
-                                        const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * SDIV(currentQueryLength,32) * 32;
+                                        const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * currentQueryLengthWithPadding;
                                         const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
         
                                         float2* d_temp = (float2*)ws.d_tempStorageHE.data();
@@ -1775,10 +1782,7 @@ namespace cudasw4{
                                             const size_t num = end - begin;
         
                                             cudaMemsetAsync(d_temp, 0, tempBytesPerSubjectPerBuffer * 2 * num, ws.workStreamForTempUsage); CUERR;
-        
-                                            //cudaDeviceSynchronize(); CUERR;
-        
-                                            //NW_local_affine_read4_float_query_Protein<32, 32><<<num, 32, 0, ws.workStreamForTempUsage>>>(
+
                                             call_NW_local_affine_read4_float_query_Protein_new<20>(
                                                 blosumType,
                                                 inputChars, 
@@ -1797,7 +1801,7 @@ namespace cudasw4{
                                             ); CUERR 
                                         }
                                     }else if(kernelTypeConfig.manyPassType_large == KernelType::DPXs32){
-                                        const size_t tempBytesPerSubjectPerBuffer = sizeof(int2) * SDIV(currentQueryLength,32) * 32;
+                                        const size_t tempBytesPerSubjectPerBuffer = sizeof(int2) * currentQueryLengthWithPadding;
                                         const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
         
                                         int2* d_temp = (int2*)ws.d_tempStorageHE.data();
@@ -2012,6 +2016,7 @@ namespace cudasw4{
         std::vector<std::vector<DeviceBatchCopyToPinnedPlan>> batchPlans_fulldb;
         int results_per_query;
         int currentQueryLength;
+        int currentQueryLengthWithPadding;
 
         bool dbIsReady{};
         AnyDBWrapper fullDB;
@@ -2041,19 +2046,9 @@ namespace cudasw4{
         int gex = -1;
         int numTop = 10;
         BlosumType blosumType = BlosumType::BLOSUM62_20;
-        // KernelType singlePassType = KernelType::Half2;
-        // KernelType manyPassType_small = KernelType::Half2;
-        // KernelType manyPassType_large = KernelType::Float;
-        // KernelType overflowType = KernelType::Float;
 
         KernelTypeConfig kernelTypeConfig;
         MemoryConfig memoryConfig;
-
-        // size_t maxBatchBytes = 128ull * 1024ull * 1024ull;
-        // size_t maxBatchSequences = 10'000'000;
-        // size_t maxTempBytes = 4ull * 1024ull * 1024ull * 1024ull;
-        // size_t maxGpuMem = std::numeric_limits<size_t>::max();
-
         
         std::vector<int> deviceIds;
 
