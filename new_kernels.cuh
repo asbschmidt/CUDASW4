@@ -82,36 +82,36 @@ inline __device__ short2 shfl_down_2xint16(const uint32_t bitmap, const short2 v
 	return(res.s2);
 }
 
-__global__
-void NW_convert_protein(
-    char * devChars,
-    const size_t* devOffsets) {
+// __global__
+// void NW_convert_protein(
+//     char * devChars,
+//     const size_t* devOffsets) {
 
-    const int blid = blockIdx.x;
-    const int thid = threadIdx.x;
-    const size_t base = devOffsets[blid];
-    const int length = devOffsets[blid+1] - devOffsets[blid];
+//     const int blid = blockIdx.x;
+//     const int thid = threadIdx.x;
+//     const size_t base = devOffsets[blid];
+//     const int length = devOffsets[blid+1] - devOffsets[blid];
 
-    for (int i = thid; i<length; i+=blockDim.x) {
-        if (i < length) {
-            char AA = devChars[base+i];
-            devChars[base+i] = convert_AA(AA);
-        }
-    }
-}
+//     for (int i = thid; i<length; i+=blockDim.x) {
+//         if (i < length) {
+//             char AA = devChars[base+i];
+//             devChars[base+i] = convert_AA(AA);
+//         }
+//     }
+// }
 
-__global__
-void NW_convert_protein_single(
-    char * devChars,
-    int length) {
+// __global__
+// void NW_convert_protein_single(
+//     char * devChars,
+//     int length) {
 
-    const int tid = threadIdx.x + blockIdx.x * blockDim.x;
+//     const int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
-    if (tid < length) {
-        char AA = devChars[tid];
-        devChars[tid] = convert_AA(AA);
-    }
-}
+//     if (tid < length) {
+//         char AA = devChars[tid];
+//         devChars[tid] = convert_AA(AA);
+//     }
+// }
 
 } //namespace cudasw4
 

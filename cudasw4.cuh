@@ -95,60 +95,6 @@ namespace cudasw4{
         size_t maxGpuMem = std::numeric_limits<size_t>::max();
     };
 
-    template<size_t size>
-    struct TopNMaximaArray{
-        struct Ref{
-            size_t index;
-            size_t indexOffset;
-            int* d_locks;
-            volatile float* d_scores;
-            size_t* d_indices;
-
-            __device__
-            Ref& operator=(float newscore){            
-
-                const size_t slot = (indexOffset + index) % size;
-
-                // if(index + indexOffset == 51766021){
-                //     printf("Ref operator=(%f), index %lu indexOffset %lu, slot %lu, griddimx %d, blockdimx %d, blockIdxx %d, threadidxx %d\n", 
-                //         newscore, index, indexOffset, slot, gridDim.x, blockDim.x, blockIdx.x, threadIdx.x);
-                // }
-
-                int* const lock = &d_locks[slot];
-
-                while (0 != (atomicCAS(lock, 0, 1))) {}
-
-                const float currentScore = d_scores[slot];
-                if(currentScore < newscore){
-                    d_scores[slot] = newscore;
-                    d_indices[slot] = indexOffset + index;
-                }
-
-                atomicExch(lock, 0);
-            }
-        };
-
-        TopNMaximaArray(float* d_scores_, size_t* d_indices_, int* d_locks_, size_t offset)
-            : indexOffset(offset), d_locks(d_locks_), d_scores(d_scores_), d_indices(d_indices_){}
-
-        template<class Index>
-        __device__
-        Ref operator[](Index index) const{
-            Ref r;
-            r.index = index;
-            r.indexOffset = indexOffset;
-            r.d_locks = d_locks;
-            r.d_scores = d_scores;
-            r.d_indices = d_indices;
-            return r;
-        }
-
-        size_t indexOffset = 0;
-        int* d_locks;
-        volatile float* d_scores;
-        size_t* d_indices;
-    };
-
     struct HostGpuPartitionOffsets{
         int numGpus;
         int numLengthPartitions;
@@ -300,7 +246,8 @@ namespace cudasw4{
 
         struct GpuWorkingSet{
 
-            using MaxReduceArray = TopNMaximaArray<maxReduceArraySize>;
+            //using MaxReduceArray = TopNMaximaArray<maxReduceArraySize>;
+            using MaxReduceArray = TopNMaximaArray;
         
             GpuWorkingSet(
                 size_t gpumemlimit,
@@ -446,7 +393,8 @@ namespace cudasw4{
                     d_maxReduceArrayScores.data(), 
                     d_maxReduceArrayIndices.data(), 
                     d_maxReduceArrayLocks.data(), 
-                    offset
+                    offset,
+                    maxReduceArraySize
                 );
             }
         
@@ -642,7 +590,7 @@ namespace cudasw4{
                 begin, 
                 end,
                 sequence.begin(),
-                inverse_convert_AA
+                InverseConvertAA_20{}
             );
 
             return sequence;
@@ -1156,7 +1104,15 @@ namespace cudasw4{
                 ws.d_query.resize(roundedLength);
                 cudaMemsetAsync(ws.d_query.data(), 20, roundedLength, gpuStreams[gpu]);
                 cudaMemcpyAsync(ws.d_query.data(), query, queryLength, cudaMemcpyDefault, gpuStreams[gpu]); CUERR
-                NW_convert_protein_single<<<SDIV(queryLength, 128), 128, 0, gpuStreams[gpu]>>>(ws.d_query.data(), queryLength); CUERR
+
+                thrust::transform(
+                    thrust::cuda::par_nosync.on(gpuStreams[gpu]),
+                    ws.d_query.data(),
+                    ws.d_query.data() + queryLength,
+                    ws.d_query.data(),
+                    ConvertAA_20{}
+                );
+                //NW_convert_protein_single<<<SDIV(queryLength, 128), 128, 0, gpuStreams[gpu]>>>(ws.d_query.data(), queryLength); CUERR
             }
         }
 

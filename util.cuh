@@ -92,6 +92,64 @@ struct RevertDeviceId{
     int id;
 };
 
+
+//template<size_t size>
+struct TopNMaximaArray{
+    struct Ref{
+        size_t index;
+        size_t indexOffset;
+        int* d_locks;
+        volatile float* d_scores;
+        size_t* d_indices;
+        size_t size;
+
+        __device__
+        Ref& operator=(float newscore){            
+
+            const size_t slot = (indexOffset + index) % size;
+
+            // if(index + indexOffset == 51766021){
+            //     printf("Ref operator=(%f), index %lu indexOffset %lu, slot %lu, griddimx %d, blockdimx %d, blockIdxx %d, threadidxx %d\n", 
+            //         newscore, index, indexOffset, slot, gridDim.x, blockDim.x, blockIdx.x, threadIdx.x);
+            // }
+
+            int* const lock = &d_locks[slot];
+
+            while (0 != (atomicCAS(lock, 0, 1))) {}
+
+            const float currentScore = d_scores[slot];
+            if(currentScore < newscore){
+                d_scores[slot] = newscore;
+                d_indices[slot] = indexOffset + index;
+            }
+
+            atomicExch(lock, 0);
+        }
+    };
+
+    TopNMaximaArray(float* d_scores_, size_t* d_indices_, int* d_locks_, size_t offset, size_t size_)
+        : indexOffset(offset), d_locks(d_locks_), d_scores(d_scores_), d_indices(d_indices_), size(size_){}
+
+    template<class Index>
+    __device__
+    Ref operator[](Index index) const{
+        Ref r;
+        r.index = index;
+        r.indexOffset = indexOffset;
+        r.d_locks = d_locks;
+        r.d_scores = d_scores;
+        r.d_indices = d_indices;
+        r.size = size;
+        return r;
+    }
+
+    size_t indexOffset = 0;
+    int* d_locks;
+    volatile float* d_scores;
+    size_t* d_indices;
+    size_t size;
+};
+
 }
 
 #endif

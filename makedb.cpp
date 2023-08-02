@@ -152,8 +152,9 @@ void loadWholeFileIntoBatch_withPaddedConvertedSequences(const std::string& inpu
         const size_t oldCharsSize = batch.chars.size();
         const size_t newCharsSize = oldCharsSize + sequence.size() + sequencepadding;
         batch.chars.resize(newCharsSize);
-        auto it = std::transform(sequence.begin(), sequence.end(), batch.chars.begin() + oldCharsSize, &cudasw4::convert_AA);
-        std::fill(it, batch.chars.end(), cudasw4::convert_AA(' ')); // add converted padding
+        auto convert = cudasw4::ConvertAA_20{};
+        auto it = std::transform(sequence.begin(), sequence.end(), batch.chars.begin() + oldCharsSize, convert);
+        std::fill(it, batch.chars.end(), convert(' ')); // add converted padding
         batch.offsets.push_back(newCharsSize);
         batch.lengths.push_back(sequence.size());
 
@@ -327,8 +328,6 @@ int main(int argc, char* argv[])
     }
     std::cout << "availableMem: " << availableMem << "\n";
 
-    int processedNumBatches = 0;
-
     //InMemoryBatch batch;
     HybridBatch batch(temppath, availableMem);
 
@@ -343,19 +342,16 @@ int main(int argc, char* argv[])
 
     std::cout << "Converting amino acids\n";
     helpers::CpuTimer timer2("amino conversion");
-    thrust::transform(thrust::omp::par, batch.chars.begin(), batch.chars.end(), batch.chars.begin(), &cudasw4::convert_AA);
+    thrust::transform(thrust::omp::par, batch.chars.begin(), batch.chars.end(), batch.chars.begin(), cudasw4::ConvertAA_20{});
     timer2.print();
 
     std::cout << "Creating DB files\n";
-    const std::string batchOutputPrefix = outputPrefix + std::to_string(processedNumBatches);
+    const std::string batchOutputPrefix = outputPrefix + std::to_string(0);
     helpers::CpuTimer timer3("db creation");
     createDBfilesFromSequenceBatch(batchOutputPrefix, batch);
     timer3.print();
-    processedNumBatches = 1;
-
 
     cudasw4::DBGlobalInfo info;
-    info.numChunks = processedNumBatches;
 
     cudasw4::writeGlobalDbInfo(outputPrefix, info);
 

@@ -153,7 +153,7 @@ struct PseudoDBdata{
         std::iota(headeroffsetvec.begin(), headeroffsetvec.end(), size_t(0));
 
         //convert amino acids to integers
-        std::transform(charvec.begin(), charvec.end(), charvec.begin(), &convert_AA);
+        std::transform(charvec.begin(), charvec.end(), charvec.begin(), ConvertAA_20{});
         
 
         auto boundaries = getLengthPartitionBoundaries();
