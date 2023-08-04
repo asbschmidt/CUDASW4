@@ -4,6 +4,7 @@
 
 #include <cuda_fp16.h>
 #include "blosum.hpp"
+#include "config.hpp"
 
 namespace cudasw4{
 
@@ -24,7 +25,7 @@ struct Half2Aligner{
     __half2* devTempHcol2;
     __half2* devTempEcol2;
     const size_t* devOffsets;
-    const size_t* devLengths;
+    const SequenceLengthT* devLengths;
 
     __device__
     Half2Aligner(
@@ -33,7 +34,7 @@ struct Half2Aligner{
         __half2* devTempHcol2_,
         __half2* devTempEcol2_,
         const size_t* devOffsets_,
-        const size_t* devLengths_,
+        const SequenceLengthT* devLengths_,
         PositionsIterator d_positions_of_selected_lengths_,
         int numSelected_,
         float gap_open_,
@@ -212,22 +213,10 @@ struct Half2Aligner{
     }
 
     __device__
-    void init_local_score_profile_BLOSUM62(int offset_isc, int (&subject)[numRegs], 
-        const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1
+    void init_local_score_profile_BLOSUM62(SequenceLengthT offset_isc, int (&subject)[numRegs], 
+        const char* const devS0, const SequenceLengthT length_S0, 
+        const char* const devS1, const SequenceLengthT length_S1
     ) const{
-        // if (!offset_isc) {
-        //     for (int i=threadIdx.x; i<deviceBlosumDimCexprSquared; i+=blockDim.x) {
-        //         __half2 temp0;
-        //         temp0.x = deviceBlosum[deviceBlosumDimCexpr*(i/deviceBlosumDimCexpr)+(i%deviceBlosumDimCexpr)];
-        //         for (int j=0; j<deviceBlosumDimCexpr; j++) {
-        //             temp0.y = deviceBlosum[deviceBlosumDimCexpr*(i/deviceBlosumDimCexpr)+j];
-        //             shared_blosum[(i/deviceBlosumDimCexpr) * deviceBlosumDimCexprSquared + deviceBlosumDimCexpr*(i%deviceBlosumDimCexpr)+j]=temp0;
-        //         }
-        //     }
-        //     __syncthreads();
-        // }
-        #if 1
         #pragma unroll //UNROLLHERE
         for (int i=0; i<numRegs; i++) {
 
@@ -240,43 +229,7 @@ struct Half2Aligner{
             if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S1) subject[i] += 1*deviceBlosumDimCexpr; // 20*deviceBlosumDimCexpr;
             else subject[i] += deviceBlosumDimCexpr* devS1[offset_isc+numRegs*(threadIdx.x%group_size)+i];
         }
-        #endif
 
-        #if 0
-        #pragma unroll
-        for(int f = 0; f < numRegs; f += 4){
-            const int currentRegs = numRegs - f < 4 ? numRegs-f : 4; //min(4, numRegs - f);
-            //load S0 to subject
-            if (offset_isc+numRegs*(threadIdx.x%group_size)+(f+3) >= length_S0){
-                #pragma unroll
-                for(int i = 0; i < currentRegs; i++){
-                    subject[f+i] = 1;
-                }
-            }else{
-                alignas(4) char temp[4];
-                *((int*)&temp[0]) = *((int*)&devS0[offset_isc+numRegs*(threadIdx.x%group_size) + f]);
-                #pragma unroll
-                for(int i = 0; i < currentRegs; i++){
-                    subject[f+i] = temp[i];
-                }
-            }
-
-            //load S1 to subject
-            if (offset_isc+numRegs*(threadIdx.x%group_size)+(f+3) >= length_S1){
-                #pragma unroll
-                for(int i = 0; i < currentRegs; i++){
-                    subject[f+i] += 1*deviceBlosumDimCexpr; // 20*deviceBlosumDimCexpr;
-                }
-            }else{
-                alignas(4) char temp[4];
-                *((int*)&temp[0]) = *((int*)&devS1[offset_isc+numRegs*(threadIdx.x%group_size) + f]);
-                #pragma unroll
-                for(int i = 0; i < currentRegs; i++){
-                    subject[f+i] += deviceBlosumDimCexpr * temp[i];
-                }
-            }
-        }
-        #endif
     }
 
     __device__
@@ -332,10 +285,10 @@ struct Half2Aligner{
     }
 
     __device__
-    void computeFirstPass(__half2& maximum, const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1,
+    void computeFirstPass(__half2& maximum, const char* const devS0, const SequenceLengthT length_S0, 
+        const char* const devS1, const SequenceLengthT length_S1,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         // FIRST PASS (of many passes)
         // Note first pass has always full seqeunce length
@@ -386,7 +339,7 @@ struct Half2Aligner{
         shuffle_new_query(new_query_letter4);
         counter++;
 
-        for (int k = 4; k <= queryLength+28; k+=4) {
+        for (SequenceLengthT k = 4; k <= queryLength+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
@@ -483,10 +436,10 @@ struct Half2Aligner{
     }
 
     __device__
-    void computeMiddlePass(int pass, __half2& maximum, const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1,
+    void computeMiddlePass(int pass, __half2& maximum, const char* const devS0, const SequenceLengthT length_S0, 
+        const char* const devS1, const SequenceLengthT length_S1,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
@@ -547,7 +500,7 @@ struct Half2Aligner{
         shuffle_new_query(new_query_letter4);
         counter++;
 
-        for (int k = 4; k <= queryLength+28; k+=4) {
+        for (SequenceLengthT k = 4; k <= queryLength+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
@@ -655,10 +608,10 @@ struct Half2Aligner{
     }
 
     __device__ 
-    void computeFinalPass(int passes, __half2& maximum, const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1,
+    void computeFinalPass(int passes, __half2& maximum, const char* const devS0, const SequenceLengthT length_S0, 
+        const char* const devS1, const SequenceLengthT length_S1,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
@@ -724,7 +677,7 @@ struct Half2Aligner{
             counter++;
         }
         if (queryLength+thread_result >=4) {
-            int k;
+            SequenceLengthT k;
             //for (k = 5; k < lane_2+thread_result-2; k+=4) {
             for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
                 //shuffle_max();
@@ -796,10 +749,10 @@ struct Half2Aligner{
     }
 
     __device__ 
-    void computeSinglePass(__half2& maximum, const char* const devS0, const int length_S0, 
-        const char* const devS1, const int length_S1, const int warpMaxLength,
+    void computeSinglePass(__half2& maximum, const char* const devS0, const SequenceLengthT length_S0, 
+        const char* const devS1, const SequenceLengthT length_S1, const SequenceLengthT warpMaxLength,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
@@ -843,7 +796,7 @@ struct Half2Aligner{
             counter++;
         }
         if (queryLength+thread_result >=4) {
-            int k;
+            SequenceLengthT k;
             //for (k = 5; k < lane_2+thread_result-2; k+=4) {
             for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
                 //shuffle_max();
@@ -904,17 +857,17 @@ struct Half2Aligner{
         ScoreOutputIterator const devAlignmentScores,
         const bool overflow_check, 
         int* const d_overflow_number, 
-        size_t* const d_overflow_positions,
+        ReferenceIdT* const d_overflow_positions,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         int check_last;
         int check_last2;
         computeCheckLast(check_last, check_last2);
 
-        const int length_S0 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]];
+        const SequenceLengthT length_S0 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]];
         const size_t base_S0 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)]]-devOffsets[0];
-        int length_S1 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]];
+        SequenceLengthT length_S1 = devLengths[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]];
         size_t base_S1 = devOffsets[d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1]]-devOffsets[0];
         if (blockIdx.x == gridDim.x-1){
             if (check_last2){
@@ -928,7 +881,7 @@ struct Half2Aligner{
         const char* const devS0 = &devChars[base_S0];
         const char* const devS1 = &devChars[base_S1];
 
-        const int length = max(length_S0, length_S1);
+        const SequenceLengthT length = max(length_S0, length_S1);
         const int passes = (length + (group_size*numRegs) - 1) / (group_size*numRegs);
         // constexpr int length = 4096;
         // constexpr int passes = (length + (group_size*numRegs) - 1) / (group_size*numRegs);
@@ -953,7 +906,7 @@ struct Half2Aligner{
             // check for overflow
             if (overflow_check){
                 half max_half2 = __float2half_rn(MAX_ACC_HALF2);
-                const int alignmentNumber0 = 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size);
+                const ReferenceIdT alignmentNumber0 = 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size);
                 if(alignmentNumber0 < numSelected){
                     if (maximum.y >= max_half2) {
                         //overflow happened
@@ -964,7 +917,7 @@ struct Half2Aligner{
                         devAlignmentScores[d_positions_of_selected_lengths[alignmentNumber0]] =  maximum.y;
                     }
                 }
-                const int alignmentNumber1 = 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1;
+                const ReferenceIdT alignmentNumber1 = 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1;
                 if(alignmentNumber1 < numSelected){
                     if (maximum.x >= max_half2) {
                         const int pos_overflow = atomicAdd(d_overflow_number,1);
@@ -996,23 +949,23 @@ struct Half2Aligner{
         ScoreOutputIterator const devAlignmentScores,
         const bool overflow_check, 
         int* const d_overflow_number, 
-        size_t* const d_overflow_positions,
+        ReferenceIdT* const d_overflow_positions,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         int check_last;
         int check_last2;
         computeCheckLast(check_last, check_last2);
 
-        const size_t alignmentId_checklast_0 = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)];
-        const size_t alignmentId_checklast_1 = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1];
-        const size_t alignmentId_0 = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)];
-        const size_t alignmentId_1 = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1];
+        const ReferenceIdT alignmentId_checklast_0 = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)];
+        const ReferenceIdT alignmentId_checklast_1 = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*((threadIdx.x%check_last)/group_size)+1];
+        const ReferenceIdT alignmentId_0 = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)];
+        const ReferenceIdT alignmentId_1 = d_positions_of_selected_lengths[2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1];
 
 
-        const int length_S0 = devLengths[alignmentId_checklast_0];
+        const SequenceLengthT length_S0 = devLengths[alignmentId_checklast_0];
         const size_t base_S0 = devOffsets[alignmentId_checklast_0]-devOffsets[0];
-        int length_S1 = length_S0;
+        SequenceLengthT length_S1 = length_S0;
         size_t base_S1 = base_S0;
 
         if ((blockIdx.x < gridDim.x-1) || (!check_last2) || ((threadIdx.x%check_last) < check_last-group_size) || ((threadIdx.x%check_last) >= check_last)) {
@@ -1023,8 +976,8 @@ struct Half2Aligner{
         const char* const devS0 = &devChars[base_S0];
         const char* const devS1 = &devChars[base_S1];
 
-        const int temp_length = max(length_S0, length_S1);
-        const int warpMaxLength = warp_max_reduce_broadcast(0xFFFFFFFF, temp_length);
+        const SequenceLengthT temp_length = max(length_S0, length_S1);
+        const SequenceLengthT warpMaxLength = warp_max_reduce_broadcast(0xFFFFFFFF, temp_length);
         const int passes = (warpMaxLength + (group_size*numRegs) - 1) / (group_size*numRegs);
         if(passes == 1){
             __half2 maximum = __float2half2_rn(0.0);
@@ -1048,7 +1001,7 @@ struct Half2Aligner{
                 // check for overflow
                 if (overflow_check){
                     half max_half2 = __float2half_rn(MAX_ACC_HALF2);
-                    const int alignmentNumber0 = 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size);
+                    const ReferenceIdT alignmentNumber0 = 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size);
                     if(alignmentNumber0 < numSelected){
                         if (maximum.y >= max_half2) {
                             //overflow happened
@@ -1059,7 +1012,7 @@ struct Half2Aligner{
                             devAlignmentScores[d_positions_of_selected_lengths[alignmentNumber0]] =  maximum.y;
                         }
                     }
-                    const int alignmentNumber1 = 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1;
+                    const ReferenceIdT alignmentNumber1 = 2*(blockDim.x/group_size)*blockIdx.x+2*(threadIdx.x/group_size)+1;
                     if(alignmentNumber1 < numSelected){
                         if (maximum.x >= max_half2) {
                             const int pos_overflow = atomicAdd(d_overflow_number,1);
@@ -1107,14 +1060,14 @@ void NW_local_affine_Protein_many_pass_half2_new(
     __grid_constant__ __half2 * const devTempHcol2,
     __grid_constant__ __half2 * const devTempEcol2,
     __grid_constant__ const size_t* const devOffsets,
-    __grid_constant__ const size_t* const devLengths,
+    __grid_constant__ const SequenceLengthT* const devLengths,
     __grid_constant__ PositionsIterator const d_positions_of_selected_lengths,
     __grid_constant__ const int numSelected,
-	__grid_constant__ size_t* const d_overflow_positions,
+	__grid_constant__ ReferenceIdT* const d_overflow_positions,
 	__grid_constant__ int* const d_overflow_number,
 	__grid_constant__ const bool overflow_check,
     __grid_constant__ const char4* const query4,
-    __grid_constant__ const int queryLength,
+    __grid_constant__ const SequenceLengthT queryLength,
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ) {
@@ -1148,14 +1101,14 @@ void call_NW_local_affine_Protein_many_pass_half2_new(
     __half2 * const devTempHcol2,
     __half2 * const devTempEcol2,
     const size_t* const devOffsets,
-    const size_t* const devLengths,
+    const SequenceLengthT* const devLengths,
     PositionsIterator const d_positions_of_selected_lengths,
     const int numSelected,
-	size_t* const d_overflow_positions,
+	ReferenceIdT* const d_overflow_positions,
 	int* const d_overflow_number,
 	const bool overflow_check,
     const char4* query4,
-    const int queryLength,
+    const SequenceLengthT queryLength,
     const float gap_open,
     const float gap_extend,
     cudaStream_t stream
@@ -1238,14 +1191,14 @@ void NW_local_affine_Protein_single_pass_half2_new(
     __grid_constant__ const char * const devChars,
     __grid_constant__ ScoreOutputIterator const devAlignmentScores,
     __grid_constant__ const size_t* const devOffsets,
-    __grid_constant__ const size_t* const devLengths,
+    __grid_constant__ const SequenceLengthT* const devLengths,
     __grid_constant__ PositionsIterator const d_positions_of_selected_lengths,
     __grid_constant__ const int numSelected,
-	__grid_constant__ size_t* const d_overflow_positions,
+	__grid_constant__ ReferenceIdT* const d_overflow_positions,
 	__grid_constant__ int* const d_overflow_number,
 	__grid_constant__ const bool overflow_check,
     __grid_constant__ const char4* const query4,
-    __grid_constant__ const int queryLength,
+    __grid_constant__ const SequenceLengthT queryLength,
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ) {
@@ -1295,14 +1248,14 @@ void call_NW_local_affine_Protein_single_pass_half2_new(
     const char * const devChars,
     ScoreOutputIterator const devAlignmentScores,
     const size_t* const devOffsets,
-    const size_t* const devLengths,
+    const SequenceLengthT* const devLengths,
     PositionsIterator const d_positions_of_selected_lengths,
     const int numSelected,
-	size_t* const d_overflow_positions,
+	ReferenceIdT* const d_overflow_positions,
 	int* const d_overflow_number,
 	const bool overflow_check,
     const char4* query4,
-    const int queryLength,
+    const SequenceLengthT queryLength,
     const float gap_open,
     const float gap_extend,
     cudaStream_t stream

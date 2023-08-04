@@ -14,6 +14,7 @@
 #include "options.hpp"
 #include "dbdata.hpp"
 #include "cudasw4.cuh"
+#include "config.hpp"
 
 
 std::vector<std::string> split(const std::string& str, char c){
@@ -46,6 +47,13 @@ void printScanResult(const cudasw4::ScanResult& scanResult, const cudasw4::CudaS
         //     << cudaSW4.getReferenceHeader(referenceId) << "\n";
     }
 }
+
+struct BatchOfQueries{
+    std::vector<char> chars;               
+    std::vector<std::size_t> offsets;  
+    std::vector<SequenceLengthT> lengths;  
+    std::vector<std::string> headers;  
+};
 
 
 int main(int argc, char* argv[])
@@ -189,7 +197,7 @@ int main(int argc, char* argv[])
 
         #else
 
-            sequence_batch batchOfQueries;
+            BatchOfQueries batchOfQueries;
             {
                 //batchOfQueries = read_all_sequences_and_headers_from_file(queryFile);
                 constexpr int ALIGN = 4;
@@ -228,7 +236,7 @@ int main(int argc, char* argv[])
                 std::cout << "Processing query " << query_num << " ... ";
                 std::cout.flush();
                 const size_t offset = batchOfQueries.offsets[query_num];
-                const int length = batchOfQueries.lengths[query_num];
+                const SequenceLengthT length = batchOfQueries.lengths[query_num];
                 const char* sequence = batchOfQueries.chars.data() + offset;
                 ScanResult scanResult = cudaSW4.scan(sequence, length);
                 scanResults[query_num] = scanResult;

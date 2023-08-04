@@ -1,6 +1,8 @@
 #ifndef UTIL_CUH
 #define UTIL_CUH
 
+#include "config.hpp"
+
 #include <thrust/device_malloc_allocator.h>
 
 namespace cudasw4{
@@ -100,7 +102,7 @@ struct TopNMaximaArray{
         size_t indexOffset;
         int* d_locks;
         volatile float* d_scores;
-        size_t* d_indices;
+        ReferenceIdT* d_indices;
         size_t size;
 
         __device__
@@ -146,7 +148,7 @@ struct TopNMaximaArray{
     size_t indexOffset = 0;
     int* d_locks;
     volatile float* d_scores;
-    size_t* d_indices;
+    ReferenceIdT* d_indices;
     size_t size;
 };
 

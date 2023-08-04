@@ -1,6 +1,8 @@
 #ifndef LENGTH_PARTITIONS_HPP
 #define LENGTH_PARTITIONS_HPP
 
+#include "config.hpp"
+
 #include <array>
 #include <limits>
 
@@ -15,10 +17,10 @@ constexpr auto getLengthPartitionBoundaries(){
 	
     //constexpr int numLengthPartitions = 15;
 	//const int l0 = 64, l1 = 128, l2 = 192, l3 = 256, l4 = 320, l5 = 384, l6 = 448, l7 = 512, l8 = 576, l9 = 640, l10 = 768, l11 = 896, l12 = 1024, l13 = 7000, l14 = 50000;
-	//std::array<int, numLengthPartitions> boundaries{l0,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14};
+	//std::array<SequenceLengthT, numLengthPartitions> boundaries{l0,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14};
 
 	// constexpr int numLengthPartitions = 18;
-	// std::array<int, numLengthPartitions> boundaries{
+	// std::array<SequenceLengthT, numLengthPartitions> boundaries{
 	// 	64,
 	// 	128,
 	// 	192,
@@ -36,11 +38,11 @@ constexpr auto getLengthPartitionBoundaries(){
 	// 	960,
 	// 	1024,
 	// 	7000,
-	// 	std::numeric_limits<int>::max()-1
+	// 	std::numeric_limits<SequenceLengthT>::max()-1
 	// };
 
 	// constexpr int numLengthPartitions = 27;
-	// std::array<int, numLengthPartitions> boundaries{
+	// std::array<SequenceLengthT, numLengthPartitions> boundaries{
 	// 	64,
 	// 	96,
 	// 	128,
@@ -67,11 +69,11 @@ constexpr auto getLengthPartitionBoundaries(){
 	// 	1088,
 	// 	1152,
 	// 	8000,
-	// 	std::numeric_limits<int>::max()-1
+	// 	std::numeric_limits<SequenceLengthT>::max()-1
 	// };
 
 	constexpr int numLengthPartitions = 36;
-	std::array<int, numLengthPartitions> boundaries{
+	std::array<SequenceLengthT, numLengthPartitions> boundaries{
 		48,
 		64,
 		80,
@@ -107,11 +109,11 @@ constexpr auto getLengthPartitionBoundaries(){
 		1216,
 		1280,
 		8000,
-		std::numeric_limits<int>::max()-1
+		std::numeric_limits<SequenceLengthT>::max()-1
 	};
 
 	// constexpr int numLengthPartitions = 45;
-	// std::array<int, numLengthPartitions> boundaries{
+	// std::array<SequenceLengthT, numLengthPartitions> boundaries{
 	// 	64,
 	// 	128,
 	// 	192,
@@ -156,7 +158,7 @@ constexpr auto getLengthPartitionBoundaries(){
 	// 	7680,
 	// 	7936,
 	// 	8192,
-	// 	std::numeric_limits<int>::max()-1
+	// 	std::numeric_limits<SequenceLengthT>::max()-1
 	// };
 
     return boundaries;

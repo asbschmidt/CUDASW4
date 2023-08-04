@@ -6,6 +6,8 @@
 #include "length_partitions.hpp"
 #include "convert.cuh"
 
+#include "config.hpp"
+
 #include <memory>
 #include <fstream>
 #include <random>
@@ -65,8 +67,8 @@ struct DBdata{
         return mappedFileSequences->data();
     }
 
-    const size_t* lengths() const noexcept{
-        return reinterpret_cast<const size_t*>(mappedFileLengths->data());
+    const SequenceLengthT* lengths() const noexcept{
+        return reinterpret_cast<const SequenceLengthT*>(mappedFileLengths->data());
     }
 
     const size_t* offsets() const noexcept{
@@ -89,8 +91,8 @@ struct DBdata{
         return mappedFileSequences->data();
     }
 
-    size_t* lengths() noexcept{
-        return reinterpret_cast<size_t*>(mappedFileLengths->data());
+    SequenceLengthT* lengths() noexcept{
+        return reinterpret_cast<SequenceLengthT*>(mappedFileLengths->data());
     }
 
     size_t* offsets() noexcept{
@@ -121,7 +123,7 @@ private:
 struct PseudoDBdata{
     friend struct PseudoDB;
 
-    PseudoDBdata(size_t num, size_t length, int randomseed = 42)
+    PseudoDBdata(size_t num, SequenceLengthT length, int randomseed = 42)
     : lengthRounded(((length + 3) / 4) * 4),
         charvec(num * lengthRounded),
         lengthvec(num),
@@ -194,7 +196,7 @@ struct PseudoDBdata{
         return charvec.data();
     }
 
-    const size_t* lengths() const noexcept{
+    const SequenceLengthT* lengths() const noexcept{
         return lengthvec.data();
     }
 
@@ -220,7 +222,7 @@ private:
 
     size_t lengthRounded;
     std::vector<char> charvec;
-    std::vector<size_t> lengthvec;
+    std::vector<SequenceLengthT> lengthvec;
     std::vector<size_t> offsetvec;
     std::vector<char> headervec;
     std::vector<size_t> headeroffsetvec;
@@ -372,7 +374,7 @@ struct DBdataView{
         return parentChars;
     }
 
-    const size_t* lengths() const noexcept{
+    const SequenceLengthT* lengths() const noexcept{
         return parentLengths + firstSequence;
     }
 

@@ -2,6 +2,7 @@
 #define FLOAT_KERNELS_CUH
 
 #include "blosum.hpp"
+#include "config.hpp"
 
 namespace cudasw4{
 
@@ -24,7 +25,7 @@ struct ManyPassFloat{
     float2* devTempHcol2;
     float2* devTempEcol2;
     const size_t* devOffsets;
-    const size_t* devLengths;
+    const SequenceLengthT* devLengths;
 
     __device__
     ManyPassFloat(
@@ -33,7 +34,7 @@ struct ManyPassFloat{
         float2* devTempHcol2_,
         float2* devTempEcol2_,
         const size_t* devOffsets_,
-        const size_t* devLengths_,
+        const SequenceLengthT* devLengths_,
         PositionsIterator d_positions_of_selected_lengths_,
         float gap_open_,
         float gap_extend_
@@ -192,8 +193,8 @@ struct ManyPassFloat{
     }
 
     __device__
-    void init_local_score_profile_BLOSUM62(int offset_isc, int (&subject)[numRegs], 
-        const char* const devS0, const int length_S0
+    void init_local_score_profile_BLOSUM62(SequenceLengthT offset_isc, int (&subject)[numRegs], 
+        const char* const devS0, const SequenceLengthT length_S0
     ) const{
         // if (!offset_isc) {
         //     for (int i=threadIdx.x; i<deviceBlosumDimSquared; i+=32) shared_blosum[(i/deviceBlosumDim) * deviceBlosumDim + (i%deviceBlosumDim)]=deviceBlosum[i];
@@ -277,9 +278,9 @@ struct ManyPassFloat{
     void computeFirstPass(
         float& maximum, 
         const char* const devS0, 
-        const int length_S0,
+        const SequenceLengthT length_S0,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         // FIRST PASS (of many passes)
         // Note first pass has always full seqeunce length
@@ -351,7 +352,7 @@ struct ManyPassFloat{
             counter++;
         }
 
-        for (int k = 32; k <= queryLength+28; k+=4) {
+        for (SequenceLengthT k = 32; k <= queryLength+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
@@ -449,9 +450,9 @@ struct ManyPassFloat{
         int pass, 
         float& maximum, 
         const char* const devS0, 
-        const int length_S0,
+        const SequenceLengthT length_S0,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
@@ -535,7 +536,7 @@ struct ManyPassFloat{
 
             counter++;
         }
-        for (int k = 32; k <= queryLength+28; k+=4) {
+        for (SequenceLengthT k = 32; k <= queryLength+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
@@ -638,9 +639,9 @@ struct ManyPassFloat{
         int passes, 
         float& maximum, 
         const char* const devS0, 
-        const int length_S0,
+        const SequenceLengthT length_S0,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
@@ -701,7 +702,10 @@ struct ManyPassFloat{
             counter++;
         }
         if (queryLength+thread_result >=4) {
-            int k;
+            SequenceLengthT k;
+            if(threadIdx.x == 0){
+                printf("ql %lu, thread_result %d, %lu\n", queryLength, thread_result, queryLength+(thread_result-3));
+            }
             //for (k = 5; k < lane_2+thread_result-2; k+=4) {
             for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
                 //shuffle_max();
@@ -731,6 +735,9 @@ struct ManyPassFloat{
                 shuffle_affine_penalty(H_temp_in.y, E_temp_in.y, E, penalty_here31, penalty_diag, penalty_left);
                 shuffle_new_query(new_query_letter4);
                 if (counter%group_size == 0) {
+                    if(threadIdx.x == 1){
+                        printf("offset %d, k %lu\n", offset, k);
+                    }
                     new_query_letter4 = query4[offset];
                     offset += group_size;
                 }
@@ -773,9 +780,9 @@ struct ManyPassFloat{
     void computeSinglePass(
         float& maximum, 
         const char* const devS0, 
-        const int length_S0,
+        const SequenceLengthT length_S0,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
@@ -822,7 +829,7 @@ struct ManyPassFloat{
             counter++;
         }
         if (queryLength+thread_result >=4) {
-            int k;
+            SequenceLengthT k;
             //for (k = 5; k < lane_2+thread_result-2; k+=4) {
             for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
                 //shuffle_max();
@@ -886,11 +893,11 @@ struct ManyPassFloat{
     void compute(
         ScoreOutputIterator const devAlignmentScores,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
 
 
-        const int length_S0 = devLengths[d_positions_of_selected_lengths[blockIdx.x]];
+        const SequenceLengthT length_S0 = devLengths[d_positions_of_selected_lengths[blockIdx.x]];
         const size_t base_S0 = devOffsets[d_positions_of_selected_lengths[blockIdx.x]]-devOffsets[0];
 
         const char* const devS0 = &devChars[base_S0];
@@ -939,10 +946,10 @@ void NW_local_affine_read4_float_query_Protein_new(
     __grid_constant__ float2 * const devTempHcol2,
     __grid_constant__ float2 * const devTempEcol2,
     __grid_constant__ const size_t* const devOffsets,
-    __grid_constant__ const size_t* const devLengths,
+    __grid_constant__ const SequenceLengthT* const devLengths,
     __grid_constant__ PositionsIterator const d_positions_of_selected_lengths,
     __grid_constant__ const char4* const query4,
-    __grid_constant__ const int queryLength,
+    __grid_constant__ const SequenceLengthT queryLength,
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ) {
@@ -976,11 +983,11 @@ void call_NW_local_affine_read4_float_query_Protein_new(
     float2 * const devTempHcol2,
     float2 * const devTempEcol2,
     const size_t* const devOffsets,
-    const size_t* const devLengths,
+    const SequenceLengthT* const devLengths,
     PositionsIterator const d_positions_of_selected_lengths,
     const int numSelected,
     const char4* query4,
-    const int queryLength,
+    const SequenceLengthT queryLength,
     const float gap_open,
     const float gap_extend,
     cudaStream_t stream
@@ -1034,7 +1041,7 @@ void call_NW_local_affine_read4_float_query_Protein_new(
 }
 
 
-template <int numRegs, int blosumDim, class ScoreOutputIterator> 
+template <int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
 __launch_bounds__(1,1)
 __global__
 void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new(
@@ -1044,10 +1051,10 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
     __grid_constant__ const char * const devChars,
     __grid_constant__ ScoreOutputIterator const devAlignmentScores,
     __grid_constant__ const size_t* const devOffsets,
-    __grid_constant__ const size_t* const devLengths,
-    __grid_constant__ const size_t* const d_positions_of_selected_lengths,
+    __grid_constant__ const SequenceLengthT* const devLengths,
+    __grid_constant__ PositionsIterator const d_positions_of_selected_lengths,
     __grid_constant__ const char4* const query4,
-    __grid_constant__ const int queryLength,
+    __grid_constant__ const SequenceLengthT queryLength,
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ){
@@ -1072,15 +1079,15 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
         //     printf("%lu ", d_positions_of_selected_lengths[i]);
         // }
         // printf("\n");
-        const int currentQueryLengthWithPadding = SDIV(queryLength, 4) * 4 + sizeof(char4) * 32;
+        const SequenceLengthT currentQueryLengthWithPadding = SDIV(queryLength, 4) * 4 + sizeof(char4) * 32;
         const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * currentQueryLengthWithPadding;
         const size_t maxSubjectsPerIteration = std::min(size_t(numOverflow), maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
         float2* d_tempHcol2 = d_temp;
         float2* d_tempEcol2 = (float2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
 
-        const int numIters =  SDIV(numOverflow, maxSubjectsPerIteration);
-        for(int iter = 0; iter < numIters; iter++){
+        const size_t numIters =  SDIV(numOverflow, maxSubjectsPerIteration);
+        for(size_t iter = 0; iter < numIters; iter++){
             const size_t begin = iter * maxSubjectsPerIteration;
             const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numOverflow;
             const size_t num = end - begin;
@@ -1108,7 +1115,7 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
 }
 
 
-template <int numRegs, class ScoreOutputIterator> 
+template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
 void call_launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new(
     const int* const d_overflow_number,
     float2* const d_temp,
@@ -1116,16 +1123,16 @@ void call_launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_
     const char * const devChars,
     ScoreOutputIterator const devAlignmentScores,
     const size_t* const devOffsets,
-    const size_t* const devLengths,
-    const size_t* const d_positions_of_selected_lengths,
+    const SequenceLengthT* const devLengths,
+    PositionsIterator const d_positions_of_selected_lengths,
     const char4* const query4,
-    const int queryLength,
+    const SequenceLengthT queryLength,
     const float gap_open,
     const float gap_extend,
     cudaStream_t stream
 ){
     if(hostBlosumDim == 21){
-        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<numRegs, 21, ScoreOutputIterator>;
+        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         kernel<<<1, 1, 0, stream>>>(
@@ -1144,7 +1151,7 @@ void call_launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_
         ); CUERR;
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
-        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<numRegs, 25, ScoreOutputIterator>;
+        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_new<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         kernel<<<1, 1, 0, stream>>>(

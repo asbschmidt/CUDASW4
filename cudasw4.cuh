@@ -6,7 +6,7 @@
 #include "hpc_helpers/nvtx_markers.cuh"
 #include "hpc_helpers/simple_allocation.cuh"
 
-#include "sequence_io.h"
+#include "config.hpp"
 #include "kseqpp/kseqpp.hpp"
 #include "dbdata.hpp"
 #include "length_partitions.hpp"
@@ -77,7 +77,7 @@ namespace cudasw4{
 
     struct ScanResult{
         std::vector<int> scores{};
-        std::vector<size_t> referenceIds{};
+        std::vector<ReferenceIdT> referenceIds{};
         BenchmarkStats stats{};
     };
 
@@ -270,7 +270,7 @@ namespace cudasw4{
                 size_t usedGpuMem = 0;
                 usedGpuMem += sizeof(int) * maxReduceArraySize; // d_maxReduceArrayLocks
                 usedGpuMem += sizeof(float) * maxReduceArraySize; // d_maxReduceArrayScores
-                usedGpuMem += sizeof(size_t) * maxReduceArraySize; // d_maxReduceArrayIndices
+                usedGpuMem += sizeof(ReferenceIdT) * maxReduceArraySize; // d_maxReduceArrayIndices
         
                 d_maxReduceArrayLocks.resize(maxReduceArraySize);
                 d_maxReduceArrayScores.resize(maxReduceArraySize);
@@ -289,15 +289,15 @@ namespace cudasw4{
         
                 size_t memoryRequiredForFullDB = 0;
                 memoryRequiredForFullDB += numSubjectBytes; // d_fulldb_chardata
-                memoryRequiredForFullDB += sizeof(size_t) * numSubjects; //d_fulldb_lengthdata
+                memoryRequiredForFullDB += sizeof(SequenceLengthT) * numSubjects; //d_fulldb_lengthdata
                 memoryRequiredForFullDB += sizeof(size_t) * (numSubjects+1); //d_fulldb_offsetdata
-                memoryRequiredForFullDB += sizeof(size_t) * numSubjects * 2; //d_overflow_positions_vec
+                memoryRequiredForFullDB += sizeof(ReferenceIdT) * numSubjects * 2; //d_overflow_positions_vec
         
                 size_t memoryRequiredForBatchedProcessing = 0;
                 memoryRequiredForBatchedProcessing += maxBatchBytes * 2; // d_chardata_vec
-                memoryRequiredForBatchedProcessing += sizeof(size_t) * maxBatchSequences * 2; //d_lengthdata_vec
+                memoryRequiredForBatchedProcessing += sizeof(SequenceLengthT) * maxBatchSequences * 2; //d_lengthdata_vec
                 memoryRequiredForBatchedProcessing += sizeof(size_t) * (maxBatchSequences+1) * 2; //d_offsetdata_vec
-                memoryRequiredForBatchedProcessing += sizeof(size_t) * maxBatchSequences * 2; //d_overflow_positions_vec
+                memoryRequiredForBatchedProcessing += sizeof(ReferenceIdT) * maxBatchSequences * 2; //d_overflow_positions_vec
         
                 const bool hasEnoughMemoryForFullDB = usedGpuMem + memoryRequiredForFullDB + maxTempBytes <= gpumemlimit;
                 const bool hasEnoughMemoryForBatchedDB = usedGpuMem + memoryRequiredForBatchedProcessing + maxTempBytes <= gpumemlimit;
@@ -404,7 +404,7 @@ namespace cudasw4{
                     d_maxReduceArrayScores.data() + maxReduceArraySize,
                     -1.f
                 );
-                cudaMemsetAsync(d_maxReduceArrayIndices.data(), 0, sizeof(int) * maxReduceArraySize, stream);
+                cudaMemsetAsync(d_maxReduceArrayIndices.data(), 0, sizeof(ReferenceIdT) * maxReduceArraySize, stream);
             }
         
             void setPartitionOffsets(const HostGpuPartitionOffsets& offsets){
@@ -421,13 +421,13 @@ namespace cudasw4{
         
             MyDeviceBuffer<int> d_maxReduceArrayLocks;
             MyDeviceBuffer<float> d_maxReduceArrayScores;
-            MyDeviceBuffer<size_t> d_maxReduceArrayIndices;
+            MyDeviceBuffer<ReferenceIdT> d_maxReduceArrayIndices;
         
             MyDeviceBuffer<char> d_query;
             MyDeviceBuffer<char> d_tempStorageHE;
             //MyDeviceBuffer<float> devAlignmentScoresFloat;
             MyDeviceBuffer<char> Fillchar;
-            MyDeviceBuffer<size_t> d_selectedPositions;
+            // MyDeviceBuffer<size_t> d_selectedPositions;
             MyDeviceBuffer<int> d_total_overflow_number;
             MyDeviceBuffer<int> d_overflow_number;
             MyPinnedBuffer<int> h_overflow_number;
@@ -442,24 +442,24 @@ namespace cudasw4{
             MyDeviceBuffer<size_t> d_fulldb_offsetdata;
             
             std::vector<MyPinnedBuffer<char>> h_chardata_vec;
-            std::vector<MyPinnedBuffer<size_t>> h_lengthdata_vec;
+            std::vector<MyPinnedBuffer<SequenceLengthT>> h_lengthdata_vec;
             std::vector<MyPinnedBuffer<size_t>> h_offsetdata_vec;
             std::vector<MyDeviceBuffer<char>> d_chardata_vec;
-            std::vector<MyDeviceBuffer<size_t>> d_lengthdata_vec;
+            std::vector<MyDeviceBuffer<SequenceLengthT>> d_lengthdata_vec;
             std::vector<MyDeviceBuffer<size_t>> d_offsetdata_vec;
             std::vector<CudaStream> copyStreams;
             std::vector<CudaEvent> pinnedBufferEvents;
             std::vector<CudaEvent> deviceBufferEvents;
             std::vector<CudaStream> workStreamsWithoutTemp;
-            std::vector<MyDeviceBuffer<size_t>> d_overflow_positions_vec;
+            std::vector<MyDeviceBuffer<ReferenceIdT>> d_overflow_positions_vec;
         
             DeviceGpuPartitionOffsets deviceGpuPartitionOffsets;
         
         };
 
         struct SequenceLengthStatistics{
-            size_t max_length = 0;
-            size_t min_length = std::numeric_limits<size_t>::max();
+            SequenceLengthT max_length = 0;
+            SequenceLengthT min_length = std::numeric_limits<SequenceLengthT>::max();
             size_t sumOfLengths = 0;
         };
 
@@ -568,19 +568,19 @@ namespace cudasw4{
             memoryConfig = val;
         }
 
-        std::string_view getReferenceHeader(size_t referenceId) const{
+        std::string_view getReferenceHeader(ReferenceIdT referenceId) const{
             const auto& data = fullDB.getData();
             const char* const headerBegin = data.headers() + data.headerOffsets()[referenceId];
             const char* const headerEnd = data.headers() + data.headerOffsets()[referenceId+1];
             return std::string_view(headerBegin, std::distance(headerBegin, headerEnd));
         }
 
-        int getReferenceLength(size_t referenceId) const{
+        int getReferenceLength(ReferenceIdT referenceId) const{
             const auto& data = fullDB.getData();
             return data.lengths()[referenceId];
         }
 
-        std::string getReferenceSequence(size_t referenceId) const{
+        std::string getReferenceSequence(ReferenceIdT referenceId) const{
             const auto& data = fullDB.getData();
             const char* const begin = data.chars() + data.offsets()[referenceId];
             const char* const end = data.chars() + data.offsets()[referenceId+1];
@@ -643,7 +643,7 @@ namespace cudasw4{
             }
         }
 
-        ScanResult scan(const char* query, int queryLength){
+        ScanResult scan(const char* query, SequenceLengthT queryLength){
             if(!dbIsReady){
                 throw std::runtime_error("DB not set correctly");
             }
@@ -781,8 +781,8 @@ namespace cudasw4{
             auto partitionBegin = dbData.lengths();
             for(int i = 0; i < numLengthPartitions; i++){
                 //length k is in partition i if boundaries[i-1] < k <= boundaries[i]
-                int searchFor = lengthBoundaries[i];
-                if(searchFor < std::numeric_limits<int>::max()){
+                SequenceLengthT searchFor = lengthBoundaries[i];
+                if(searchFor < std::numeric_limits<SequenceLengthT>::max()){
                     searchFor += 1;
                 }
                 auto partitionEnd = std::lower_bound(
@@ -824,8 +824,6 @@ namespace cudasw4{
                 dbPartitionsByLengthPartitioning.emplace_back(data, begin, end);        
             }
     
-            std::vector<std::vector<int>> numSubPartitionsPerLengthPerGpu(numGpus, std::vector<int>(numLengthPartitions, 0));
-        
             for(int lengthPartitionId = 0; lengthPartitionId < numLengthPartitions; lengthPartitionId++){
                 const auto& lengthPartition = dbPartitionsByLengthPartitioning[lengthPartitionId];        
                 const auto partitionedByGpu = partitionDBdata_by_numberOfChars(lengthPartition, lengthPartition.numChars() / numGpus);
@@ -1097,12 +1095,20 @@ namespace cudasw4{
         }
 
 
-        void setQuery(const char* query, int queryLength){
+        void setQuery(const char* query, SequenceLengthT queryLength){
+            if(queryLength > MaxSequenceLength::value()){
+                std::string msg = "Query length is " + std::to_string(queryLength) 
+                    + ", but config allows only lengths <= " + std::to_string(MaxSequenceLength::value());
+                throw std::runtime_error(msg);
+            }
+            
             currentQueryLength = queryLength;
 
             //pad query to multiple of 4 for char4 access
             //add sizeof(char4) * warpsize for unguarded accesses outside of the DP matrix
             currentQueryLengthWithPadding = SDIV(queryLength, 4) * 4 + sizeof(char4) * 32;
+
+            std::cout << "currentQueryLength " << currentQueryLength << ", currentQueryLengthWithPadding " << currentQueryLengthWithPadding << "\n";
 
             const int numGpus = deviceIds.size();
             for(int gpu = 0; gpu < numGpus; gpu++){
@@ -1110,12 +1116,12 @@ namespace cudasw4{
                 auto& ws = *workingSets[gpu];
                 ws.d_query.resize(currentQueryLengthWithPadding);
                 cudaMemsetAsync(ws.d_query.data() + currentQueryLength, 20, currentQueryLengthWithPadding - currentQueryLength, gpuStreams[gpu]);
-                cudaMemcpyAsync(ws.d_query.data(), query, queryLength, cudaMemcpyDefault, gpuStreams[gpu]); CUERR
+                cudaMemcpyAsync(ws.d_query.data(), query, currentQueryLength, cudaMemcpyDefault, gpuStreams[gpu]); CUERR
 
                 thrust::transform(
                     thrust::cuda::par_nosync.on(gpuStreams[gpu]),
                     ws.d_query.data(),
-                    ws.d_query.data() + queryLength,
+                    ws.d_query.data() + currentQueryLength,
                     ws.d_query.data(),
                     ConvertAA_20{}
                 );
@@ -1177,7 +1183,7 @@ namespace cudasw4{
                 cudaMemcpyAsync(
                     dev_sorted_indices.data() + maxReduceArraySize*gpu,
                     ws.d_maxReduceArrayIndices.data(),
-                    sizeof(size_t) * maxReduceArraySize,
+                    sizeof(ReferenceIdT) * maxReduceArraySize,
                     cudaMemcpyDeviceToDevice,
                     gpuStreams[gpu]
                 ); CUERR;                
@@ -1220,7 +1226,7 @@ namespace cudasw4{
             cudaMemcpyAsync(
                 sorted_indices.data(), 
                 dev_sorted_indices.data(), 
-                sizeof(size_t) * results_per_query, 
+                sizeof(ReferenceIdT) * results_per_query, 
                 cudaMemcpyDeviceToHost, 
                 masterStream1
             );  CUERR
@@ -1278,13 +1284,13 @@ namespace cudasw4{
                 int previousBuffer = 0;
                 cudaStream_t H2DcopyStream = cudaStreamLegacy;
                 char* h_inputChars = nullptr;
-                size_t* h_inputLengths = nullptr;
+                SequenceLengthT* h_inputLengths = nullptr;
                 size_t* h_inputOffsets = nullptr;
                 char* d_inputChars = nullptr;
-                size_t* d_inputLengths = nullptr;
+                SequenceLengthT* d_inputLengths = nullptr;
                 size_t* d_inputOffsets = nullptr;
                 int* d_overflow_number = nullptr;
-                size_t* d_overflow_positions = nullptr;
+                ReferenceIdT* d_overflow_positions = nullptr;
                 size_t pointerSequencesOffset = 0;
                 size_t pointerBytesOffset = 0;
                 const std::vector<DeviceBatchCopyToPinnedPlan>* batchPlansPtr;
@@ -1407,7 +1413,7 @@ namespace cudasw4{
                                 cudaMemcpyAsync(
                                     variables.d_inputLengths,
                                     variables.h_inputLengths,
-                                    sizeof(size_t) * plan.usedSeq,
+                                    sizeof(SequenceLengthT) * plan.usedSeq,
                                     H2D,
                                     variables.H2DcopyStream
                                 ); CUERR;
@@ -1478,32 +1484,32 @@ namespace cudasw4{
                         // size_t* const d_overflow_positions = ws.d_overflow_positions_vec[currentBuffer].data();
         
                         const char* const inputChars = variables.d_inputChars;
-                        const size_t* const inputLengths = variables.d_inputLengths;
+                        const SequenceLengthT* const inputLengths = variables.d_inputLengths;
                         const size_t* const inputOffsets = variables.d_inputOffsets;
                         int* const d_overflow_number = variables.d_overflow_number;
-                        size_t* const d_overflow_positions = variables.d_overflow_positions;
+                        ReferenceIdT* const d_overflow_positions = variables.d_overflow_positions;
         
-                        auto runAlignmentKernels = [&](auto& d_scores, size_t* d_overflow_positions, int* d_overflow_number){
+                        auto runAlignmentKernels = [&](auto& d_scores, ReferenceIdT* d_overflow_positions, int* d_overflow_number){
                             const char4* const d_query = reinterpret_cast<char4*>(ws.d_query.data());
         
                             auto nextWorkStreamNoTemp = [&](){
                                 ws.workstreamIndex = (ws.workstreamIndex + 1) % ws.numWorkStreamsWithoutTemp;
                                 return (cudaStream_t)ws.workStreamsWithoutTemp[ws.workstreamIndex];
                             };
-                            std::vector<int> numPerPartitionPrefixSum(plan.h_numPerPartition.size());
-                            for(int i = 0; i < int(plan.h_numPerPartition.size())-1; i++){
+                            std::vector<size_t> numPerPartitionPrefixSum(plan.h_numPerPartition.size());
+                            for(size_t i = 0; i < plan.h_numPerPartition.size()-1; i++){
                                 numPerPartitionPrefixSum[i+1] = numPerPartitionPrefixSum[i] + plan.h_numPerPartition[i];
                             }
                             //size_t exclPs = 0;
                             //for(int lp = 0; lp < int(plan.h_partitionIds.size()); lp++){
                             for(int lp = plan.h_partitionIds.size() - 1; lp >= 0; lp--){
                                 const int partId = plan.h_partitionIds[lp];
-                                const int numSeq = plan.h_numPerPartition[lp];
+                                const size_t numSeq = plan.h_numPerPartition[lp];
                                 const int start = numPerPartitionPrefixSum[lp];
                                 //std::cout << "partId " << partId << " numSeq " << numSeq << "\n";
                                 
                                 //const size_t* const d_selectedPositions = ws.d_selectedPositions.data() + start;
-                                auto d_selectedPositions = thrust::make_counting_iterator<size_t>(start);
+                                auto d_selectedPositions = thrust::make_counting_iterator<ReferenceIdT>(start);
         
                                 if(kernelTypeConfig.singlePassType == KernelType::Half2){
                                     
@@ -1680,9 +1686,9 @@ namespace cudasw4{
                                         __half2* d_tempHcol2 = d_temp;
                                         __half2* d_tempEcol2 = (__half2*)(((char*)d_tempHcol2) + requiredTempBytes / 2);
         
-                                        const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
+                                        const size_t numIters =  SDIV(numSeq, maxSubjectsPerIteration);
         
-                                        for(int iter = 0; iter < numIters; iter++){
+                                        for(size_t iter = 0; iter < numIters; iter++){
                                             const size_t begin = iter * maxSubjectsPerIteration;
                                             const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
                                             const size_t num = end - begin;                      
@@ -1728,9 +1734,9 @@ namespace cudasw4{
                                         short2* d_tempHcol2 = d_temp;
                                         short2* d_tempEcol2 = (short2*)(((char*)d_tempHcol2) + requiredTempBytes / 2);
         
-                                        const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
+                                        const size_t numIters =  SDIV(numSeq, maxSubjectsPerIteration);
         
-                                        for(int iter = 0; iter < numIters; iter++){
+                                        for(size_t iter = 0; iter < numIters; iter++){
                                             const size_t begin = iter * maxSubjectsPerIteration;
                                             const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
                                             const size_t num = end - begin;                      
@@ -1775,8 +1781,8 @@ namespace cudasw4{
                                         float2* d_tempHcol2 = d_temp;
                                         float2* d_tempEcol2 = (float2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
         
-                                        const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
-                                        for(int iter = 0; iter < numIters; iter++){
+                                        const size_t numIters =  SDIV(numSeq, maxSubjectsPerIteration);
+                                        for(size_t iter = 0; iter < numIters; iter++){
                                             const size_t begin = iter * maxSubjectsPerIteration;
                                             const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
                                             const size_t num = end - begin;
@@ -1808,8 +1814,8 @@ namespace cudasw4{
                                         int2* d_tempHcol2 = d_temp;
                                         int2* d_tempEcol2 = (int2*)(((char*)d_tempHcol2) + maxSubjectsPerIteration * tempBytesPerSubjectPerBuffer);
         
-                                        const int numIters =  SDIV(numSeq, maxSubjectsPerIteration);
-                                        for(int iter = 0; iter < numIters; iter++){
+                                        const size_t numIters =  SDIV(numSeq, maxSubjectsPerIteration);
+                                        for(size_t iter = 0; iter < numIters; iter++){
                                             const size_t begin = iter * maxSubjectsPerIteration;
                                             const size_t end = iter < numIters-1 ? (iter+1) * maxSubjectsPerIteration : numSeq;
                                             const size_t num = end - begin;
@@ -1866,10 +1872,10 @@ namespace cudasw4{
                     if(variables.processedBatches < variables.batchPlansPtr->size()){
         
                         const char* const inputChars = variables.d_inputChars;
-                        const size_t* const inputLengths = variables.d_inputLengths;
+                        const SequenceLengthT* const inputLengths = variables.d_inputLengths;
                         const size_t* const inputOffsets = variables.d_inputOffsets;
                         int* const d_overflow_number = variables.d_overflow_number;
-                        size_t* const d_overflow_positions = variables.d_overflow_positions;
+                        ReferenceIdT* const d_overflow_positions = variables.d_overflow_positions;
         
                         const char4* const d_query = reinterpret_cast<char4*>(ws.d_query.data());
         
@@ -2015,8 +2021,8 @@ namespace cudasw4{
         std::vector<std::vector<DeviceBatchCopyToPinnedPlan>> batchPlans;
         std::vector<std::vector<DeviceBatchCopyToPinnedPlan>> batchPlans_fulldb;
         int results_per_query;
-        int currentQueryLength;
-        int currentQueryLengthWithPadding;
+        SequenceLengthT currentQueryLength;
+        SequenceLengthT currentQueryLengthWithPadding;
 
         bool dbIsReady{};
         AnyDBWrapper fullDB;
@@ -2025,10 +2031,10 @@ namespace cudasw4{
 
         //final scan results. device data resides on gpu deviceIds[0]
         MyPinnedBuffer<float> alignment_scores_float;
-        MyPinnedBuffer<size_t> sorted_indices;
+        MyPinnedBuffer<ReferenceIdT> sorted_indices;
         MyPinnedBuffer<int> resultNumOverflows;
         MyDeviceBuffer<float> devAllAlignmentScoresFloat;
-        MyDeviceBuffer<size_t> dev_sorted_indices;
+        MyDeviceBuffer<ReferenceIdT> dev_sorted_indices;
         MyDeviceBuffer<int> d_resultNumOverflows;
         std::unique_ptr<helpers::GpuTimer> scanTimer;
 
