@@ -660,7 +660,7 @@ struct ManyPassFloat{
         float2 E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
 
-        const uint32_t thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
+        const int thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
 
         float E = negInftyFloat;
         float penalty_here31;
@@ -788,7 +788,7 @@ struct ManyPassFloat{
         checkHEindex(offset_in, __LINE__);
         offset_in += group_size;
 
-        const uint32_t thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
+        const int thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
 
         float E = negInftyFloat;
         float penalty_here31;

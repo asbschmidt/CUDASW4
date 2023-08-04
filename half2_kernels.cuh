@@ -681,7 +681,7 @@ struct Half2Aligner{
         offset_in += group_size;
 
         const int length = max(length_S0, length_S1);
-        const uint32_t thread_result = ((length-1)%(group_size*numRegs))/numRegs; 
+        const int thread_result = ((length-1)%(group_size*numRegs))/numRegs; 
 
         __half2 E = __float2half2_rn(negInftyFloat);
         __half2 penalty_here31;
@@ -810,7 +810,7 @@ struct Half2Aligner{
         const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
 
-        const uint32_t thread_result = ((warpMaxLength-1)%(group_size*numRegs))/numRegs; 
+        const int thread_result = ((warpMaxLength-1)%(group_size*numRegs))/numRegs; 
 
         __half2 E = __float2half2_rn(negInftyFloat);
         __half2 penalty_here31;

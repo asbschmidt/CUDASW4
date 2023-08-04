@@ -432,7 +432,7 @@ void NW_local_affine_many_pass_s16_DPX(
 
     int k;
 
-    const uint32_t thread_result = ((length-1)%(group_size*numRegs))/numRegs;              // 0, 1, ..., or 31
+    const int thread_result = ((length-1)%(group_size*numRegs))/numRegs;              // 0, 1, ..., or 31
 
     // FIRST PASS (of many passes)
     // Note first pass has always full seqeunce length
@@ -1183,7 +1183,7 @@ void NW_local_affine_Protein_many_pass_half2(
 
     int k;
 
-    const uint32_t thread_result = ((length-1)%(group_size*numRegs))/numRegs;              // 0, 1, ..., or 31
+    const int thread_result = ((length-1)%(group_size*numRegs))/numRegs;              // 0, 1, ..., or 31
 
     // FIRST PASS (of many passes)
     // Note first pass has always full seqeunce length
@@ -1924,7 +1924,7 @@ void NW_local_affine_Protein_single_pass_half2(
 
     int k;
 
-    const uint32_t thread_result = ((length-1)%(group_size*numRegs))/numRegs;              // 0, 1, ..., or 31
+    const int thread_result = ((length-1)%(group_size*numRegs))/numRegs;              // 0, 1, ..., or 31
 
     if (passes == 1) {
         // Single pass
@@ -2321,7 +2321,7 @@ void NW_local_affine_single_pass_s16_DPX(
 
     int k;
 
-    const uint32_t thread_result = ((length-1)%(group_size*numRegs))/numRegs;              // 0, 1, ..., or 31
+    const int thread_result = ((length-1)%(group_size*numRegs))/numRegs;              // 0, 1, ..., or 31
 
     if (passes == 1) {
         // Single pass
@@ -2637,7 +2637,7 @@ void NW_local_affine_Protein_single_pass(
 
     int k;
 
-    const uint32_t thread_result = ((length-1)%(group_size*numRegs))/numRegs;
+    const int thread_result = ((length-1)%(group_size*numRegs))/numRegs;
 
     if (passes == 1) {
         // Single pass
@@ -2934,7 +2934,7 @@ void NW_local_affine_single_pass_s32_DPX(
 
     int k;
 
-    const uint32_t thread_result = ((length-1)%(group_size*numRegs))/numRegs;
+    const int thread_result = ((length-1)%(group_size*numRegs))/numRegs;
 
     if (passes == 1) {
         // Single pass
@@ -3301,7 +3301,7 @@ void NW_local_affine_read4_float_query_Protein(
 
     int k;
 
-    const uint32_t thread_result = ((length-1)%(32*numRegs))/numRegs;
+    const int thread_result = ((length-1)%(32*numRegs))/numRegs;
 
 
     if (passes == 1) {
@@ -4104,7 +4104,7 @@ void NW_local_affine_multi_pass_s32_DPX(
 
     int k;
 
-    const uint32_t thread_result = ((length-1)%(group_size*numRegs))/numRegs;
+    const int thread_result = ((length-1)%(group_size*numRegs))/numRegs;
 
 
     if (passes == 1) {

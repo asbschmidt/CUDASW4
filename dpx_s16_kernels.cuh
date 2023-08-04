@@ -628,7 +628,7 @@ struct DPXAligner_s16{
         offset_in += group_size;
 
         const int length = max(length_S0, length_S1);
-        const uint32_t thread_result = ((length-1)%(group_size*numRegs))/numRegs; 
+        const int thread_result = ((length-1)%(group_size*numRegs))/numRegs; 
 
         short2 E = make_short2(negInfty, negInfty);
         short2 penalty_here31;
@@ -757,7 +757,7 @@ struct DPXAligner_s16{
         const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
 
-        const uint32_t thread_result = ((warpMaxLength-1)%(group_size*numRegs))/numRegs; 
+        const int thread_result = ((warpMaxLength-1)%(group_size*numRegs))/numRegs; 
 
         short2 E = make_short2(negInfty, negInfty);
         short2 penalty_here31;
