@@ -38,6 +38,7 @@ void printScanResult(const cudasw4::ScanResult& scanResult, const cudasw4::CudaS
         std::cout << " Score: " << scanResult.scores[i] << ".";
         std::cout << " Length: " << cudaSW4.getReferenceLength(referenceId) << ".";
         std::cout << " Header " << cudaSW4.getReferenceHeader(referenceId) << ".";
+        std::cout << "referenceId " << referenceId;
         std::cout << "\n";
         //std::cout << " Sequence " << cudaSW4.getReferenceSequence(referenceId) << "\n";
 

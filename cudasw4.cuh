@@ -438,7 +438,7 @@ namespace cudasw4{
             bool canStoreFullDB = false;
             bool fullDBisUploaded = false;
             MyDeviceBuffer<char> d_fulldb_chardata;
-            MyDeviceBuffer<size_t> d_fulldb_lengthdata;
+            MyDeviceBuffer<SequenceLengthT> d_fulldb_lengthdata;
             MyDeviceBuffer<size_t> d_fulldb_offsetdata;
             
             std::vector<MyPinnedBuffer<char>> h_chardata_vec;
@@ -1486,6 +1486,18 @@ namespace cudasw4{
                         const size_t* const inputOffsets = variables.d_inputOffsets;
                         int* const d_overflow_number = variables.d_overflow_number;
                         ReferenceIdT* const d_overflow_positions = variables.d_overflow_positions;
+
+                        // thrust::for_each(
+                        //     thrust::cuda::par_nosync.on(variables.H2DcopyStream),
+                        //     thrust::make_counting_iterator<size_t>(0),
+                        //     thrust::make_counting_iterator<size_t>(plan.usedSeq),
+                        //     [inputOffsets] __device__ (size_t i){
+                        //         size_t current = inputOffsets[i];
+                        //         size_t next = inputOffsets[i+1];
+                        //         assert(current <= next);
+                        //     }
+                        // );
+                        // cudaStreamSynchronize(variables.H2DcopyStream); CUERR;
         
                         auto runAlignmentKernels = [&](auto& d_scores, ReferenceIdT* d_overflow_positions, int* d_overflow_number){
                             const char4* const d_query = reinterpret_cast<char4*>(ws.d_query.data());

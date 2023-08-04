@@ -56,7 +56,7 @@ struct DBdata{
     }
 
     size_t numSequences() const noexcept{
-        return mappedFileLengths->numElements<size_t>();
+        return mappedFileLengths->numElements<SequenceLengthT>();
     }
 
     size_t numChars() const noexcept{
@@ -138,7 +138,7 @@ struct PseudoDBdata{
 
 
         std::string dummyseq(length, ' ');
-        for(size_t i = 0; i < length; i++){
+        for(SequenceLengthT i = 0; i < length; i++){
             dummyseq[i] = letters[dist(gen)];
         }
         //std::cout << "PseudoDBdata: num " << num << ", length " << length << ", sequence " << dummyseq << "\n";
@@ -164,8 +164,8 @@ struct PseudoDBdata{
         metaData.numSequencesPerLengthPartition.resize(boundaries.size());
 
         for(int i = 0; i < int(boundaries.size()); i++){
-            size_t lower = i == 0 ? 0 : boundaries[i-1];
-            size_t upper = boundaries[i];
+            SequenceLengthT lower = i == 0 ? 0 : boundaries[i-1];
+            SequenceLengthT upper = boundaries[i];
 
             if(lower < length && length <= upper){
                 metaData.numSequencesPerLengthPartition[i] = num;
@@ -243,6 +243,10 @@ struct DB{
     }
 
     const DBdata& getData() const{
+        return data;
+    }
+
+    DBdata& getModyfiableData(){
         return data;
     }
 
@@ -396,7 +400,7 @@ private:
     size_t globalSequenceOffset; //index of firstSequence at the top level, i.e. in the full db
 
     const char* parentChars;
-    const size_t* parentLengths;
+    const SequenceLengthT* parentLengths;
     const size_t* parentOffsets;
     const char* parentHeaders;
     const size_t* parentHeaderOffsets;
