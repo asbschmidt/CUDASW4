@@ -651,7 +651,7 @@ struct DPXAligner_s32{
         int2 E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
 
-        const uint32_t thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
+        const int thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
 
         int E = negInfty;
         int penalty_here31;
@@ -779,7 +779,7 @@ struct DPXAligner_s32{
         checkHEindex(offset_in, __LINE__);
         offset_in += group_size;
 
-        const uint32_t thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
+        const int thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
 
         int E = negInfty;
         int penalty_here31;

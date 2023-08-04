@@ -1108,8 +1108,6 @@ namespace cudasw4{
             //add sizeof(char4) * warpsize for unguarded accesses outside of the DP matrix
             currentQueryLengthWithPadding = SDIV(queryLength, 4) * 4 + sizeof(char4) * 32;
 
-            std::cout << "currentQueryLength " << currentQueryLength << ", currentQueryLengthWithPadding " << currentQueryLengthWithPadding << "\n";
-
             const int numGpus = deviceIds.size();
             for(int gpu = 0; gpu < numGpus; gpu++){
                 cudaSetDevice(deviceIds[gpu]); CUERR;

@@ -661,7 +661,7 @@ struct ManyPassFloat{
         float2 E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
 
-        const uint32_t thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
+        const int thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
 
         float E = negInftyFloat;
         float penalty_here31;
@@ -703,9 +703,7 @@ struct ManyPassFloat{
         }
         if (queryLength+thread_result >=4) {
             SequenceLengthT k;
-            if(threadIdx.x == 0){
-                printf("ql %lu, thread_result %d, %lu\n", queryLength, thread_result, queryLength+(thread_result-3));
-            }
+
             //for (k = 5; k < lane_2+thread_result-2; k+=4) {
             for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
                 //shuffle_max();
@@ -735,9 +733,6 @@ struct ManyPassFloat{
                 shuffle_affine_penalty(H_temp_in.y, E_temp_in.y, E, penalty_here31, penalty_diag, penalty_left);
                 shuffle_new_query(new_query_letter4);
                 if (counter%group_size == 0) {
-                    if(threadIdx.x == 1){
-                        printf("offset %d, k %lu\n", offset, k);
-                    }
                     new_query_letter4 = query4[offset];
                     offset += group_size;
                 }
@@ -795,7 +790,7 @@ struct ManyPassFloat{
         checkHEindex(offset_in, __LINE__);
         offset_in += group_size;
 
-        const uint32_t thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
+        const int thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
 
         float E = negInftyFloat;
         float penalty_here31;
