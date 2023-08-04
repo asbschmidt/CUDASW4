@@ -1,7 +1,7 @@
 # settings
 DIALECT      = -std=c++17
 #OPTIMIZATION = -O0 -g
-OPTIMIZATION = -O3 -g
+OPTIMIZATION = -O0 -g
 WARNINGS     = -Xcompiler="-Wall -Wextra"
 # NVCC_FLAGS   = -arch=sm_61 -lineinfo --expt-relaxed-constexpr -rdc=true
 NVCC_FLAGS   = -arch=native -lineinfo --expt-relaxed-constexpr -rdc=true --extended-lambda -lnvToolsExt -Xcompiler="-fopenmp" #-res-usage #-Xptxas "-v"

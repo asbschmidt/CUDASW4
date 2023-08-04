@@ -763,7 +763,7 @@ struct Half2Aligner{
         const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
 
-        const int thread_result = ((warpMaxLength-1)%(group_size*numRegs))/numRegs; 
+        const uint32_t thread_result = ((warpMaxLength-1)%(group_size*numRegs))/numRegs; 
 
         __half2 E = __float2half2_rn(negInftyFloat);
         __half2 penalty_here31;
@@ -779,12 +779,13 @@ struct Half2Aligner{
         initial_calc32_local_affine_float(0, query_letter, E, penalty_here31, penalty_diag, penalty_left, maximum, subject, penalty_here_array, F_here_array);
         shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
-
+if(threadIdx.x < group_size) printf("A tid %d maximum %f %f\n", threadIdx.x, float(maximum.x), float(maximum.y));
         if (queryLength+thread_result >=2) {
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.z, query_letter);
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
+if(threadIdx.x < group_size) printf("B tid %d maximum %f %f\n", threadIdx.x, float(maximum.x), float(maximum.y));        
         }
 
         if (queryLength+thread_result >=3) {
@@ -794,6 +795,7 @@ struct Half2Aligner{
             shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
             shuffle_new_query(new_query_letter4);
             counter++;
+if(threadIdx.x < group_size) printf("C tid %d maximum %f %f\n", threadIdx.x, float(maximum.x), float(maximum.y));
         }
         if (queryLength+thread_result >=4) {
             SequenceLengthT k;
@@ -801,7 +803,7 @@ struct Half2Aligner{
             for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
-
+if(threadIdx.x < group_size) printf("D tid %d maximum %f %f\n", threadIdx.x, float(maximum.x), float(maximum.y));
                 shuffle_query(new_query_letter4.x, query_letter);
                 shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
 
@@ -809,12 +811,12 @@ struct Half2Aligner{
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.y, query_letter);
                 shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
-
+if(threadIdx.x < group_size) printf("E tid %d maximum %f %f\n", threadIdx.x, float(maximum.x), float(maximum.y));
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.z, query_letter);
                 shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
-
+if(threadIdx.x < group_size) printf("F tid %d maximum %f %f\n", threadIdx.x, float(maximum.x), float(maximum.y));
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.w, query_letter);
@@ -825,14 +827,20 @@ struct Half2Aligner{
                     offset += group_size;
                 }
                 counter++;
+if(threadIdx.x < group_size) printf("G tid %d maximum %f %f\n", threadIdx.x, float(maximum.x), float(maximum.y));                
             }
 
+            if(threadIdx.x < group_size) printf("tid %d, k %d queryLength %d thread_result %d\n", threadIdx.x, k, queryLength, thread_result);
+
+
+// (int(196) - 1) - (int(189) + unsigned(7))
             if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.x, query_letter);
                 shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
                 k++;
+if(threadIdx.x < group_size) printf("H tid %d maximum %f %f\n", threadIdx.x, float(maximum.x), float(maximum.y));
             }
 
 
@@ -842,11 +850,15 @@ struct Half2Aligner{
                 shuffle_query(new_query_letter4.y, query_letter);
                 shuffle_affine_penalty(__float2half2_rn(0.0), __float2half2_rn(negInftyFloat), E, penalty_here31, penalty_diag, penalty_left);
                 k++;
+if(threadIdx.x < group_size) printf("I tid %d maximum %f %f\n", threadIdx.x, float(maximum.x), float(maximum.y));                
             }
+
+            
 
             if ((k-1)-(queryLength+thread_result) > 0) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
+printf("J tid %d maximum %f %f\n", threadIdx.x, float(maximum.x), float(maximum.y));                
             }
         }
     }
@@ -973,6 +985,13 @@ struct Half2Aligner{
             base_S1 = devOffsets[alignmentId_checklast_1]-devOffsets[0];
         }
 
+        {
+            size_t lengthsizet = length_S0;
+            size_t queryLengthsizet = queryLength;
+            size_t refsizet = alignmentId_0;
+            if(threadIdx.x < group_size) printf("S length %lu S id %lu base_S0 %lu, Q length %lu\n", lengthsizet, refsizet, base_S0, queryLengthsizet);
+        }
+
         const char* const devS0 = &devChars[base_S0];
         const char* const devS1 = &devChars[base_S1];
 
@@ -993,6 +1012,12 @@ struct Half2Aligner{
 
             for (int offset=group_size/2; offset>0; offset/=2){
                 maximum = __hmax2(maximum,__shfl_down_sync(0xFFFFFFFF,maximum,offset,group_size));
+            }
+
+            {
+                if(threadIdx.x == 0){
+                    printf("final maximum %f %f\n", float(maximum.x), float(maximum.y));
+                }
             }
 
             const int group_id = threadIdx.x % group_size;

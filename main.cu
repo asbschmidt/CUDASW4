@@ -39,8 +39,8 @@ void printScanResult(const cudasw4::ScanResult& scanResult, const cudasw4::CudaS
         std::cout << " Length: " << cudaSW4.getReferenceLength(referenceId) << ".";
         std::cout << " Header " << cudaSW4.getReferenceHeader(referenceId) << ".";
         std::cout << "referenceId " << referenceId;
-        std::cout << "\n";
-        //std::cout << " Sequence " << cudaSW4.getReferenceSequence(referenceId) << "\n";
+        //std::cout << "\n";
+        std::cout << " Sequence " << cudaSW4.getReferenceSequence(referenceId) << "\n";
 
         // std::cout << i << "," 
         //     << scanResult.scores[i] << ","
@@ -56,9 +56,88 @@ struct BatchOfQueries{
     std::vector<std::string> headers;  
 };
 
+int affine_local_DP_host_protein(
+    const char* seq1,
+    const char* seq2,
+    const int length1,
+    const int length2,
+    const int gap_open,
+    const int gap_extend) {
+
+    //cout << "Align Seq 1: ";
+    //copy(seq1, seq1+length1, std::ostream_iterator<char>(cout, ""));
+    //cout << "\n";
+    //cout << "to Seq 2: ";
+    //copy(seq2, seq2+length2, std::ostream_iterator<char>(cout, ""));
+    //cout << "\n";
+
+    const int NEGINFINITY = -10000;
+    int *penalty_H = new int[2*(length2+1)];
+    int *penalty_F = new int[2*(length2+1)];
+    int E, F, maxi = 0, result;
+    penalty_H[0] = 0;
+    penalty_F[0] = NEGINFINITY;
+    for (int index = 1; index <= length2; index++) {
+        penalty_H[index] = 0;
+        penalty_F[index] = NEGINFINITY;
+    }
+
+    //cout << "Row 0: ";
+    //copy(penalty, penalty + length2 + 1, std::ostream_iterator<int>(cout, " "));
+    //cout << "\n";
+
+    auto convert_AA = cudasw4::ConvertAA_20{};
+
+    auto BLOSUM = cudasw4::BLOSUM62_20::get2D();
+
+    for (int row = 1; row <= length1; row++) {
+        char seq1_char = seq1[row-1];
+        char seq2_char;
+        // if (seq1_char == 'N') seq1_char = 'T';  // special N-letter treatment to match CUDA code
+        const int target_row = row & 1;
+        const int source_row = !target_row;
+        penalty_H[target_row*(length2+1)] = 0; //gap_open + (row-1)*gap_extend;
+        penalty_F[target_row*(length2+1)] = gap_open + (row-1)*gap_extend;
+        E = NEGINFINITY;
+        for (int col = 1; col <= length2; col++) {
+            const int diag = penalty_H[source_row*(length2+1)+col-1];
+            const int abve = penalty_H[source_row*(length2+1)+col+0];
+            const int left = penalty_H[target_row*(length2+1)+col-1];
+            seq2_char = seq2[col-1];
+            //if (seq2_char == 'N') seq2_char = 'T';  // special N-letter treatment to match CUDA code
+            //const int residue = (seq1_char == seq2_char)? match : mismatch;
+            const int residue = BLOSUM[convert_AA(seq1_char)][convert_AA(seq2_char)];
+            E = std::max(E+gap_extend, left+gap_open);
+            F = std::max(penalty_F[source_row*(length2+1)+col+0]+gap_extend, abve+gap_open);
+            result = std::max(0, std::max(diag + residue, std::max(E, F)));
+            penalty_H[target_row*(length2+1)+col] = result;
+            if (result > maxi) maxi = result;
+            penalty_F[target_row*(length2+1)+col] = F;
+        }
+        //cout << "Row " << row << ": ";
+        //copy(penalty + target_row*(length2+1), penalty + target_row*(length2+1) + length2 + 1, std::ostream_iterator<int>(cout, " "));
+        //cout << "\n";
+    }
+    //const int last_row = length1 & 1;
+    //const int result = penalty_H[last_row*(length2+1)+length2];
+    delete [] penalty_F;
+    delete [] penalty_H;
+    return maxi;
+}
+
 
 int main(int argc, char* argv[])
 {
+    std::cout << affine_local_DP_host_protein(
+        "MALPFALMMALVVLSCKSSCSLGCNLSQTHSLNNRRTLMLMAQMRRISPFSCLKDRHDFEFPQEEFDGNQFQKAQAISVLHEMMQQTFNLFSTKNSSAAWDETLLEKFYIELFQQMNDLEACVIQEVGVEETPLMNEDSILAVKKYFQRITLYLMEKKYSPCAWEVVRAEIMRSLSFSTNLQKRLRRKD---",
+        "MALPFALLMALVVLSCKSSCSLDCDLPQTHSLGHRRTMMLLAQMRRISLFSCLKDRHDFRFPQEEFDGNQFQKAEAISVLHEVIQQTFNLFSTKDSSVAWDERLLDKLYTELYQQLNDLEACVMQEVWVGGTPLMNEDSILAVRKYFQRITLYLTEKKYSPCAWEVVRAEIMRSFSSSRNLQERLRRKE",
+        192,
+        189,
+        -11,
+        -1
+    ) << "\n";
+
+
 
     if(argc < 3) {
         std::cout << "Usage:\n  " << argv[0] << " <FASTA filename 1> [dbPrefix]\n";
