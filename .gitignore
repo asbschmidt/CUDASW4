@@ -1,4 +1,4 @@
 align
 makedb
 modifydb
-*.o
+build/

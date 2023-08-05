@@ -10,6 +10,8 @@ LDFLAGS      = -Xcompiler="-pthread"  $(NVCC_FLAGS) -lz
 COMPILER     = nvcc
 ARTIFACT     = align
 
+BUILDDIR = build
+
 MAKEDB = makedb
 MODIFYDB = modifydb
 GRIDSEARCH = gridsearch
@@ -17,12 +19,18 @@ GRIDSEARCH = gridsearch
 # make targets
 .PHONY: clean
 
-release: $(ARTIFACT) $(MAKEDB) #$(MODIFYDB) $(GRIDSEARCH)
+release: builddir $(ARTIFACT) $(MAKEDB) #$(MODIFYDB) $(GRIDSEARCH)
+
+.PHONY: builddir
+builddir:
+	mkdir -p $(BUILDDIR)
 
 clean :
-	rm -f *.o
+	rm -rf $(BUILDDIR)
 	rm -f $(ARTIFACT)
 	rm -f $(MAKEDB)
+
+
 
 
 # compiler call
@@ -30,56 +38,52 @@ COMPILE = $(COMPILER) $(NVCC_FLAGS) $(DIALECT) $(OPTIMIZATION) $(WARNINGS) -c $<
 
 
 # link object files into executable
-$(ARTIFACT): main.o sequence_io.o dbdata.o options.o blosum.o half2_kernel_instantiations.o float_kernel_instantiations.o dpx_s32_kernel_instantiations.o dpx_s16_kernel_instantiations.o
+$(ARTIFACT): $(BUILDDIR)/main.o $(BUILDDIR)/sequence_io.o $(BUILDDIR)/dbdata.o $(BUILDDIR)/options.o $(BUILDDIR)/blosum.o $(BUILDDIR)/half2_kernel_instantiations.o $(BUILDDIR)/float_kernel_instantiations.o $(BUILDDIR)/dpx_s32_kernel_instantiations.o $(BUILDDIR)/dpx_s16_kernel_instantiations.o
 	$(COMPILER) $^ -o $(ARTIFACT) $(LDFLAGS)
 
-$(MAKEDB): makedb.o sequence_io.o dbdata.o
+$(MAKEDB): $(BUILDDIR)/makedb.o $(BUILDDIR)/sequence_io.o $(BUILDDIR)/dbdata.o
 	$(COMPILER) $^ -o $(MAKEDB) $(LDFLAGS)
 
-$(MODIFYDB): modifydb.o sequence_io.o dbdata.o
+$(MODIFYDB): $(BUILDDIR)/modifydb.o $(BUILDDIR)/sequence_io.o $(BUILDDIR)/dbdata.o
 	$(COMPILER) $^ -o $(MODIFYDB) $(LDFLAGS)
 
-$(GRIDSEARCH): gridsearch.o sequence_io.o dbdata.o blosum.o
+$(GRIDSEARCH): $(BUILDDIR)/gridsearch.o $(BUILDDIR)/sequence_io.o $(BUILDDIR)/dbdata.o $(BUILDDIR)/blosum.o
 	$(COMPILER) $^ -o $(GRIDSEARCH) $(LDFLAGS)
 
-# compile CUDA files
-main.o : main.cu sequence_io.h length_partitions.hpp dbdata.hpp cudasw4.cuh new_kernels.cuh convert.cuh float_kernels.cuh half2_kernels.cuh dpx_s16_kernels.cuh blosum.hpp types.hpp
+
+$(BUILDDIR)/main.o : src/main.cu src/sequence_io.h src/length_partitions.hpp src/dbdata.hpp src/cudasw4.cuh src/new_kernels.cuh src/convert.cuh src/float_kernels.cuh src/half2_kernels.cuh src/dpx_s16_kernels.cuh src/blosum.hpp src/types.hpp
 	$(COMPILE)
 
-# compile pure C++ files
-sequence_io.o : sequence_io.cpp sequence_io.h
+$(BUILDDIR)/sequence_io.o : src/sequence_io.cpp src/sequence_io.h
 	$(COMPILE)
 
-# compile pure C++ files
-dbdata.o : dbdata.cpp dbdata.hpp mapped_file.hpp sequence_io.h length_partitions.hpp
+$(BUILDDIR)/dbdata.o : src/dbdata.cpp src/dbdata.hpp src/mapped_file.hpp src/sequence_io.h src/length_partitions.hpp
 	$(COMPILE)
 
-# compile pure C++ files
-options.o : options.cpp options.hpp types.hpp
+$(BUILDDIR)/options.o : src/options.cpp src/options.hpp src/types.hpp
 	$(COMPILE)
 
-blosum.o : blosum.cu blosum.hpp
+$(BUILDDIR)/blosum.o : src/blosum.cu src/blosum.hpp
 	$(COMPILE)
 
-half2_kernel_instantiations.o: half2_kernel_instantiations.cu half2_kernels.cuh
+$(BUILDDIR)/half2_kernel_instantiations.o: src/half2_kernel_instantiations.cu src/half2_kernels.cuh
 	$(COMPILE)
 
-float_kernel_instantiations.o: float_kernel_instantiations.cu float_kernels.cuh
+$(BUILDDIR)/float_kernel_instantiations.o: src/float_kernel_instantiations.cu src/float_kernels.cuh
 	$(COMPILE)
 
-dpx_s16_kernel_instantiations.o: dpx_s16_kernel_instantiations.cu dpx_s16_kernels.cuh
+$(BUILDDIR)/dpx_s16_kernel_instantiations.o: src/dpx_s16_kernel_instantiations.cu src/dpx_s16_kernels.cuh
 	$(COMPILE)
 
-dpx_s32_kernel_instantiations.o: dpx_s32_kernel_instantiations.cu dpx_s32_kernels.cuh
+$(BUILDDIR)/dpx_s32_kernel_instantiations.o: src/dpx_s32_kernel_instantiations.cu src/dpx_s32_kernels.cuh
 	$(COMPILE)
 
-# compile pure C++ files
-makedb.o : makedb.cpp dbdata.hpp sequence_io.h
+$(BUILDDIR)/makedb.o : src/makedb.cpp src/dbdata.hpp src/sequence_io.h
 	$(COMPILE)
 
-modifydb.o : modifydb.cpp dbdata.hpp sequence_io.h
+$(BUILDDIR)/modifydb.o : src/modifydb.cpp src/dbdata.hpp src/sequence_io.h
 	$(COMPILE)
 
-gridsearch.o : gridsearch.cu length_partitions.hpp dbdata.hpp
+$(BUILDDIR)/gridsearch.o : src/gridsearch.cu src/length_partitions.hpp src/dbdata.hpp
 	$(COMPILE)
 

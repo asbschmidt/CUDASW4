@@ -72,7 +72,7 @@ std::size_t getAvailableMemoryInKB(){
 struct InMemoryBatch{
     std::vector<char> chars;               
     std::vector<std::size_t> offsets;  
-    std::vector<SequenceLengthT> lengths;  
+    std::vector<cudasw4::SequenceLengthT> lengths;  
     std::vector<char> headers;  
     std::vector<std::size_t> headerOffsets;  
 };
@@ -97,7 +97,7 @@ struct HybridBatch{
     }
     cudasw4::FileBackedUVector<char> chars;               
     cudasw4::FileBackedUVector<std::size_t> offsets;  
-    cudasw4::FileBackedUVector<SequenceLengthT> lengths;  
+    cudasw4::FileBackedUVector<cudasw4::SequenceLengthT> lengths;  
     cudasw4::FileBackedUVector<char> headers;  
     cudasw4::FileBackedUVector<std::size_t> headerOffsets;  
 };
@@ -146,9 +146,9 @@ void loadWholeFileIntoBatch_withPaddedConvertedSequences(const std::string& inpu
 
     kseqpp::KseqPP reader(inputfilename);
     while(reader.next() >= 0){
-        if(batch.lengths.size() > MaxSequencesInDB::value()){
+        if(batch.lengths.size() > cudasw4::MaxSequencesInDB::value()){
             std::string msg = "File contains at least " + std::to_string(batch.lengths.size()+1) 
-                    + " sequences, but config allows at most " + std::to_string(MaxSequencesInDB::value());
+                    + " sequences, but config allows at most " + std::to_string(cudasw4::MaxSequencesInDB::value());
             throw std::runtime_error(msg);
         }
 
@@ -156,9 +156,9 @@ void loadWholeFileIntoBatch_withPaddedConvertedSequences(const std::string& inpu
         const std::string& sequence = reader.getCurrentSequence();
 
         size_t sequenceLength = sequence.size();
-        if(sequenceLength > MaxSequenceLength::value()){
+        if(sequenceLength > cudasw4::MaxSequenceLength::value()){
             std::string msg = "Got sequence of length " + std::to_string(sequenceLength) 
-                + ", but config allows only lengths <= " + std::to_string(MaxSequenceLength::value());
+                + ", but config allows only lengths <= " + std::to_string(cudasw4::MaxSequenceLength::value());
             throw std::runtime_error(msg);
         }
 
@@ -185,8 +185,8 @@ void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const Batch
 
     const size_t numSequences = batch.lengths.size();
 
-    std::vector<ReferenceIdT> indices(numSequences);
-    std::iota(indices.begin(), indices.end(), ReferenceIdT(0));
+    std::vector<cudasw4::ReferenceIdT> indices(numSequences);
+    std::iota(indices.begin(), indices.end(), cudasw4::ReferenceIdT(0));
 
     auto compareIndicesByLength = [&](const auto& l, const auto& r){
         return batch.lengths[l] < batch.lengths[r];
@@ -264,12 +264,12 @@ void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const Batch
         headersoffsetsout.write((const char*)&currentHeaderOffset, sizeof(size_t));
 
         const size_t numChars = batch.offsets[sortedIndex+1] - batch.offsets[sortedIndex];
-        const SequenceLengthT length = batch.lengths[sortedIndex];
+        const cudasw4::SequenceLengthT length = batch.lengths[sortedIndex];
         const char* const sequence = batch.chars.data() + batch.offsets[sortedIndex];
 
 
         charsout.write(sequence, numChars);
-        lengthsout.write((const char*)&length, sizeof(SequenceLengthT));
+        lengthsout.write((const char*)&length, sizeof(cudasw4::SequenceLengthT));
         currentCharOffset += numChars;
         offsetsout.write((const char*)&currentCharOffset, sizeof(size_t));
     }
