@@ -6,6 +6,9 @@
 
 #include <cuda_fp16.h>
 
+namespace old{
+
+
 #define MAX_ACC_HALF2 2048.0 // 1024 ??
 #define MAX_ACC_SHORT 25000 //TODO which value here ???
 
@@ -2092,7 +2095,7 @@ void call_NW_local_affine_Protein_single_pass_half2(
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
 template <int group_size, int numRegs> 
-//__launch_bounds__(256,2)
+__launch_bounds__(256,2)
 __global__
 void NW_local_affine_single_pass_s16_DPX(
     const char * devChars,
@@ -4841,6 +4844,8 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
 }
 
 
+
+} //namespace old
 
 #endif
 
