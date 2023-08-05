@@ -52,7 +52,7 @@ void printScanResult(const cudasw4::ScanResult& scanResult, const cudasw4::CudaS
 struct BatchOfQueries{
     std::vector<char> chars;               
     std::vector<std::size_t> offsets;  
-    std::vector<SequenceLengthT> lengths;  
+    std::vector<cudasw4::SequenceLengthT> lengths;  
     std::vector<std::string> headers;  
 };
 
@@ -242,7 +242,7 @@ int main(int argc, char* argv[])
             std::cout << "Processing query file " << queryFile << "\n";
         // 0 load all queries into memory, then process.
         // 1 load and process queries one after another
-        #if 1
+        #if 0
             kseqpp::KseqPP reader(queryFile);
             int query_num = 0;
 
@@ -261,21 +261,41 @@ int main(int argc, char* argv[])
                     std::cout << "Done.\n";
                 }
 
+                //std::cout << "subject 569751\n";
+                //std::cout << cudaSW4.getReferenceSequence(569751) << "\n";
+
+                //  std::ofstream err("errorsequence.fasta");
+
+                // for(int i = 28998523; i < 28998523+1; i++){
+                //     std::string s = cudaSW4.getReferenceSequence(i);
+                //     err << ">" << i << "\n";
+                //     err << s << "\n";
+                // }
+                // err.flush();
+                // err.close();
+
                 std::vector<int> cpuscores = cudaSW4.computeAllScoresCPU(sequence.data(), sequence.size());
 
                 std::vector<int> indices(cpuscores.size());
                 std::iota(indices.begin(), indices.end(), 0);
 
                 std::sort(indices.begin(), indices.end(), [&](int l, int r){return scanResult.referenceIds[l] < scanResult.referenceIds[r];});
-
+                std::ofstream ofs("scorestmp.txt");
+                int lastMismatch = -1;
                 for(size_t i = 0; i < cpuscores.size(); i++){
-                    if(cpuscores[i] != scanResult.scores[indices[i]]){
-                        std::cout << "i " << i << ", cpu score " << cpuscores[i] << ", gpu score " << scanResult.scores[indices[i]] << "\n";
-                        std::cout << "gpu ref id " << scanResult.referenceIds[indices[i]] << "\n";
-                        std::exit(0);
+                    bool mismatch = cpuscores[i] != scanResult.scores[indices[i]]; 
+                    ofs << cpuscores[i] << " " << scanResult.scores[indices[i]] << " " << mismatch << "\n";
+                    if(mismatch){
+                        lastMismatch = i;
                     }
+                    // if(cpuscores[i] != scanResult.scores[indices[i]]){
+                    //     std::cout << "i " << i << ", cpu score " << cpuscores[i] << ", gpu score " << scanResult.scores[indices[i]] << "\n";
+                    //     std::cout << "gpu ref id " << scanResult.referenceIds[indices[i]] << "\n";
+                    //     std::exit(0);
+                    // }
                 }
                 std::cout << "ok\n";
+                std::cout << "last mismatch " << lastMismatch << "\n";
 
                 // std::cout << "Query " << query_num << ", header" <<  header
                 // << ", length " << sequence.size()
@@ -332,7 +352,7 @@ int main(int argc, char* argv[])
                 std::cout << "Processing query " << query_num << " ... ";
                 std::cout.flush();
                 const size_t offset = batchOfQueries.offsets[query_num];
-                const SequenceLengthT length = batchOfQueries.lengths[query_num];
+                const cudasw4::SequenceLengthT length = batchOfQueries.lengths[query_num];
                 const char* sequence = batchOfQueries.chars.data() + offset;
                 ScanResult scanResult = cudaSW4.scan(sequence, length);
                 scanResults[query_num] = scanResult;

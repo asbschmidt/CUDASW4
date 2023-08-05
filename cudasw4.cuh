@@ -19,6 +19,7 @@
 
 #include <thrust/binary_search.h>
 #include <thrust/sort.h>
+#include <thrust/equal.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
 #include <thrust/iterator/constant_iterator.h>
@@ -242,7 +243,7 @@ namespace cudasw4{
         template<class T>
         using MyDeviceBuffer = helpers::SimpleAllocationDevice<T, 0>;
 
-        static constexpr int maxReduceArraySize = 1024 * 1024;
+        static constexpr int maxReduceArraySize = 512 * 1024;
 
         struct GpuWorkingSet{
 
@@ -583,7 +584,7 @@ namespace cudasw4{
         std::string getReferenceSequence(ReferenceIdT referenceId) const{
             const auto& data = fullDB.getData();
             const char* const begin = data.chars() + data.offsets()[referenceId];
-            const char* const end = data.chars() + data.offsets()[referenceId+1];
+            const char* const end = begin + getReferenceLength(referenceId);
 
             std::string sequence(end - begin, '\0');
             std::transform(
@@ -1551,7 +1552,7 @@ namespace cudasw4{
                                 
                                 //const size_t* const d_selectedPositions = ws.d_selectedPositions.data() + start;
                                 auto d_selectedPositions = thrust::make_counting_iterator<ReferenceIdT>(start);
-        
+                                #if 1
                                 if(kernelTypeConfig.singlePassType == KernelType::Half2){
                                     
                                     constexpr int sh2bs = 256; // single half2 blocksize 
@@ -1706,6 +1707,7 @@ namespace cudasw4{
                                 }else{
                                     assert(false);
                                 }
+                                #endif
         
                                 if(partId == numLengthPartitions - 2){
                                     if(kernelTypeConfig.manyPassType_small == KernelType::Half2){
@@ -1893,8 +1895,44 @@ namespace cudasw4{
                         };
         
                         auto maxReduceArray = ws.getMaxReduceArray(variables.processedSequences);
-                        //runAlignmentKernels(ws.devAlignmentScoresFloat.data() + variables.processedSequences, d_overflow_positions, d_overflow_number);
+                        // auto maxReduceArray = ws.d_maxReduceArrayScores.data();
+
+                        // thrust::fill(
+                        //     thrust::device,
+                        //     ws.d_maxReduceArrayScores.data(), 
+                        //     ws.d_maxReduceArrayScores.data() + ws.d_maxReduceArrayScores.size(), 
+                        //     0
+                        // );
+                        // thrust::sequence(
+                        //     thrust::device,
+                        //     ws.d_maxReduceArrayIndices.data(), 
+                        //     ws.d_maxReduceArrayIndices.data() + ws.d_maxReduceArrayIndices.size(), 
+                        //     0
+                        // );
+
+                        // //runAlignmentKernels(ws.devAlignmentScoresFloat.data() + variables.processedSequences, d_overflow_positions, d_overflow_number);
                         runAlignmentKernels(maxReduceArray, d_overflow_positions, d_overflow_number);
+
+                        // for(int aaa = 0; aaa < 100; aaa++){
+                        //     MyDeviceBuffer<float> tmpscoresaaa(ws.d_maxReduceArrayIndices.size());
+                        //     thrust::fill(
+                        //         thrust::device,
+                        //         tmpscoresaaa.data(), 
+                        //         tmpscoresaaa.data() + tmpscoresaaa.size(), 
+                        //         0
+                        //     );
+                        //     float* ptr = tmpscoresaaa.data();
+                        //     runAlignmentKernels(ptr, d_overflow_positions, d_overflow_number);
+                        //     bool equal = thrust::equal(
+                        //         thrust::device,
+                        //         ws.d_maxReduceArrayScores.data(),
+                        //         ws.d_maxReduceArrayScores.data() + tmpscoresaaa.size(),
+                        //         tmpscoresaaa.data()
+                        //     );
+                        //     if(!equal){
+                        //         std::cout << "aaa " << aaa << " no equal\n";
+                        //     }
+                        // }
         
         
                         //alignments are done in workstreams. now, join all workstreams into workStreamForTempUsage to process overflow alignments
@@ -1921,6 +1959,7 @@ namespace cudasw4{
                         const char4* const d_query = reinterpret_cast<char4*>(ws.d_query.data());
         
                         auto maxReduceArray = ws.getMaxReduceArray(variables.processedSequences);
+                        //auto maxReduceArray = ws.d_maxReduceArrayScores.data();
         
                         if(kernelTypeConfig.overflowType == KernelType::Float){
                             //std::cerr << "overflow processing\n";
@@ -2106,6 +2145,18 @@ namespace cudasw4{
             std::vector<int> penalty_H(2*(length2+1));
             std::vector<int> penalty_F(2*(length2+1));
 
+            // std::cout << "length1 " << length1 << ", length2 " << length2 << "\n";
+
+            // for(int i = 0; i < length1; i++){
+            //     std::cout << int(seq1[i]) << " ";
+            // }
+            // std::cout << "\n";
+
+            // for(int i = 0; i < length2; i++){
+            //     std::cout << int(seq2[i]) << " ";
+            // }
+            // std::cout << "\n";
+
             int E, F, maxi = 0, result;
             penalty_H[0] = 0;
             penalty_F[0] = NEGINFINITY;
@@ -2137,7 +2188,10 @@ namespace cudasw4{
                     penalty_H[target_row*(length2+1)+col] = result;
                     if (result > maxi) maxi = result;
                     penalty_F[target_row*(length2+1)+col] = F;
+
+                    //std::cout << maxi << " ";
                 }
+                //std::cout << "\n";
             }
             return maxi;
         }

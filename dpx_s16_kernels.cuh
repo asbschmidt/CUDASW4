@@ -206,20 +206,20 @@ struct DPXAligner_s16{
     }
 
     __device__
-    void init_local_score_profile(int offset_isc, int (&subject)[numRegs], 
+    void load_subject_regs(int offset_isc, int (&subject)[numRegs], 
         const char* const devS0, const SequenceLengthT length_S0, 
         const char* const devS1, const SequenceLengthT length_S1
     ) const{
         #pragma unroll //UNROLLHERE
         for (int i=0; i<numRegs; i++) {
 
-            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S0) subject[i] = 1; // 20;
+            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S0) subject[i] = (deviceBlosumDimCexpr-1); // 20;
             else{
                 
                 subject[i] = devS0[offset_isc+numRegs*(threadIdx.x%group_size)+i];
             }
 
-            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S1) subject[i] += 1*deviceBlosumDimCexpr; // 20*deviceBlosumDimCexpr;
+            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S1) subject[i] += (deviceBlosumDimCexpr-1)*deviceBlosumDimCexpr; // 20*deviceBlosumDimCexpr;
             else subject[i] += deviceBlosumDimCexpr* devS1[offset_isc+numRegs*(threadIdx.x%group_size)+i];
         }  
     }
@@ -291,10 +291,7 @@ struct DPXAligner_s16{
         char4 new_query_letter4 = query4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
-        int check_last;
-        int check_last2;
-        computeCheckLast(check_last, check_last2);
-        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x%check_last)/group_size))*size_t(queryLength);
+        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x)/group_size))*size_t(queryLength);
         short2* const devTempHcol = (&devTempHcol2[base_3]);
         short2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -315,7 +312,7 @@ struct DPXAligner_s16{
 
         
         init_penalties_local(0, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile(0, subject, devS0, length_S0, devS1, length_S1);
+        load_subject_regs(0, subject, devS0, length_S0, devS1, length_S1);
         initial_calc32_local_affine_float(0, query_letter, E, penalty_here31, penalty_diag, penalty_left, maximum, subject, penalty_here_array, F_here_array);
         shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(make_short2(0,0), make_short2(negInfty, negInfty), E, penalty_here31, penalty_diag, penalty_left);
@@ -440,10 +437,7 @@ struct DPXAligner_s16{
         char4 new_query_letter4 = query4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
-        int check_last;
-        int check_last2;
-        computeCheckLast(check_last, check_last2);
-        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x%check_last)/group_size))*size_t(queryLength);
+        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x)/group_size))*size_t(queryLength);
         short2* const devTempHcol = (&devTempHcol2[base_3]);
         short2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -467,7 +461,7 @@ struct DPXAligner_s16{
         short2 F_here_array[numRegs];
 
         init_penalties_local(0, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile(pass*(32*numRegs), subject, devS0, length_S0, devS1, length_S1);
+        load_subject_regs(pass*(32*numRegs), subject, devS0, length_S0, devS1, length_S1);
 
         if (!group_id) {
             penalty_left = H_temp_in;
@@ -612,10 +606,7 @@ struct DPXAligner_s16{
         char4 new_query_letter4 = query4[threadIdx.x%group_size];
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
-        int check_last;
-        int check_last2;
-        computeCheckLast(check_last, check_last2);
-        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x%check_last)/group_size))*size_t(queryLength);
+        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x)/group_size))*size_t(queryLength);
         short2* const devTempHcol = (&devTempHcol2[base_3]);
         short2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -639,7 +630,7 @@ struct DPXAligner_s16{
         short2 F_here_array[numRegs];
 
         init_penalties_local(0, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile((passes-1)*(32*numRegs), subject, devS0, length_S0, devS1, length_S1);
+        load_subject_regs((passes-1)*(32*numRegs), subject, devS0, length_S0, devS1, length_S1);
         //copy_H_E_temp_in();
         if (!group_id) {
             penalty_left = H_temp_in;
@@ -775,7 +766,7 @@ struct DPXAligner_s16{
         short2 F_here_array[numRegs];
 
         init_penalties_local(0, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile(0, subject, devS0, length_S0, devS1, length_S1);
+        load_subject_regs(0, subject, devS0, length_S0, devS1, length_S1);
 
         initial_calc32_local_affine_float(0, query_letter, E, penalty_here31, penalty_diag, penalty_left, maximum, subject, penalty_here_array, F_here_array);
         shuffle_query(new_query_letter4.y, query_letter);

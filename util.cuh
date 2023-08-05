@@ -129,7 +129,7 @@ struct TopNMaximaArray{
         }
     };
 
-    TopNMaximaArray(float* d_scores_, size_t* d_indices_, int* d_locks_, size_t offset, size_t size_)
+    TopNMaximaArray(float* d_scores_, ReferenceIdT* d_indices_, int* d_locks_, size_t offset, size_t size_)
         : indexOffset(offset), d_locks(d_locks_), d_scores(d_scores_), d_indices(d_indices_), size(size_){}
 
     template<class Index>

@@ -193,7 +193,7 @@ struct ManyPassFloat{
     }
 
     __device__
-    void init_local_score_profile_BLOSUM62(SequenceLengthT offset_isc, int (&subject)[numRegs], 
+    void load_subject_regs(SequenceLengthT offset_isc, int (&subject)[numRegs], 
         const char* const devS0, const SequenceLengthT length_S0
     ) const{
         // if (!offset_isc) {
@@ -204,7 +204,7 @@ struct ManyPassFloat{
         #pragma unroll //UNROLLHERE
         for (int i=0; i<numRegs; i++) {
 
-            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S0) subject[i] = 1; // 20;
+            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S0) subject[i] = (deviceBlosumDimCexpr-1); // 20;
             else{                
                 subject[i] = devS0[offset_isc+numRegs*(threadIdx.x%group_size)+i];
             }
@@ -311,7 +311,7 @@ struct ManyPassFloat{
         float F_here_array[numRegs];
        
         init_penalties_local(0, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile_BLOSUM62(0, subject, devS0, length_S0);
+        load_subject_regs(0, subject, devS0, length_S0);
         initial_calc32_local_affine_float(0, query_letter, E, penalty_here31, penalty_diag, penalty_left, maximum, subject, penalty_here_array, F_here_array);
         shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(0.f, negInftyFloat, E, penalty_here31, penalty_diag, penalty_left);
@@ -484,7 +484,7 @@ struct ManyPassFloat{
         float F_here_array[numRegs];
 
         init_penalties_local(gap_open+(pass*32*numRegs-1)*gap_extend, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile_BLOSUM62(pass*(32*numRegs), subject, devS0, length_S0);
+        load_subject_regs(pass*(32*numRegs), subject, devS0, length_S0);
 
         if (!group_id) {
             penalty_left = H_temp_in.x;
@@ -672,7 +672,7 @@ struct ManyPassFloat{
         float F_here_array[numRegs];
 
         init_penalties_local(gap_open+((passes-1)*32*numRegs-1)*gap_extend, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile_BLOSUM62((passes-1)*(32*numRegs), subject, devS0, length_S0);
+        load_subject_regs((passes-1)*(32*numRegs), subject, devS0, length_S0);
         //copy_H_E_temp_in();
         if (!group_id) {
             penalty_left = H_temp_in.x;
@@ -808,7 +808,7 @@ struct ManyPassFloat{
         float F_here_array[numRegs];
 
         init_penalties_local(0, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile_BLOSUM62(0, subject, devS0, length_S0);
+        load_subject_regs(0, subject, devS0, length_S0);
 
         initial_calc32_local_affine_float(0, query_letter, E, penalty_here31, penalty_diag, penalty_left, maximum, subject, penalty_here_array, F_here_array);
         shuffle_query(new_query_letter4.y, query_letter);

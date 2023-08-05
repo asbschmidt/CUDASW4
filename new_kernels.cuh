@@ -22,6 +22,7 @@ namespace cudasw4{
 
 //ScoreOutputIterator
 using ScoreIterInst = TopNMaximaArray; 
+//using ScoreIterInst = float*; 
 //PositionsIterator
 using PosIterInst = decltype(thrust::make_counting_iterator<ReferenceIdT>(0));
 
