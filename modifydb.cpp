@@ -39,21 +39,42 @@ int main(int argc, char* argv[])
 
     constexpr bool writeAccess = true;
     constexpr bool prefetchSeq = false;
-    DB fullDB = loadDB(dbprefix, writeAccess, prefetchSeq);
+    cudasw4::DB fullDB = cudasw4::loadDB(dbprefix, writeAccess, prefetchSeq);
 
     if(operation == "convertcharstonumber1"){
         TIMERSTART(convertcharstonumber1);
 
-        for(auto& chunk : fullDB.chunks){
-            std::transform(
-                chunk.chars(),
-                chunk.chars() + chunk.numChars(),
-                chunk.chars(),
-                &convert_AA
-            );
-        }
+        std::transform(
+            fullDB.getData().chars(),
+            fullDB.getData().chars() + fullDB.getData().numChars(),
+            fullDB.getModyfiableData().chars(),
+            cudasw4::ConvertAA_20{}
+        );
 
         TIMERSTOP(convertcharstonumber1);
+    }else if(operation == "lengthsToI32"){
+        std::string filebasename = cudasw4::DBdataIoConfig::sequencelengthsfilename();
+        std::string outputfilename = dbprefix + "0" + filebasename + "_i32";
+        std::ofstream outputfile(outputfilename);
+        assert(bool(outputfile));
+        size_t numSequences = fullDB.getData().numSequences();
+        for(size_t i = 0; i < numSequences; i++){
+            size_t length = fullDB.getData().lengths()[i];
+            assert(length < size_t(std::numeric_limits<int>::max() - 1));
+
+            int lengthAsInt = length;
+            outputfile.write((const char*)&lengthAsInt, sizeof(int));
+        }
+    }else if(operation == "lengthsToI64"){
+        std::string filebasename = cudasw4::DBdataIoConfig::sequencelengthsfilename();
+        std::string outputfilename = dbprefix + "0" + filebasename + "_i64";
+        std::ofstream outputfile(outputfilename);
+        assert(bool(outputfile));
+        size_t numSequences = fullDB.getData().numSequences();
+        for(size_t i = 0; i < numSequences; i++){
+            size_t length = fullDB.getData().lengths()[i];
+            outputfile.write((const char*)&length, sizeof(size_t));
+        }
     }
 
 

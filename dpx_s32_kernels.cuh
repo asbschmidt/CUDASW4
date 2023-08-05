@@ -2,6 +2,7 @@
 #define DPX_S32_KERNELS_CUH
 
 #include "blosum.hpp"
+#include "config.hpp"
 
 namespace cudasw4{
 
@@ -24,7 +25,7 @@ struct DPXAligner_s32{
     int2* devTempHcol2;
     int2* devTempEcol2;
     const size_t* devOffsets;
-    const size_t* devLengths;
+    const SequenceLengthT* devLengths;
 
     __device__
     DPXAligner_s32(
@@ -33,7 +34,7 @@ struct DPXAligner_s32{
         int2* devTempHcol2_,
         int2* devTempEcol2_,
         const size_t* devOffsets_,
-        const size_t* devLengths_,
+        const SequenceLengthT* devLengths_,
         PositionsIterator d_positions_of_selected_lengths_,
         int gap_open_,
         int gap_extend_
@@ -182,8 +183,8 @@ struct DPXAligner_s32{
     }
 
     __device__
-    void init_local_score_profile_BLOSUM62(int offset_isc, int (&subject)[numRegs], 
-        const char* const devS0, const int length_S0
+    void load_subject_regs(SequenceLengthT offset_isc, int (&subject)[numRegs], 
+        const char* const devS0, const SequenceLengthT length_S0
     ) const{
         // if (!offset_isc) {
         //     for (int i=threadIdx.x; i<deviceBlosumDimSquared; i+=32) shared_blosum[(i/deviceBlosumDim) * deviceBlosumDim + (i%deviceBlosumDim)]=deviceBlosum[i];
@@ -193,7 +194,7 @@ struct DPXAligner_s32{
         #pragma unroll //UNROLLHERE
         for (int i=0; i<numRegs; i++) {
 
-            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S0) subject[i] = 1; // 20;
+            if (offset_isc+numRegs*(threadIdx.x%group_size)+i >= length_S0) subject[i] = (deviceBlosumDimCexpr-1); // 20;
             else{                
                 subject[i] = devS0[offset_isc+numRegs*(threadIdx.x%group_size)+i];
             }
@@ -267,9 +268,9 @@ struct DPXAligner_s32{
     void computeFirstPass(
         int& maximum, 
         const char* const devS0, 
-        const int length_S0,
+        const SequenceLengthT length_S0,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         // FIRST PASS (of many passes)
         // Note first pass has always full seqeunce length
@@ -300,7 +301,7 @@ struct DPXAligner_s32{
         int F_here_array[numRegs];
        
         init_penalties_local(0, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile_BLOSUM62(0, subject, devS0, length_S0);
+        load_subject_regs(0, subject, devS0, length_S0);
         initial_calc32_local_affine_int(0, query_letter, E, penalty_here31, penalty_diag, penalty_left, maximum, subject, penalty_here_array, F_here_array);
         shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(0.f, negInfty, E, penalty_here31, penalty_diag, penalty_left);
@@ -341,7 +342,7 @@ struct DPXAligner_s32{
             counter++;
         }
 
-        for (int k = 32; k <= queryLength+28; k+=4) {
+        for (SequenceLengthT k = 32; k <= queryLength+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
@@ -439,9 +440,9 @@ struct DPXAligner_s32{
         int pass, 
         int& maximum, 
         const char* const devS0, 
-        const int length_S0,
+        const SequenceLengthT length_S0,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
@@ -473,7 +474,7 @@ struct DPXAligner_s32{
         int F_here_array[numRegs];
 
         init_penalties_local(gap_open+(pass*32*numRegs-1)*gap_extend, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile_BLOSUM62(pass*(32*numRegs), subject, devS0, length_S0);
+        load_subject_regs(pass*(32*numRegs), subject, devS0, length_S0);
 
         if (!group_id) {
             penalty_left = H_temp_in.x;
@@ -525,7 +526,7 @@ struct DPXAligner_s32{
 
             counter++;
         }
-        for (int k = 32; k <= queryLength+28; k+=4) {
+        for (SequenceLengthT k = 32; k <= queryLength+28; k+=4) {
             //shuffle_max();
             calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
@@ -628,9 +629,9 @@ struct DPXAligner_s32{
         int passes, 
         int& maximum, 
         const char* const devS0, 
-        const int length_S0,
+        const SequenceLengthT length_S0,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
@@ -661,7 +662,7 @@ struct DPXAligner_s32{
         int F_here_array[numRegs];
 
         init_penalties_local(gap_open+((passes-1)*32*numRegs-1)*gap_extend, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile_BLOSUM62((passes-1)*(32*numRegs), subject, devS0, length_S0);
+        load_subject_regs((passes-1)*(32*numRegs), subject, devS0, length_S0);
         //copy_H_E_temp_in();
         if (!group_id) {
             penalty_left = H_temp_in.x;
@@ -672,7 +673,8 @@ struct DPXAligner_s32{
         shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(H_temp_in.y, E_temp_in.y, E, penalty_here31, penalty_diag, penalty_left);
         shuffle_H_E_temp_in(H_temp_in, E_temp_in);
-        if (queryLength+thread_result >=2) {
+        //if (queryLength+thread_result >=2) {
+        if(1 < queryLength+thread_result){
             //shuffle_max();
             calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.z, query_letter);
@@ -680,7 +682,8 @@ struct DPXAligner_s32{
             shuffle_affine_penalty(H_temp_in.x, E_temp_in.x, E, penalty_here31, penalty_diag, penalty_left);
         }
 
-        if (queryLength+thread_result >=3) {
+        //if (queryLength+thread_result >=3) {
+        if(2 < queryLength+thread_result){
             //shuffle_max();
             calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.w, query_letter);
@@ -690,10 +693,12 @@ struct DPXAligner_s32{
             shuffle_new_query(new_query_letter4);
             counter++;
         }
-        if (queryLength+thread_result >=4) {
-            int k;
+        //if (queryLength+thread_result >=4) {
+        if(3 < queryLength+thread_result){
+            SequenceLengthT k;
             //for (k = 5; k < lane_2+thread_result-2; k+=4) {
-            for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
+            //for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
+            for (k = 3; k < queryLength+thread_result-3; k+=4) {
                 //shuffle_max();
                 calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
 
@@ -734,7 +739,8 @@ struct DPXAligner_s32{
                 counter++;
             }
 
-            if ((k-1)-(queryLength+thread_result) > 0) {
+            //if ((k-1)-(queryLength+thread_result) > 0) {
+            if(k < queryLength+thread_result){
                 //shuffle_max();
                 calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.x, query_letter);
@@ -743,7 +749,8 @@ struct DPXAligner_s32{
             }
 
 
-            if ((k-1)-(queryLength+thread_result) > 0) {
+            //if ((k-1)-(queryLength+thread_result) > 0) {
+            if(k < queryLength+thread_result){
                 //shuffle_max();
                 calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.y, query_letter);
@@ -752,7 +759,8 @@ struct DPXAligner_s32{
                 k++;
             }
 
-            if ((k-1)-(queryLength+thread_result) > 0) {
+            //if ((k-1)-(queryLength+thread_result) > 0) {
+            if(k < queryLength+thread_result){
                 //shuffle_max();
                 calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             }
@@ -763,9 +771,9 @@ struct DPXAligner_s32{
     void computeSinglePass(
         int& maximum, 
         const char* const devS0, 
-        const int length_S0,
+        const SequenceLengthT length_S0,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
         int counter = 1;
         char query_letter = 20;
@@ -789,20 +797,22 @@ struct DPXAligner_s32{
         int F_here_array[numRegs];
 
         init_penalties_local(0, penalty_diag, penalty_left, penalty_here_array, F_here_array);
-        init_local_score_profile_BLOSUM62(0, subject, devS0, length_S0);
+        load_subject_regs(0, subject, devS0, length_S0);
 
         initial_calc32_local_affine_int(0, query_letter, E, penalty_here31, penalty_diag, penalty_left, maximum, subject, penalty_here_array, F_here_array);
         shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(0.f, negInfty, E, penalty_here31, penalty_diag, penalty_left);
 
-        if (queryLength+thread_result >=2) {
+        //if (queryLength+thread_result >=2) {
+        if(1 < queryLength+thread_result){
             //shuffle_max();
             calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.z, query_letter);
             shuffle_affine_penalty(0.f, negInfty, E, penalty_here31, penalty_diag, penalty_left);
         }
 
-        if (queryLength+thread_result >=3) {
+        //if (queryLength+thread_result >=3) {
+        if(2 < queryLength+thread_result){
             //shuffle_max();
             calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.w, query_letter);
@@ -811,10 +821,12 @@ struct DPXAligner_s32{
             shuffle_new_query(new_query_letter4);
             counter++;
         }
-        if (queryLength+thread_result >=4) {
-            int k;
-            //for (k = 5; k < lane_2+thread_result-2; k+=4) {
-            for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
+        //if (queryLength+thread_result >=4) {
+        if(3 < queryLength+thread_result){
+            SequenceLengthT k;
+
+            //for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
+            for (k = 3; k < queryLength+thread_result-3; k+=4) {
                 //shuffle_max();
                 calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
 
@@ -847,7 +859,8 @@ struct DPXAligner_s32{
                 counter++;
             }
 
-            if ((k-1)-(queryLength+thread_result) > 0) {
+            //if ((k-1)-(queryLength+thread_result) > 0) {
+            if(k < queryLength+thread_result){
                 //shuffle_max();
                 calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.x, query_letter);
@@ -856,7 +869,8 @@ struct DPXAligner_s32{
             }
 
 
-            if ((k-1)-(queryLength+thread_result) > 0) {
+            //if ((k-1)-(queryLength+thread_result) > 0) {
+            if(k < queryLength+thread_result){
                 //shuffle_max();
                 calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.y, query_letter);
@@ -864,7 +878,8 @@ struct DPXAligner_s32{
                 k++;
             }
 
-            if ((k-1)-(queryLength+thread_result) > 0) {
+            //if ((k-1)-(queryLength+thread_result) > 0) {
+                if(k < queryLength+thread_result){
                 //shuffle_max();
                 calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             }
@@ -876,18 +891,18 @@ struct DPXAligner_s32{
     void compute(
         ScoreOutputIterator const devAlignmentScores,
         const char4* query4,
-        int queryLength
+        SequenceLengthT queryLength
     ) const{
 
 
-        const int length_S0 = devLengths[d_positions_of_selected_lengths[blockIdx.x]];
+        const SequenceLengthT length_S0 = devLengths[d_positions_of_selected_lengths[blockIdx.x]];
         const size_t base_S0 = devOffsets[d_positions_of_selected_lengths[blockIdx.x]]-devOffsets[0];
 
         const char* const devS0 = &devChars[base_S0];
 
         const int passes = (length_S0 + (group_size*numRegs) - 1) / (group_size*numRegs);
 
-        int maximum = 0.f;
+        int maximum = 0;
 
         if(passes == 1){
             computeSinglePass(maximum, devS0, length_S0, query4, queryLength);
@@ -930,10 +945,10 @@ void NW_local_affine_s32_DPX_new(
     __grid_constant__ int2 * const devTempHcol2,
     __grid_constant__ int2 * const devTempEcol2,
     __grid_constant__ const size_t* const devOffsets,
-    __grid_constant__ const size_t* const devLengths,
+    __grid_constant__ const SequenceLengthT* const devLengths,
     __grid_constant__ PositionsIterator const d_positions_of_selected_lengths,
     __grid_constant__ const char4* const query4,
-    __grid_constant__ const int queryLength,
+    __grid_constant__ const SequenceLengthT queryLength,
     __grid_constant__ const int gap_open,
     __grid_constant__ const int gap_extend
 ) {
@@ -967,11 +982,11 @@ void call_NW_local_affine_s32_DPX_new(
     int2 * const devTempHcol2,
     int2 * const devTempEcol2,
     const size_t* const devOffsets,
-    const size_t* const devLengths,
+    const SequenceLengthT* const devLengths,
     PositionsIterator const d_positions_of_selected_lengths,
     const int numSelected,
     const char4* query4,
-    const int queryLength,
+    const SequenceLengthT queryLength,
     const int gap_open,
     const int gap_extend,
     cudaStream_t stream
@@ -1025,7 +1040,7 @@ void call_NW_local_affine_s32_DPX_new(
 }
 
 
-template <int numRegs, int blosumDim, class ScoreOutputIterator> 
+template <int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator>
 __launch_bounds__(1,1)
 __global__
 void launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new(
@@ -1035,16 +1050,16 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new(
     __grid_constant__ const char * const devChars,
     __grid_constant__ ScoreOutputIterator const devAlignmentScores,
     __grid_constant__ const size_t* const devOffsets,
-    __grid_constant__ const size_t* const devLengths,
-    __grid_constant__ const size_t* const d_positions_of_selected_lengths,
+    __grid_constant__ const SequenceLengthT* const devLengths,
+    __grid_constant__ PositionsIterator const d_positions_of_selected_lengths,
     __grid_constant__ const char4* const query4,
-    __grid_constant__ const int queryLength,
+    __grid_constant__ const SequenceLengthT queryLength,
     __grid_constant__ const int gap_open,
     __grid_constant__ const int gap_extend
 ){
     const int numOverflow = *d_overflow_number;
     if(numOverflow > 0){
-        const int currentQueryLengthWithPadding = SDIV(queryLength, 4) * 4 + sizeof(char4) * 32;
+        const SequenceLengthT currentQueryLengthWithPadding = SDIV(queryLength, 4) * 4 + sizeof(char4) * 32;
         const size_t tempBytesPerSubjectPerBuffer = sizeof(int2) * currentQueryLengthWithPadding;
         const size_t maxSubjectsPerIteration = std::min(size_t(numOverflow), maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
@@ -1080,7 +1095,7 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new(
 }
 
 
-template <int numRegs, class ScoreOutputIterator> 
+template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
 void call_launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new(
     const int* const d_overflow_number,
     int2* const d_temp,
@@ -1088,16 +1103,16 @@ void call_launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new(
     const char * const devChars,
     ScoreOutputIterator const devAlignmentScores,
     const size_t* const devOffsets,
-    const size_t* const devLengths,
-    const size_t* const d_positions_of_selected_lengths,
+    const SequenceLengthT* const devLengths,
+    PositionsIterator const d_positions_of_selected_lengths,
     const char4* const query4,
-    const int queryLength,
+    const SequenceLengthT queryLength,
     const int gap_open,
     const int gap_extend,
     cudaStream_t stream
 ){
     if(hostBlosumDim == 21){
-        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new<numRegs, 21, ScoreOutputIterator>;
+        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         kernel<<<1, 1, 0, stream>>>(
@@ -1116,7 +1131,7 @@ void call_launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new(
         ); CUERR;
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
-        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new<numRegs, 25, ScoreOutputIterator>;
+        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         kernel<<<1, 1, 0, stream>>>(

@@ -66,8 +66,8 @@ void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess
     auto partitionBegin = result.lengths();
     for(int i = 0; i < numPartitions; i++){
         //length k is in partition i if boundaries[i-1] < k <= boundaries[i]
-        int searchFor = lengthBoundaries[i];
-        if(searchFor < std::numeric_limits<int>::max()){
+        SequenceLengthT searchFor = lengthBoundaries[i];
+        if(searchFor < std::numeric_limits<SequenceLengthT>::max()){
             searchFor += 1;
         }
         auto partitionEnd = std::lower_bound(

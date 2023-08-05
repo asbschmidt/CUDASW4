@@ -1,6 +1,8 @@
 #ifndef DBBATCHING_CUH
 #define DBBATCHING_CUH
 
+#include "config.hpp"
+
 #include <vector>
 #include <iostream>
 #include <algorithm>
@@ -21,7 +23,7 @@ namespace cudasw4{
         size_t usedBytes = 0;
         size_t usedSeq = 0;
         std::vector<int> h_partitionIds;
-        std::vector<int> h_numPerPartition;
+        std::vector<size_t> h_numPerPartition;
         std::vector<CopyRange> copyRanges;
 
         friend std::ostream& operator<<(std::ostream& os, const DeviceBatchCopyToPinnedPlan& plan){
@@ -37,7 +39,7 @@ namespace cudasw4{
     struct ExecutePinnedCopyCallbackData{
         const DeviceBatchCopyToPinnedPlan* planPtr; 
         char* h_chardata;
-        size_t* h_lengthdata;
+        SequenceLengthT* h_lengthdata;
         size_t* h_offsetdata;
         const std::vector<DBdataView>* dbPartitionsPtr;
     };
@@ -45,7 +47,7 @@ namespace cudasw4{
     void executeCopyPlanH2DDirect(
         const DeviceBatchCopyToPinnedPlan& plan, 
         char* d_chardata,
-        size_t* d_lengthdata,
+        SequenceLengthT* d_lengthdata,
         size_t* d_offsetdata,
         const std::vector<DBdataView>& dbPartitions,
         cudaStream_t stream
@@ -68,7 +70,7 @@ namespace cudasw4{
             cudaMemcpyAsync(
                 d_lengthdata + usedSeq,
                 dbPartition.lengths() + firstSeq,
-                sizeof(size_t) * numToCopy,
+                sizeof(SequenceLengthT) * numToCopy,
                 H2D,
                 stream
             ); CUERR;
@@ -99,7 +101,7 @@ namespace cudasw4{
     void executePinnedCopyPlanSerial(
         const DeviceBatchCopyToPinnedPlan& plan, 
         char* h_chardata,
-        size_t* h_lengthdata,
+        SequenceLengthT* h_lengthdata,
         size_t* h_offsetdata,
         const std::vector<DBdataView>& dbPartitions
     ){
@@ -137,10 +139,10 @@ namespace cudasw4{
     void executePinnedCopyPlanSerialAndTransferToGpu(
         const DeviceBatchCopyToPinnedPlan& plan, 
         char* h_chardata,
-        size_t* h_lengthdata,
+        SequenceLengthT* h_lengthdata,
         size_t* /*h_offsetdata*/,
         char* d_chardata,
-        size_t* d_lengthdata,
+        SequenceLengthT* d_lengthdata,
         size_t* d_offsetdata,
         const std::vector<DBdataView>& dbPartitions,
         cudaStream_t H2DcopyStream
@@ -210,7 +212,7 @@ namespace cudasw4{
         cudaMemcpyAsync(
             d_lengthdata,
             h_lengthdata,
-            sizeof(size_t) * plan.usedSeq,
+            sizeof(SequenceLengthT) * plan.usedSeq,
             H2D,
             H2DcopyStream
         ); CUERR;
@@ -219,8 +221,8 @@ namespace cudasw4{
     
         auto d_paddedLengths = thrust::make_transform_iterator(
             d_lengthdata,
-            [] __host__ __device__ (const size_t& length){
-                return SDIV(length, 4) * 4;
+            [] __host__ __device__ (const SequenceLengthT& length){
+                return size_t(SDIV(length, 4) * 4);
             }
         );
     
@@ -253,7 +255,7 @@ namespace cudasw4{
     void executePinnedCopyPlanWithHostCallback(
         const DeviceBatchCopyToPinnedPlan& plan, 
         char* h_chardata,
-        size_t* h_lengthdata,
+        SequenceLengthT* h_lengthdata,
         size_t* h_offsetdata,
         const std::vector<DBdataView>& dbPartitions, 
         cudaStream_t stream

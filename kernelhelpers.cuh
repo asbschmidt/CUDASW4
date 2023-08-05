@@ -1,4 +1,4 @@
-
+#include <type_traits>
 
 namespace cudasw4{
 
@@ -12,7 +12,7 @@ namespace cudasw4{
     typedef short2	  score_type;
     typedef data_pack score_pack;
 
-    template<class T>
+    template<class T, std::enable_if_t<(sizeof(T) <= 4), bool> = true>
     __device__
     T warp_max_reduce_broadcast(unsigned int mask, T val){
         #if __CUDA_ARCH__ >= 800
@@ -24,6 +24,16 @@ namespace cudasw4{
             }
             return __shfl_sync(mask, val, 0);
         #endif
+    }
+
+    template<class T, std::enable_if_t<(sizeof(T) > 4), bool> = true>
+    __device__
+    T warp_max_reduce_broadcast(unsigned int mask, T val){
+        for (int offset = 16; offset > 0; offset /= 2){
+            T tmp = __shfl_down_sync(mask, val, offset);
+            val = tmp > val ? tmp : val;
+        }
+        return __shfl_sync(mask, val, 0);
     }
 
     inline __device__ short2 viaddmax(const short2 a_in, const short2 b_in, const short2 c_in) {
