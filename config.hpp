@@ -7,8 +7,8 @@
 using ReferenceIdT = size_t;
 
 //data type for length of of both query sequences and databases sequences
-using SequenceLengthT = std::int32_t;
-//using SequenceLengthT = size_t;
+//using SequenceLengthT = std::int32_t;
+using SequenceLengthT = size_t;
 
 
 struct MaxSequencesInDB{

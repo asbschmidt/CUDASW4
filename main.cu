@@ -39,8 +39,8 @@ void printScanResult(const cudasw4::ScanResult& scanResult, const cudasw4::CudaS
         std::cout << " Length: " << cudaSW4.getReferenceLength(referenceId) << ".";
         std::cout << " Header " << cudaSW4.getReferenceHeader(referenceId) << ".";
         std::cout << "referenceId " << referenceId;
-        //std::cout << "\n";
-        std::cout << " Sequence " << cudaSW4.getReferenceSequence(referenceId) << "\n";
+        std::cout << "\n";
+        //std::cout << " Sequence " << cudaSW4.getReferenceSequence(referenceId) << "\n";
 
         // std::cout << i << "," 
         //     << scanResult.scores[i] << ","
@@ -128,14 +128,14 @@ int affine_local_DP_host_protein(
 
 int main(int argc, char* argv[])
 {
-    std::cout << affine_local_DP_host_protein(
-        "MALPFALMMALVVLSCKSSCSLGCNLSQTHSLNNRRTLMLMAQMRRISPFSCLKDRHDFEFPQEEFDGNQFQKAQAISVLHEMMQQTFNLFSTKNSSAAWDETLLEKFYIELFQQMNDLEACVIQEVGVEETPLMNEDSILAVKKYFQRITLYLMEKKYSPCAWEVVRAEIMRSLSFSTNLQKRLRRKD---",
-        "MALPFALLMALVVLSCKSSCSLDCDLPQTHSLGHRRTMMLLAQMRRISLFSCLKDRHDFRFPQEEFDGNQFQKAEAISVLHEVIQQTFNLFSTKDSSVAWDERLLDKLYTELYQQLNDLEACVMQEVWVGGTPLMNEDSILAVRKYFQRITLYLTEKKYSPCAWEVVRAEIMRSFSSSRNLQERLRRKE",
-        192,
-        189,
-        -11,
-        -1
-    ) << "\n";
+    // std::cout << affine_local_DP_host_protein(
+    //     "MALPFALMMALVVLSCKSSCSLGCNLSQTHSLNNRRTLMLMAQMRRISPFSCLKDRHDFEFPQEEFDGNQFQKAQAISVLHEMMQQTFNLFSTKNSSAAWDETLLEKFYIELFQQMNDLEACVIQEVGVEETPLMNEDSILAVKKYFQRITLYLMEKKYSPCAWEVVRAEIMRSLSFSTNLQKRLRRKD---",
+    //     "MALPFALLMALVVLSCKSSCSLDCDLPQTHSLGHRRTMMLLAQMRRISLFSCLKDRHDFRFPQEEFDGNQFQKAEAISVLHEVIQQTFNLFSTKDSSVAWDERLLDKLYTELYQQLNDLEACVMQEVWVGGTPLMNEDSILAVRKYFQRITLYLTEKKYSPCAWEVVRAEIMRSFSSSRNLQERLRRKE",
+    //     192,
+    //     189,
+    //     -11,
+    //     -1
+    // ) << "\n";
 
 
 
@@ -242,7 +242,7 @@ int main(int argc, char* argv[])
             std::cout << "Processing query file " << queryFile << "\n";
         // 0 load all queries into memory, then process.
         // 1 load and process queries one after another
-        #if 0
+        #if 1
             kseqpp::KseqPP reader(queryFile);
             int query_num = 0;
 
@@ -261,11 +261,27 @@ int main(int argc, char* argv[])
                     std::cout << "Done.\n";
                 }
 
-                std::cout << "Query " << query_num << ", header" <<  header
-                << ", length " << sequence.size()
-                << ", num overflows " << scanResult.stats.numOverflows << "\n";
+                std::vector<int> cpuscores = cudaSW4.computeAllScoresCPU(sequence.data(), sequence.size());
 
-                printScanResult(scanResult, cudaSW4);
+                std::vector<int> indices(cpuscores.size());
+                std::iota(indices.begin(), indices.end(), 0);
+
+                std::sort(indices.begin(), indices.end(), [&](int l, int r){return scanResult.referenceIds[l] < scanResult.referenceIds[r];});
+
+                for(size_t i = 0; i < cpuscores.size(); i++){
+                    if(cpuscores[i] != scanResult.scores[indices[i]]){
+                        std::cout << "i " << i << ", cpu score " << cpuscores[i] << ", gpu score " << scanResult.scores[indices[i]] << "\n";
+                        std::cout << "gpu ref id " << scanResult.referenceIds[indices[i]] << "\n";
+                        std::exit(0);
+                    }
+                }
+                std::cout << "ok\n";
+
+                // std::cout << "Query " << query_num << ", header" <<  header
+                // << ", length " << sequence.size()
+                // << ", num overflows " << scanResult.stats.numOverflows << "\n";
+
+                // printScanResult(scanResult, cudaSW4);
 
                 query_num++;
             }

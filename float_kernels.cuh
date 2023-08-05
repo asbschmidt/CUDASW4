@@ -683,7 +683,8 @@ struct ManyPassFloat{
         shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(H_temp_in.y, E_temp_in.y, E, penalty_here31, penalty_diag, penalty_left);
         shuffle_H_E_temp_in(H_temp_in, E_temp_in);
-        if (queryLength+thread_result >=2) {
+        //if (queryLength+thread_result >=2) {
+        if(1 < queryLength+thread_result){
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.z, query_letter);
@@ -691,7 +692,8 @@ struct ManyPassFloat{
             shuffle_affine_penalty(H_temp_in.x, E_temp_in.x, E, penalty_here31, penalty_diag, penalty_left);
         }
 
-        if (queryLength+thread_result >=3) {
+        //if (queryLength+thread_result >=3) {
+        if(2 < queryLength+thread_result){
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.w, query_letter);
@@ -701,11 +703,13 @@ struct ManyPassFloat{
             shuffle_new_query(new_query_letter4);
             counter++;
         }
-        if (queryLength+thread_result >=4) {
+        //if (queryLength+thread_result >=4) {
+        if(3 < queryLength+thread_result){
             SequenceLengthT k;
 
             //for (k = 5; k < lane_2+thread_result-2; k+=4) {
-            for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
+            //for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
+            for (k = 3; k < queryLength+thread_result-3; k+=4) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
 
@@ -746,7 +750,8 @@ struct ManyPassFloat{
                 counter++;
             }
 
-            if ((k-1)-(queryLength+thread_result) > 0) {
+            //if ((k-1)-(queryLength+thread_result) > 0) {
+            if(k < queryLength+thread_result){
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.x, query_letter);
@@ -755,7 +760,8 @@ struct ManyPassFloat{
             }
 
 
-            if ((k-1)-(queryLength+thread_result) > 0) {
+            //if ((k-1)-(queryLength+thread_result) > 0) {
+            if(k < queryLength+thread_result){
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.y, query_letter);
@@ -764,7 +770,8 @@ struct ManyPassFloat{
                 k++;
             }
 
-            if ((k-1)-(queryLength+thread_result) > 0) {
+            //if ((k-1)-(queryLength+thread_result) > 0) {
+            if(k < queryLength+thread_result){
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             }
@@ -807,14 +814,16 @@ struct ManyPassFloat{
         shuffle_query(new_query_letter4.y, query_letter);
         shuffle_affine_penalty(0.f, negInftyFloat, E, penalty_here31, penalty_diag, penalty_left);
 
-        if (queryLength+thread_result >=2) {
+        //if (queryLength+thread_result >=2) {
+        if(1 < queryLength+thread_result){
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.z, query_letter);
             shuffle_affine_penalty(0.f, negInftyFloat, E, penalty_here31, penalty_diag, penalty_left);
         }
 
-        if (queryLength+thread_result >=3) {
+        //if (queryLength+thread_result >=3) {
+        if(2 < queryLength+thread_result){
             //shuffle_max();
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             shuffle_query(new_query_letter4.w, query_letter);
@@ -823,10 +832,12 @@ struct ManyPassFloat{
             shuffle_new_query(new_query_letter4);
             counter++;
         }
-        if (queryLength+thread_result >=4) {
+        //if (queryLength+thread_result >=4) {
+        if(3 < queryLength+thread_result){
             SequenceLengthT k;
             //for (k = 5; k < lane_2+thread_result-2; k+=4) {
-            for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
+            //for (k = 4; k <= queryLength+(thread_result-3); k+=4) {
+            for (k = 3; k < queryLength+thread_result-3; k+=4) {
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
 
@@ -859,7 +870,8 @@ struct ManyPassFloat{
                 counter++;
             }
 
-            if ((k-1)-(queryLength+thread_result) > 0) {
+            //if ((k-1)-(queryLength+thread_result) > 0) {
+            if(k < queryLength+thread_result){
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.x, query_letter);
@@ -868,7 +880,8 @@ struct ManyPassFloat{
             }
 
 
-            if ((k-1)-(queryLength+thread_result) > 0) {
+            //if ((k-1)-(queryLength+thread_result) > 0) {
+            if(k < queryLength+thread_result){
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
                 shuffle_query(new_query_letter4.y, query_letter);
@@ -876,7 +889,8 @@ struct ManyPassFloat{
                 k++;
             }
 
-            if ((k-1)-(queryLength+thread_result) > 0) {
+            //if ((k-1)-(queryLength+thread_result) > 0) {
+            if(k < queryLength+thread_result){
                 //shuffle_max();
                 calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             }

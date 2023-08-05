@@ -242,7 +242,7 @@ namespace cudasw4{
         template<class T>
         using MyDeviceBuffer = helpers::SimpleAllocationDevice<T, 0>;
 
-        static constexpr int maxReduceArraySize = 512 * 1024;
+        static constexpr int maxReduceArraySize = 1024 * 1024;
 
         struct GpuWorkingSet{
 
@@ -675,6 +675,37 @@ namespace cudasw4{
             result.scores.insert(result.scores.end(), alignment_scores_float.begin(), alignment_scores_float.begin() + results_per_query);
             result.referenceIds.insert(result.referenceIds.end(), sorted_indices.begin(), sorted_indices.begin() + results_per_query);
 
+            return result;
+        }
+
+        std::vector<int> computeAllScoresCPU(const char* query, SequenceLengthT queryLength){
+            const auto& view = fullDB.getData();
+            size_t numSequences = view.numSequences();
+            std::vector<int> result(numSequences);
+
+            std::vector<char> convertedQuery(queryLength);
+            std::transform(
+                query,
+                query + queryLength,
+                convertedQuery.data(),
+                ConvertAA_20{}
+            );
+            #pragma omp parallel for
+            for(size_t i = 0; i < numSequences; i++){
+                size_t offset = view.offsets()[i];
+                int length = view.lengths()[i];
+                const char* seq = view.chars() + offset;
+
+                int score = affine_local_DP_host_protein_blosum62_converted(
+                    convertedQuery.data(),
+                    seq,
+                    queryLength,
+                    length,
+                    gop,
+                    gex
+                );
+                result[i] = score;
+            }
             return result;
         }
 
@@ -2011,6 +2042,104 @@ namespace cudasw4{
             if(dbIsReady){
                 results_per_query = std::min(size_t(results_per_query), fullDB.getData().numSequences());
             }
+        }
+
+        int affine_local_DP_host_protein_blosum62(
+            const char* seq1,
+            const char* seq2,
+            const int length1,
+            const int length2,
+            const int gap_open,
+            const int gap_extend
+        ) {
+            const int NEGINFINITY = -10000;
+            std::vector<int> penalty_H(2*(length2+1));
+            std::vector<int> penalty_F(2*(length2+1));
+
+            int E, F, maxi = 0, result;
+            penalty_H[0] = 0;
+            penalty_F[0] = NEGINFINITY;
+            for (int index = 1; index <= length2; index++) {
+                penalty_H[index] = 0;
+                penalty_F[index] = NEGINFINITY;
+            }
+
+            auto convert_AA = cudasw4::ConvertAA_20{};
+
+            auto BLOSUM = cudasw4::BLOSUM62_20::get2D();
+
+            for (int row = 1; row <= length1; row++) {
+                char seq1_char = seq1[row-1];
+                char seq2_char;
+
+                const int target_row = row & 1;
+                const int source_row = !target_row;
+                penalty_H[target_row*(length2+1)] = 0; //gap_open + (row-1)*gap_extend;
+                penalty_F[target_row*(length2+1)] = gap_open + (row-1)*gap_extend;
+                E = NEGINFINITY;
+                for (int col = 1; col <= length2; col++) {
+                    const int diag = penalty_H[source_row*(length2+1)+col-1];
+                    const int abve = penalty_H[source_row*(length2+1)+col+0];
+                    const int left = penalty_H[target_row*(length2+1)+col-1];
+                    seq2_char = seq2[col-1];
+                    const int residue = BLOSUM[convert_AA(seq1_char)][convert_AA(seq2_char)];
+                    E = std::max(E+gap_extend, left+gap_open);
+                    F = std::max(penalty_F[source_row*(length2+1)+col+0]+gap_extend, abve+gap_open);
+                    result = std::max(0, std::max(diag + residue, std::max(E, F)));
+                    penalty_H[target_row*(length2+1)+col] = result;
+                    if (result > maxi) maxi = result;
+                    penalty_F[target_row*(length2+1)+col] = F;
+                }
+            }
+            return maxi;
+        }
+
+        int affine_local_DP_host_protein_blosum62_converted(
+            const char* seq1,
+            const char* seq2,
+            const int length1,
+            const int length2,
+            const int gap_open,
+            const int gap_extend
+        ) {
+            const int NEGINFINITY = -10000;
+            std::vector<int> penalty_H(2*(length2+1));
+            std::vector<int> penalty_F(2*(length2+1));
+
+            int E, F, maxi = 0, result;
+            penalty_H[0] = 0;
+            penalty_F[0] = NEGINFINITY;
+            for (int index = 1; index <= length2; index++) {
+                penalty_H[index] = 0;
+                penalty_F[index] = NEGINFINITY;
+            }
+
+            auto BLOSUM = cudasw4::BLOSUM62_20::get2D();
+
+            for (int row = 1; row <= length1; row++) {
+                int seq1_char = seq1[row-1];
+                int seq2_char;
+
+                const int target_row = row & 1;
+                const int source_row = !target_row;
+                penalty_H[target_row*(length2+1)] = 0; //gap_open + (row-1)*gap_extend;
+                penalty_F[target_row*(length2+1)] = gap_open + (row-1)*gap_extend;
+                E = NEGINFINITY;
+                for (int col = 1; col <= length2; col++) {
+                    const int diag = penalty_H[source_row*(length2+1)+col-1];
+                    const int abve = penalty_H[source_row*(length2+1)+col+0];
+                    const int left = penalty_H[target_row*(length2+1)+col-1];
+                    seq2_char = seq2[col-1];
+                    const int residue = BLOSUM[seq1_char][seq2_char];
+                    E = std::max(E+gap_extend, left+gap_open);
+                    F = std::max(penalty_F[source_row*(length2+1)+col+0]+gap_extend, abve+gap_open);
+                    result = std::max(0, std::max(diag + residue, std::max(E, F)));
+                    penalty_H[target_row*(length2+1)+col] = result;
+                    if (result > maxi) maxi = result;
+                    penalty_F[target_row*(length2+1)+col] = F;
+                }
+            }
+            return maxi;
         }
 
         std::vector<size_t> fullDB_numSequencesPerLengthPartition;
