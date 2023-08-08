@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "hpc_helpers/all_helpers.cuh"
+#include "hpc_helpers/peer_access.cuh"
 
 #include "kseqpp/kseqpp.hpp"
 #include "sequence_io.h"
@@ -173,6 +174,8 @@ int main(int argc, char* argv[])
             throw std::runtime_error("No GPU found");
         }
     }
+
+    helpers::PeerAccess peerAccess(deviceIds, false);
  
     using KernelTypeConfig = cudasw4::KernelTypeConfig;
     using MemoryConfig = cudasw4::MemoryConfig;
