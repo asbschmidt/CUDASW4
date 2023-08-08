@@ -104,6 +104,8 @@ namespace cudasw4{
         std::vector<size_t> verticalPS;
         std::vector<size_t> totalPerLengthPartitionPS;
 
+        HostGpuPartitionOffsets() = default;
+
         HostGpuPartitionOffsets(int numGpus_, int numLengthpartitions_, std::vector<size_t> partitionSizes_)
             : numGpus(numGpus_), 
             numLengthPartitions(numLengthpartitions_), 
@@ -894,6 +896,15 @@ namespace cudasw4{
                     numSequencesPerGpuPrefixSum_total[i+1] = numSequencesPerGpuPrefixSum_total[i] + num;
                 }
             }
+
+            std::vector<size_t> sequencesInPartitions(numGpus * numLengthPartitions);
+            for(int gpu = 0; gpu < numGpus; gpu++){
+                assert(subPartitionsForGpus[gpu].size() == numLengthPartitions);
+                for(int i = 0; i < numLengthPartitions; i++){
+                    sequencesInPartitions[gpu * numLengthPartitions + i] = subPartitionsForGpus[gpu][i].numSequences();
+                }
+            }
+            hostGpuPartitionOffsets = HostGpuPartitionOffsets(numGpus, numLengthPartitions, std::move(sequencesInPartitions));
         }
 
         void allocateGpuWorkingSets(){
@@ -940,6 +951,9 @@ namespace cudasw4{
                         std::cout << "It will process its DB in batches\n";
                     }
                 }
+
+                //set gpu partition table
+                workingSets[gpu]->setPartitionOffsets(hostGpuPartitionOffsets);
 
                 //spin up the host callback thread
                 auto noop = [](void*){};
@@ -2235,7 +2249,7 @@ namespace cudasw4{
         size_t totalNumOverflows{};
         std::unique_ptr<helpers::GpuTimer> totalTimer;
 
-
+        HostGpuPartitionOffsets hostGpuPartitionOffsets;
 
         
 
