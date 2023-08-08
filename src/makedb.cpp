@@ -220,9 +220,9 @@ void createDBfilesFromSequenceBatch(const std::string& outputPrefix, const Batch
         numSequencesPerPartition[i] = std::distance(partitionBegin, partitionEnd);
         partitionBegin = partitionEnd;
     }
-    for(int i = 0; i < numPartitions; i++){
-        std::cout << "numInPartition " << i << " (<= " << lengthBoundaries[i] << " ) : " << numSequencesPerPartition[i] << "\n";
-    }
+    // for(int i = 0; i < numPartitions; i++){
+    //     std::cout << "numInPartition " << i << " (<= " << lengthBoundaries[i] << " ) : " << numSequencesPerPartition[i] << "\n";
+    // }
 
     //write partition data to metadata file
     std::ofstream metadataout(outputPrefix + DBdataIoConfig::metadatafilename(), std::ios::binary);
