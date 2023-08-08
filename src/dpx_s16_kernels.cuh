@@ -16,8 +16,8 @@ struct DPXAligner_s16{
     short2* shared_blosum;
 
     int numSelected;
-    short gap_open;
-    short gap_extend;
+    int gap_open;
+    int gap_extend;
     PositionsIterator d_positions_of_selected_lengths;
     const char* devChars;
     short2* devTempHcol2;
@@ -35,8 +35,8 @@ struct DPXAligner_s16{
         const SequenceLengthT* devLengths_,
         PositionsIterator d_positions_of_selected_lengths_,
         int numSelected_,
-        short gap_open_,
-        short gap_extend_
+        int gap_open_,
+        int gap_extend_
     ) : shared_blosum(shared_blosum_),
         devChars(devChars_),
         devTempHcol2(devTempHcol2_),
@@ -1062,8 +1062,8 @@ void NW_local_affine_many_pass_s16_DPX_new(
 	__grid_constant__ const bool overflow_check,
     __grid_constant__ const char4* const query4,
     __grid_constant__ const SequenceLengthT queryLength,
-    __grid_constant__ const short gap_open,
-    __grid_constant__ const short gap_extend
+    __grid_constant__ const int gap_open,
+    __grid_constant__ const int gap_extend
 ) {
     using Processor = DPXAligner_s16<group_size, numRegs, blosumDim, PositionsIterator>;
     extern __shared__ short2 shared_blosum_dpx_s16[];
@@ -1108,8 +1108,8 @@ void call_NW_local_affine_many_pass_s16_DPX_new(
 	const bool overflow_check,
     const char4* query4,
     const SequenceLengthT queryLength,
-    const short gap_open,
-    const short gap_extend,
+    const int gap_open,
+    const int gap_extend,
     cudaStream_t stream
 ) {
     constexpr int groupsPerBlock = blocksize / group_size;
@@ -1198,8 +1198,8 @@ void NW_local_affine_single_pass_s16_DPX_new(
 	__grid_constant__ const bool overflow_check,
     __grid_constant__ const char4* const query4,
     __grid_constant__ const SequenceLengthT queryLength,
-    __grid_constant__ const short gap_open,
-    __grid_constant__ const short gap_extend
+    __grid_constant__ const int gap_open,
+    __grid_constant__ const int gap_extend
 ) {
     __builtin_assume(blockDim.x == blocksize);
     __builtin_assume(blockDim.x % group_size == 0);
@@ -1245,8 +1245,8 @@ void call_NW_local_affine_single_pass_s16_DPX_new(
 	const bool overflow_check,
     const char4* query4,
     const SequenceLengthT queryLength,
-    const short gap_open,
-    const short gap_extend,
+    const int gap_open,
+    const int gap_extend,
     cudaStream_t stream
 ){
     
