@@ -23,7 +23,7 @@ release: builddir $(ARTIFACT) $(MAKEDB) #$(MODIFYDB) $(GRIDSEARCH)
 
 .PHONY: builddir
 builddir:
-	mkdir -p $(BUILDDIR)
+	@mkdir -p $(BUILDDIR)
 
 clean :
 	rm -rf $(BUILDDIR)
@@ -47,7 +47,7 @@ $(MAKEDB): $(BUILDDIR)/makedb.o $(BUILDDIR)/sequence_io.o $(BUILDDIR)/dbdata.o
 $(MODIFYDB): $(BUILDDIR)/modifydb.o $(BUILDDIR)/sequence_io.o $(BUILDDIR)/dbdata.o
 	$(COMPILER) $^ -o $(MODIFYDB) $(LDFLAGS)
 
-$(GRIDSEARCH): $(BUILDDIR)/gridsearch.o $(BUILDDIR)/sequence_io.o $(BUILDDIR)/dbdata.o $(BUILDDIR)/blosum.o
+$(GRIDSEARCH): $(BUILDDIR)/gridsearch.o $(BUILDDIR)/sequence_io.o $(BUILDDIR)/dbdata.o $(BUILDDIR)/blosum.o $(BUILDDIR)/half2_kernel_instantiations.o $(BUILDDIR)/float_kernel_instantiations.o $(BUILDDIR)/dpx_s32_kernel_instantiations.o $(BUILDDIR)/dpx_s16_kernel_instantiations.o
 	$(COMPILER) $^ -o $(GRIDSEARCH) $(LDFLAGS)
 
 

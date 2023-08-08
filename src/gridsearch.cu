@@ -46,9 +46,9 @@ int main(int argc, char** argv){
     }
     const int deviceId = 0;
     cudaStream_t stream = 0;
-    const int queryLength = std::atoi(argv[1]);
+    const cudasw4::SequenceLengthT queryLength = std::atoi(argv[1]);
     const int numSubjects = std::atoi(argv[2]);
-    const int pseudolength = std::atoi(argv[3]);
+    const cudasw4::SequenceLengthT pseudolength = std::atoi(argv[3]);
 
     const int timingLoopIters = 1;
 
@@ -65,7 +65,7 @@ int main(int argc, char** argv){
             const auto blosum = cudasw4::BLOSUM50_20::get1D();
             const int dim = cudasw4::BLOSUM50_20::dim;
             assert(dim == 21);
-            cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));                    
+            cudaMemcpyToSymbol(old::cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));                    
         }
         break;
     default: //cudasw4::BlosumType::BLOSUM62_20
@@ -73,7 +73,7 @@ int main(int argc, char** argv){
             const auto blosum = cudasw4::BLOSUM62_20::get1D();
             const int dim = cudasw4::BLOSUM62_20::dim;
             assert(dim == 21);
-            cudaMemcpyToSymbol(cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
+            cudaMemcpyToSymbol(old::cBLOSUM62_dev, &(blosum[0]), dim*dim*sizeof(char));
         }
         break;
     }
@@ -97,50 +97,72 @@ int main(int argc, char** argv){
     std::vector<size_t> lengths(1);
     lengths[0] = queryLength;
 
-    const int roundedLength = SDIV(queryLength, 128) * 128 + 128;
+    const cudasw4::SequenceLengthT roundedLength = SDIV(queryLength, 128) * 128 + 128;
     MyDeviceBuffer<char> d_query(roundedLength);
     std::cout << "d_query : " << (void*)d_query.data() << ", " << roundedLength << " bytes\n";
     cudaMemsetAsync(d_query.data(), 20, roundedLength, stream);
     cudaMemcpyAsync(d_query.data(), querySeq.data(), queryLength, cudaMemcpyDefault, stream); CUERR
-    cudasw4::NW_convert_protein_single<<<SDIV(queryLength, 128), 128, 0, stream>>>(d_query.data(), queryLength); CUERR
+    //cudasw4::NW_convert_protein_single<<<SDIV(queryLength, 128), 128, 0, stream>>>(d_query.data(), queryLength); CUERR
+    thrust::transform(
+        thrust::device,
+        d_query.data(),
+        d_query.data() + queryLength,
+        d_query.data(),
+        cudasw4::ConvertAA_20{}
+    );
 
     std::vector<char> FillChar(512*16, 20);
 
-    cudaMemcpyToSymbolAsync(constantQuery4, FillChar.data(), 512*16, 0, cudaMemcpyHostToDevice, stream); CUERR
-    cudaMemcpyToSymbolAsync(constantQuery4, d_query.data(), queryLength, 0, cudaMemcpyDeviceToDevice, stream); CUERR
+    cudaMemcpyToSymbolAsync(old::constantQuery4, FillChar.data(), 512*16, 0, cudaMemcpyHostToDevice, stream); CUERR
+    cudaMemcpyToSymbolAsync(old::constantQuery4, d_query.data(), queryLength, 0, cudaMemcpyDeviceToDevice, stream); CUERR
 
     // SINGLE PASS half 2 BENCHMARKS
 
-    #if 0
+    #if 1
         std::cout << "NW_local_affine_Protein_single_pass_half2\n";
 
         //for(int pseudodbSeqLength : {64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960, 1024}){
-        for(int pseudodbSeqLength : {512}){
+        //for(int pseudodbSeqLength : {512}){
         //for(int pseudodbSeqLength = 11; pseudodbSeqLength <= 64; pseudodbSeqLength++){
+        {
+            const int pseudodbSeqLength = pseudolength;
             std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
     
-            PseudoDB fullDB = loadPseudoDB(numSubjects, pseudodbSeqLength);
-            const auto& dbData = fullDB.chunks[0];
+            cudasw4::PseudoDB fullDB = cudasw4::loadPseudoDB(numSubjects, pseudodbSeqLength);
+            const auto& dbData = fullDB.getData();
 
             std::vector<MyDeviceBuffer<float>> d_scores_vec(std::max(2, timingLoopIters));
-            std::vector<MyDeviceBuffer<size_t>> d_overflow_positions_vec(std::max(2, timingLoopIters));
+            std::vector<MyDeviceBuffer<cudasw4::ReferenceIdT>> d_overflow_positions_vec_reft(std::max(2, timingLoopIters));
+            std::vector<MyDeviceBuffer<size_t>> d_overflow_positions_vec_sizet(std::max(2, timingLoopIters));
             std::vector<MyDeviceBuffer<int>> d_overflow_number_vec(std::max(2, timingLoopIters));
             for(int i = 0; i < std::max(2, timingLoopIters); i++){
                 d_scores_vec[i].resize(numSubjects);
-                d_overflow_positions_vec[i].resize(numSubjects);
+                d_overflow_positions_vec_reft[i].resize(numSubjects);
+                d_overflow_positions_vec_sizet[i].resize(numSubjects);
                 d_overflow_number_vec[i].resize(1);
                 cudaMemsetAsync(d_overflow_number_vec[i].data(), 0, sizeof(int), stream);
             }
-            MyDeviceBuffer<size_t> d_selectedPositions(numSubjects);
-            thrust::sequence(thrust::cuda::par_nosync.on(stream), d_selectedPositions.begin(), d_selectedPositions.end(), size_t(0));
+
+            MyDeviceBuffer<cudasw4::ReferenceIdT> d_selectedPositions_reft(numSubjects);
+            MyDeviceBuffer<size_t> d_selectedPositions_sizet(numSubjects);
+            thrust::sequence(thrust::cuda::par_nosync.on(stream), d_selectedPositions_reft.begin(), d_selectedPositions_reft.end(), cudasw4::ReferenceIdT(0));
+            thrust::sequence(thrust::cuda::par_nosync.on(stream), d_selectedPositions_sizet.begin(), d_selectedPositions_sizet.end(), size_t(0));
 
             MyDeviceBuffer<char> d_subjects(dbData.numChars());
             MyDeviceBuffer<size_t> d_subjectOffsets(numSubjects+1);
-            MyDeviceBuffer<size_t> d_subjectLengths(numSubjects);
+            MyDeviceBuffer<cudasw4::SequenceLengthT> d_subjectLengths_lengtht(numSubjects);
+            MyDeviceBuffer<size_t> d_subjectLengths_sizet(numSubjects);
 
             cudaMemcpyAsync(d_subjects.data(), dbData.chars(), dbData.numChars(), H2D, stream); CUERR;
             cudaMemcpyAsync(d_subjectOffsets.data(), dbData.offsets(), sizeof(size_t) * (numSubjects+1), H2D, stream); CUERR;
-            cudaMemcpyAsync(d_subjectLengths.data(), dbData.lengths(), sizeof(size_t) * numSubjects, H2D, stream); CUERR;
+            cudaMemcpyAsync(d_subjectLengths_lengtht.data(), dbData.lengths(), sizeof(cudasw4::SequenceLengthT) * numSubjects, H2D, stream); CUERR;
+
+            thrust::copy(
+                thrust::cuda::par.on(stream),
+                d_subjectLengths_lengtht.data(),
+                d_subjectLengths_lengtht.data() + numSubjects,
+                d_subjectLengths_sizet.data()
+            );
 
             auto checkIfEqualResultsNew = [&](){
                 const float overflowscore = 123456;
@@ -156,7 +178,7 @@ int main(int argc, char** argv){
                         thrust::cuda::par_nosync.on(stream),
                         overflowiter,
                         overflowiter + numOverflow,
-                        d_overflow_positions_vec[i].data(),
+                        d_overflow_positions_vec_reft[i].data(),
                         d_scores_vec[i].data()
                     );
                 }
@@ -187,14 +209,14 @@ int main(int argc, char** argv){
                     constexpr int alignmentsPerBlock = (blocksize / groupsize) * 2; \
                     helpers::GpuTimer timer1(stream, "Timer_" + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
                     for(int i = 0; i < timingLoopIters; i++){ \
-                        NW_local_affine_Protein_single_pass_half2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                        old::NW_local_affine_Protein_single_pass_half2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
                             d_subjects.data(),  \
                             d_scores_vec[i].data(),  \
                             d_subjectOffsets.data(),  \
-                            d_subjectLengths.data(),  \
-                            d_selectedPositions.data(),  \
+                            d_subjectLengths_sizet.data(),  \
+                            d_selectedPositions_sizet.data(),  \
                             numSubjects,  \
-                            d_overflow_positions_vec[i].data(),  \
+                            d_overflow_positions_vec_sizet[i].data(),  \
                             d_overflow_number_vec[i].data(),  \
                             1,  \
                             queryLength,  \
@@ -209,20 +231,22 @@ int main(int argc, char** argv){
             }
             #define runSinglePassHalf2_new(blocksize, groupsize, numRegs){ \
                 assert(blocksize % groupsize == 0); \
+                const char4* d_query4 = (const char4*)d_query.data(); \
                 if(pseudodbSeqLength <= groupsize * numRegs){ \
                     helpers::GpuTimer timer1(stream, "Timer_" + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
                     for(int i = 0; i < timingLoopIters; i++){ \
-                        call_NW_local_affine_Protein_single_pass_half2_new<blocksize, groupsize, numRegs>( \
+                        cudasw4::call_NW_local_affine_Protein_single_pass_half2_new<blocksize, groupsize, numRegs>( \
                             blosumType, \
                             d_subjects.data(),  \
                             d_scores_vec[i].data(),  \
                             d_subjectOffsets.data(),  \
-                            d_subjectLengths.data(),  \
-                            d_selectedPositions.data(),  \
+                            d_subjectLengths_lengtht.data(),  \
+                            d_selectedPositions_reft.data(),  \
                             numSubjects,  \
-                            d_overflow_positions_vec[i].data(),  \
+                            d_overflow_positions_vec_reft[i].data(),  \
                             d_overflow_number_vec[i].data(),  \
                             0,  \
+                            d_query4, \
                             queryLength,  \
                             gop,  \
                             gex, \
@@ -237,41 +261,43 @@ int main(int argc, char** argv){
 
             #define compareSinglePassHalf2New(blocksize, groupsize, numRegs){ \
                 assert(blocksize % groupsize == 0); \
+                const char4* d_query4 = (const char4*)d_query.data(); \
                 constexpr int alignmentsPerBlock = (blocksize / groupsize) * 2; \
-                    helpers::GpuTimer timer1(stream, "old " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-                    NW_local_affine_Protein_single_pass_half2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
-                        d_subjects.data(),  \
-                        d_scores_vec[0].data(),  \
-                        d_subjectOffsets.data(),  \
-                        d_subjectLengths.data(),  \
-                        d_selectedPositions.data(),  \
-                        numSubjects,  \
-                        d_overflow_positions_vec[0].data(),  \
-                        d_overflow_number_vec[0].data(),  \
-                        0,  \
-                        queryLength,  \
-                        gop,  \
-                        gex \
-                    ); CUERR \
-                    timer1.printGCUPS(((double(queryLength) * pseudodbSeqLength * numSubjects)));\
-                    helpers::GpuTimer timer2(stream, "new " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-                    call_NW_local_affine_Protein_single_pass_half2_new<blocksize, groupsize, numRegs>( \
-                        blosumType, \
-                        d_subjects.data(),  \
-                        d_scores_vec[1].data(),  \
-                        d_subjectOffsets.data(),  \
-                        d_subjectLengths.data(),  \
-                        d_selectedPositions.data(),  \
-                        numSubjects,  \
-                        d_overflow_positions_vec[1].data(),  \
-                        d_overflow_number_vec[1].data(),  \
-                        0,  \
-                        queryLength,  \
-                        gop,  \
-                        gex, \
-                        stream \
-                    ); CUERR \
-                    timer2.printGCUPS(((double(queryLength) * pseudodbSeqLength * numSubjects)));\
+                helpers::GpuTimer timer1(stream, "old " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
+                old::NW_local_affine_Protein_single_pass_half2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                    d_subjects.data(),  \
+                    d_scores_vec[0].data(),  \
+                    d_subjectOffsets.data(),  \
+                    d_subjectLengths_sizet.data(),  \
+                    d_selectedPositions_sizet.data(),  \
+                    numSubjects,  \
+                    d_overflow_positions_vec_sizet[0].data(),  \
+                    d_overflow_number_vec[0].data(),  \
+                    0,  \
+                    queryLength,  \
+                    gop,  \
+                    gex \
+                ); CUERR \
+                timer1.printGCUPS(((double(queryLength) * pseudodbSeqLength * numSubjects)));\
+                helpers::GpuTimer timer2(stream, "new " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
+                cudaws4::call_NW_local_affine_Protein_single_pass_half2_new<blocksize, groupsize, numRegs>( \
+                    blosumType, \
+                    d_subjects.data(),  \
+                    d_scores_vec[1].data(),  \
+                    d_subjectOffsets.data(),  \
+                    d_subjectLengths_lengtht.data(),  \
+                    d_selectedPositions_reft.data(),  \
+                    numSubjects,  \
+                    d_overflow_positions_vec_reft[1].data(),  \
+                    d_overflow_number_vec[1].data(),  \
+                    0,  \
+                    d_query4, \
+                    queryLength,  \
+                    gop,  \
+                    gex, \
+                    stream \
+                ); CUERR \
+                timer2.printGCUPS(((double(queryLength) * pseudodbSeqLength * numSubjects)));\
                 checkIfEqualResultsNew(); \
             }
 
@@ -310,6 +336,8 @@ int main(int argc, char** argv){
             // runSinglePassHalf2_numregs(256, 6);
             // runSinglePassHalf2_numregs(256, 4);
             // runSinglePassHalf2_numregs(256, 2);
+
+            runSinglePassHalf2(256, 16, 32);
 
             std::sort(gcupsVec.begin(), gcupsVec.end(), [](const auto& l, const auto& r){ return std::get<0>(l) > std::get<0>(r);});
 
@@ -356,37 +384,52 @@ int main(int argc, char** argv){
 
     // MANY PASS HALF2 BENCHMARKS
 
-    #if 0
+    #if 1
 
         std::cout << "NW_local_affine_Protein_many_pass_half2\n";
 
         //for(int pseudodbSeqLength : {1500, 2000, 2048, 3333, 4096, 6666, 7000}){
-        for(int pseudodbSeqLength : {4096}){
+        //for(int pseudodbSeqLength : {4096}){
         //for(int pseudodbSeqLength = 1024+256; pseudodbSeqLength <= 8192; pseudodbSeqLength += 256){
+        {
+            const int pseudodbSeqLength = pseudolength;
             std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
     
-            PseudoDB fullDB = loadPseudoDB(numSubjects, pseudodbSeqLength);
-            const auto& dbData = fullDB.chunks[0];
+            cudasw4::PseudoDB fullDB = cudasw4::loadPseudoDB(numSubjects, pseudodbSeqLength);
+            const auto& dbData = fullDB.getData();
 
             std::vector<MyDeviceBuffer<float>> d_scores_vec(std::max(2, timingLoopIters));
-            std::vector<MyDeviceBuffer<size_t>> d_overflow_positions_vec(std::max(2, timingLoopIters));
+            std::vector<MyDeviceBuffer<cudasw4::ReferenceIdT>> d_overflow_positions_vec_reft(std::max(2, timingLoopIters));
+            std::vector<MyDeviceBuffer<size_t>> d_overflow_positions_vec_sizet(std::max(2, timingLoopIters));
             std::vector<MyDeviceBuffer<int>> d_overflow_number_vec(std::max(2, timingLoopIters));
             for(int i = 0; i < std::max(2, timingLoopIters); i++){
                 d_scores_vec[i].resize(numSubjects);
-                d_overflow_positions_vec[i].resize(numSubjects);
+                d_overflow_positions_vec_reft[i].resize(numSubjects);
+                d_overflow_positions_vec_sizet[i].resize(numSubjects);
                 d_overflow_number_vec[i].resize(1);
                 cudaMemsetAsync(d_overflow_number_vec[i].data(), 0, sizeof(int), stream);
             }
-            MyDeviceBuffer<size_t> d_selectedPositions(numSubjects);
-            thrust::sequence(thrust::cuda::par_nosync.on(stream), d_selectedPositions.begin(), d_selectedPositions.end(), size_t(0));
+
+            MyDeviceBuffer<cudasw4::ReferenceIdT> d_selectedPositions_reft(numSubjects);
+            MyDeviceBuffer<size_t> d_selectedPositions_sizet(numSubjects);
+            thrust::sequence(thrust::cuda::par_nosync.on(stream), d_selectedPositions_reft.begin(), d_selectedPositions_reft.end(), cudasw4::ReferenceIdT(0));
+            thrust::sequence(thrust::cuda::par_nosync.on(stream), d_selectedPositions_sizet.begin(), d_selectedPositions_sizet.end(), size_t(0));
 
             MyDeviceBuffer<char> d_subjects(dbData.numChars());
             MyDeviceBuffer<size_t> d_subjectOffsets(numSubjects+1);
-            MyDeviceBuffer<size_t> d_subjectLengths(numSubjects);
+            MyDeviceBuffer<cudasw4::SequenceLengthT> d_subjectLengths_lengtht(numSubjects);
+            MyDeviceBuffer<size_t> d_subjectLengths_sizet(numSubjects);
 
             cudaMemcpyAsync(d_subjects.data(), dbData.chars(), dbData.numChars(), H2D, stream); CUERR;
             cudaMemcpyAsync(d_subjectOffsets.data(), dbData.offsets(), sizeof(size_t) * (numSubjects+1), H2D, stream); CUERR;
-            cudaMemcpyAsync(d_subjectLengths.data(), dbData.lengths(), sizeof(size_t) * numSubjects, H2D, stream); CUERR;
+            cudaMemcpyAsync(d_subjectLengths_lengtht.data(), dbData.lengths(), sizeof(cudasw4::SequenceLengthT) * numSubjects, H2D, stream); CUERR;
+
+            thrust::copy(
+                thrust::cuda::par.on(stream),
+                d_subjectLengths_lengtht.data(),
+                d_subjectLengths_lengtht.data() + numSubjects,
+                d_subjectLengths_sizet.data()
+            );
 
             MyDeviceBuffer<__half2> d_tempH(size_t(queryLength) * SDIV(numSubjects, 64) * 64);
             MyDeviceBuffer<__half2> d_tempE(size_t(queryLength) * SDIV(numSubjects, 64) * 64);
@@ -411,7 +454,7 @@ int main(int argc, char** argv){
                         thrust::cuda::par_nosync.on(stream),
                         overflowiter,
                         overflowiter + numOverflow,
-                        d_overflow_positions_vec[i].data(),
+                        d_overflow_positions_vec_reft[i].data(),
                         d_scores_vec[i].data()
                     );
                 }
@@ -442,7 +485,7 @@ int main(int argc, char** argv){
                         thrust::cuda::par_nosync.on(stream),
                         overflowiter,
                         overflowiter + numOverflow,
-                        d_overflow_positions_vec[i].data(),
+                        d_overflow_positions_vec_reft[i].data(),
                         d_scores_vec[i].data()
                     );
                 }
@@ -468,16 +511,16 @@ int main(int argc, char** argv){
                 for(int i = 0; i < timingLoopIters; i++){ \
                     cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(__half2), stream); CUERR; \
                     cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; \
-                    NW_local_affine_Protein_many_pass_half2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                    old::NW_local_affine_Protein_many_pass_half2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
                         d_subjects.data(),  \
                         d_scores_vec[i].data(),  \
                         d_tempH.data(), \
                         d_tempE.data(), \
                         d_subjectOffsets.data(),  \
-                        d_subjectLengths.data(),  \
-                        d_selectedPositions.data(),  \
+                        d_subjectLengths_sizet.data(),  \
+                        d_selectedPositions_sizet.data(),  \
                         numSubjects,  \
-                        d_overflow_positions_vec[i].data(),  \
+                        d_overflow_positions_vec_sizet[i].data(),  \
                         d_overflow_number_vec[i].data(),  \
                         0,  \
                         queryLength,  \
@@ -495,21 +538,23 @@ int main(int argc, char** argv){
                     //cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; 
             #define runManyPassHalf2_new(blocksize, groupsize, numRegs){ \
                 assert(blocksize % groupsize == 0); \
+                const char4* d_query4 = (const char4*)d_query.data(); \
                 helpers::GpuTimer timer1(stream, "Timer_" + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
                 for(int i = 0; i < timingLoopIters; i++){ \
-                    call_NW_local_affine_Protein_many_pass_half2_new<blocksize, groupsize, numRegs>( \
+                    cudasw4::call_NW_local_affine_Protein_many_pass_half2_new<blocksize, groupsize, numRegs>( \
                         blosumType, \
                         d_subjects.data(),  \
                         d_scores_vec[i].data(),  \
                         d_tempH.data(), \
                         d_tempE.data(), \
                         d_subjectOffsets.data(),  \
-                        d_subjectLengths.data(),  \
-                        d_selectedPositions.data(),  \
+                        d_subjectLengths_lengtht.data(),  \
+                        d_selectedPositions_reft.data(),  \
                         numSubjects,  \
-                        d_overflow_positions_vec[i].data(),  \
+                        d_overflow_positions_vec_reft[i].data(),  \
                         d_overflow_number_vec[i].data(),  \
                         0,  \
+                        d_query4, \
                         queryLength,  \
                         gop,  \
                         gex, \
@@ -524,20 +569,21 @@ int main(int argc, char** argv){
 
             #define compareManyPassHalf2New(blocksize, groupsize, numRegs){ \
                 assert(blocksize % groupsize == 0); \
+                const char4* d_query4 = (const char4*)d_query.data(); \
                 constexpr int alignmentsPerBlock = (blocksize / groupsize) * 2; \
                     cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(__half2), stream); CUERR; \
                     cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; \
                     helpers::GpuTimer timer1(stream, "old " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-                    NW_local_affine_Protein_many_pass_half2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                    old::NW_local_affine_Protein_many_pass_half2<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
                         d_subjects.data(),  \
                         d_scores_vec[0].data(),  \
                         d_tempH.data(), \
                         d_tempE.data(), \
                         d_subjectOffsets.data(),  \
-                        d_subjectLengths.data(),  \
-                        d_selectedPositions.data(),  \
+                        d_subjectLengths_sizet.data(),  \
+                        d_selectedPositions_sizet.data(),  \
                         numSubjects,  \
-                        d_overflow_positions_vec[0].data(),  \
+                        d_overflow_positions_vec_sizet[0].data(),  \
                         d_overflow_number_vec[0].data(),  \
                         0,  \
                         queryLength,  \
@@ -548,19 +594,20 @@ int main(int argc, char** argv){
                     cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(__half2), stream); CUERR; \
                     cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; \
                     helpers::GpuTimer timer2(stream, "new " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-                    call_NW_local_affine_Protein_many_pass_half2_new<groupsize, numRegs>( \
+                    cudasw4::call_NW_local_affine_Protein_many_pass_half2_new<groupsize, numRegs>( \
                         blosumType, \
                         d_subjects.data(),  \
                         d_scores_vec[1].data(),  \
                         d_tempH.data(), \
                         d_tempE.data(), \
                         d_subjectOffsets.data(),  \
-                        d_subjectLengths.data(),  \
-                        d_selectedPositions.data(),  \
+                        d_subjectLengths_lengtht.data(),  \
+                        d_selectedPositions_reft.data(),  \
                         numSubjects,  \
-                        d_overflow_positions_vec[1].data(),  \
+                        d_overflow_positions_vec_reft[1].data(),  \
                         d_overflow_number_vec[1].data(),  \
                         0,  \
+                        d_query4, \
                         queryLength,  \
                         gop,  \
                         gex, \
@@ -652,7 +699,7 @@ int main(int argc, char** argv){
 
     // MANY PASS FLOAT BENCHMARKS
 
-    #if 1
+    #if 0
 
         std::cout << "NW_local_affine_read4_float_query_Protein\n";
 
@@ -664,22 +711,32 @@ int main(int argc, char** argv){
             std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
     
             cudasw4::PseudoDB fullDB = cudasw4::loadPseudoDB(numSubjects, pseudodbSeqLength);
-            const auto& dbData = fullDB.getChunks()[0];
+            const auto& dbData = fullDB.getData();
 
             std::vector<MyDeviceBuffer<float>> d_scores_vec(std::max(2, timingLoopIters));
             for(int i = 0; i < std::max(2, timingLoopIters); i++){
                 d_scores_vec[i].resize(numSubjects);
             }
-            MyDeviceBuffer<size_t> d_selectedPositions(numSubjects);
-            thrust::sequence(thrust::cuda::par_nosync.on(stream), d_selectedPositions.begin(), d_selectedPositions.end(), size_t(0));
+            MyDeviceBuffer<cudasw4::ReferenceIdT> d_selectedPositions_reft(numSubjects);
+            MyDeviceBuffer<size_t> d_selectedPositions_sizet(numSubjects);
+            thrust::sequence(thrust::cuda::par_nosync.on(stream), d_selectedPositions_reft.begin(), d_selectedPositions_reft.end(), cudasw4::ReferenceIdT(0));
+            thrust::sequence(thrust::cuda::par_nosync.on(stream), d_selectedPositions_sizet.begin(), d_selectedPositions_sizet.end(), size_t(0));
 
             MyDeviceBuffer<char> d_subjects(dbData.numChars());
             MyDeviceBuffer<size_t> d_subjectOffsets(numSubjects+1);
-            MyDeviceBuffer<size_t> d_subjectLengths(numSubjects);
+            MyDeviceBuffer<cudasw4::SequenceLengthT> d_subjectLengths_lengtht(numSubjects);
+            MyDeviceBuffer<size_t> d_subjectLengths_sizet(numSubjects);
 
             cudaMemcpyAsync(d_subjects.data(), dbData.chars(), dbData.numChars(), H2D, stream); CUERR;
             cudaMemcpyAsync(d_subjectOffsets.data(), dbData.offsets(), sizeof(size_t) * (numSubjects+1), H2D, stream); CUERR;
-            cudaMemcpyAsync(d_subjectLengths.data(), dbData.lengths(), sizeof(size_t) * numSubjects, H2D, stream); CUERR;
+            cudaMemcpyAsync(d_subjectLengths_lengtht.data(), dbData.lengths(), sizeof(cudasw4::SequenceLengthT) * numSubjects, H2D, stream); CUERR;
+
+            thrust::copy(
+                thrust::cuda::par.on(stream),
+                d_subjectLengths_lengtht.data(),
+                d_subjectLengths_lengtht.data() + numSubjects,
+                d_subjectLengths_sizet.data()
+            );
 
             MyDeviceBuffer<float2> d_tempH(size_t(queryLength) * SDIV(numSubjects, 64) * 64);
             MyDeviceBuffer<float2> d_tempE(size_t(queryLength) * SDIV(numSubjects, 64) * 64);
@@ -732,14 +789,14 @@ int main(int argc, char** argv){
                 for(int i = 0; i < timingLoopIters; i++){ \
                     cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(short2), stream); CUERR; \
                     cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(short2), stream); CUERR; \
-                    NW_local_affine_read4_float_query_Protein<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                    old::NW_local_affine_read4_float_query_Protein<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
                         d_subjects.data(),  \
                         d_scores_vec[i].data(),  \
                         (short2*)d_tempH.data(), \
                         (short2*)d_tempE.data(), \
                         d_subjectOffsets.data(),  \
-                        d_subjectLengths.data(),  \
-                        d_selectedPositions.data(),  \
+                        d_subjectLengths_sizet.data(),  \
+                        d_selectedPositions_sizet.data(),  \
                         queryLength,  \
                         gop,  \
                         gex \
@@ -767,8 +824,8 @@ int main(int argc, char** argv){
                         d_tempH.data(), \
                         d_tempE.data(), \
                         d_subjectOffsets.data(),  \
-                        d_subjectLengths.data(),  \
-                        d_selectedPositions.data(),  \
+                        d_subjectLengths_lengtht.data(),  \
+                        d_selectedPositions_reft.data(),  \
                         numSubjects, \
                         d_query4, \
                         queryLength,  \
@@ -791,14 +848,14 @@ int main(int argc, char** argv){
                     cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(short2), stream); CUERR; \
                     cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(short2), stream); CUERR; \
                     helpers::GpuTimer timer1(stream, "old " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-                    NW_local_affine_read4_float_query_Protein<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                    old::NW_local_affine_read4_float_query_Protein<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
                         d_subjects.data(),  \
                         d_scores_vec[0].data(),  \
                         (short2*)d_tempH.data(), \
                         (short2*)d_tempE.data(), \
                         d_subjectOffsets.data(),  \
-                        d_subjectLengths.data(),  \
-                        d_selectedPositions.data(),  \
+                        d_subjectLengths_sizet.data(),  \
+                        d_selectedPositions_sizet.data(),  \
                         queryLength,  \
                         gop,  \
                         gex \
@@ -814,8 +871,8 @@ int main(int argc, char** argv){
                         d_tempH.data(), \
                         d_tempE.data(), \
                         d_subjectOffsets.data(),  \
-                        d_subjectLengths.data(),  \
-                        d_selectedPositions.data(),  \
+                        d_subjectLengths_lengtht.data(),  \
+                        d_selectedPositions_reft.data(),  \
                         numSubjects, \
                         d_query4, \
                         queryLength,  \
@@ -898,32 +955,46 @@ int main(int argc, char** argv){
 
         //for(int pseudodbSeqLength : {48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 256, 288, 320, 352, 384, 416, 448, 480, 512, 576, 640, 704, 768, 832, 896, 960, 1024, 1088, 1152, 1216, 1280}){
         //for(int pseudodbSeqLength : {64, 128, 192, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960, 1024}){
-        for(int pseudodbSeqLength : {192}){
+        //for(int pseudodbSeqLength : {192}){
         //for(int pseudodbSeqLength = 11; pseudodbSeqLength <= 64; pseudodbSeqLength++){
+        {
+            const int pseudodbSeqLength = pseudolength;
             std::cout << "pseudodbSeqLength: " << pseudodbSeqLength << "\n";
     
-            PseudoDB fullDB = loadPseudoDB(numSubjects, pseudodbSeqLength);
-            const auto& dbData = fullDB.chunks[0];
+            cudasw4::PseudoDB fullDB = cudasw4::loadPseudoDB(numSubjects, pseudodbSeqLength);
+            const auto& dbData = fullDB.getData();
 
             std::vector<MyDeviceBuffer<float>> d_scores_vec(std::max(2, timingLoopIters));
-            std::vector<MyDeviceBuffer<size_t>> d_overflow_positions_vec(std::max(2, timingLoopIters));
+            std::vector<MyDeviceBuffer<cudasw4::ReferenceIdT>> d_overflow_positions_vec_reft(std::max(2, timingLoopIters));
+            std::vector<MyDeviceBuffer<size_t>> d_overflow_positions_vec_sizet(std::max(2, timingLoopIters));
             std::vector<MyDeviceBuffer<int>> d_overflow_number_vec(std::max(2, timingLoopIters));
             for(int i = 0; i < std::max(2, timingLoopIters); i++){
                 d_scores_vec[i].resize(numSubjects);
-                d_overflow_positions_vec[i].resize(numSubjects);
+                d_overflow_positions_vec_reft[i].resize(numSubjects);
+                d_overflow_positions_vec_sizet[i].resize(numSubjects);
                 d_overflow_number_vec[i].resize(1);
                 cudaMemsetAsync(d_overflow_number_vec[i].data(), 0, sizeof(int), stream);
             }
-            MyDeviceBuffer<size_t> d_selectedPositions(numSubjects);
-            thrust::sequence(thrust::cuda::par_nosync.on(stream), d_selectedPositions.begin(), d_selectedPositions.end(), size_t(0));
+            MyDeviceBuffer<cudasw4::ReferenceIdT> d_selectedPositions_reft(numSubjects);
+            MyDeviceBuffer<size_t> d_selectedPositions_sizet(numSubjects);
+            thrust::sequence(thrust::cuda::par_nosync.on(stream), d_selectedPositions_reft.begin(), d_selectedPositions_reft.end(), cudasw4::ReferenceIdT(0));
+            thrust::sequence(thrust::cuda::par_nosync.on(stream), d_selectedPositions_sizet.begin(), d_selectedPositions_sizet.end(), size_t(0));
 
             MyDeviceBuffer<char> d_subjects(dbData.numChars());
             MyDeviceBuffer<size_t> d_subjectOffsets(numSubjects+1);
-            MyDeviceBuffer<size_t> d_subjectLengths(numSubjects);
+            MyDeviceBuffer<cudasw4::SequenceLengthT> d_subjectLengths_lengtht(numSubjects);
+            MyDeviceBuffer<size_t> d_subjectLengths_sizet(numSubjects);
 
             cudaMemcpyAsync(d_subjects.data(), dbData.chars(), dbData.numChars(), H2D, stream); CUERR;
             cudaMemcpyAsync(d_subjectOffsets.data(), dbData.offsets(), sizeof(size_t) * (numSubjects+1), H2D, stream); CUERR;
-            cudaMemcpyAsync(d_subjectLengths.data(), dbData.lengths(), sizeof(size_t) * numSubjects, H2D, stream); CUERR;
+            cudaMemcpyAsync(d_subjectLengths_lengtht.data(), dbData.lengths(), sizeof(cudasw4::SequenceLengthT) * numSubjects, H2D, stream); CUERR;
+
+            thrust::copy(
+                thrust::cuda::par.on(stream),
+                d_subjectLengths_lengtht.data(),
+                d_subjectLengths_lengtht.data() + numSubjects,
+                d_subjectLengths_sizet.data()
+            );
 
             auto checkIfEqualResultsNew = [&](){
                 const float overflowscore = 123456;
@@ -939,7 +1010,7 @@ int main(int argc, char** argv){
                         thrust::cuda::par_nosync.on(stream),
                         overflowiter,
                         overflowiter + numOverflow,
-                        d_overflow_positions_vec[i].data(),
+                        d_overflow_positions_vec_reft[i].data(),
                         d_scores_vec[i].data()
                     );
                 }
@@ -970,12 +1041,12 @@ int main(int argc, char** argv){
                     constexpr int alignmentsPerBlock = (blocksize / groupsize) * 2; \
                     helpers::GpuTimer timer1(stream, "Timer_" + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
                     for(int i = 0; i < timingLoopIters; i++){ \
-                        NW_local_affine_single_pass_s16_DPX<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                        old::NW_local_affine_single_pass_s16_DPX<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
                             d_subjects.data(),  \
                             d_scores_vec[i].data(),  \
                             d_subjectOffsets.data(),  \
-                            d_subjectLengths.data(),  \
-                            d_selectedPositions.data(),  \
+                            d_subjectLengths_sizet.data(),  \
+                            d_selectedPositions_sizet.data(),  \
                             numSubjects,  \
                             queryLength,  \
                             gop,  \
@@ -989,20 +1060,22 @@ int main(int argc, char** argv){
             }
             #define runSinglePassDPX_s16_new(blocksize, groupsize, numRegs){ \
                 assert(blocksize % groupsize == 0); \
+                const char4* d_query4 = (const char4*)d_query.data(); \
                 if(pseudodbSeqLength <= groupsize * numRegs){ \
                     helpers::GpuTimer timer1(stream, "Timer_" + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
                     for(int i = 0; i < timingLoopIters; i++){ \
-                        call_NW_local_affine_single_pass_s16_DPX_new<blocksize, groupsize, numRegs>( \
+                        cudasw4::call_NW_local_affine_single_pass_s16_DPX_new<blocksize, groupsize, numRegs>( \
                             blosumType, \
                             d_subjects.data(),  \
                             d_scores_vec[i].data(),  \
                             d_subjectOffsets.data(),  \
-                            d_subjectLengths.data(),  \
-                            d_selectedPositions.data(),  \
+                            d_subjectLengths_lengtht.data(),  \
+                            d_selectedPositions_reft.data(),  \
                             numSubjects,  \
-                            d_overflow_positions_vec[i].data(),  \
+                            d_overflow_positions_vec_reft[i].data(),  \
                             d_overflow_number_vec[i].data(),  \
                             0,  \
+                            d_query4, \
                             queryLength,  \
                             gop,  \
                             gex, \
@@ -1017,14 +1090,15 @@ int main(int argc, char** argv){
 
             #define compareSinglePassDPX_s16New(blocksize, groupsize, numRegs){ \
                 assert(blocksize % groupsize == 0); \
+                const char4* d_query4 = (const char4*)d_query.data(); \
                 constexpr int alignmentsPerBlock = (blocksize / groupsize) * 2; \
                     helpers::GpuTimer timer1(stream, "old " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-                    NW_local_affine_single_pass_s16_DPX<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
+                    old::NW_local_affine_single_pass_s16_DPX<groupsize, numRegs><<<SDIV(numSubjects, alignmentsPerBlock), blocksize, 0, stream>>>( \
                         d_subjects.data(),  \
                         d_scores_vec[0].data(),  \
                         d_subjectOffsets.data(),  \
-                        d_subjectLengths.data(),  \
-                        d_selectedPositions.data(),  \
+                        d_subjectLengths_sizet.data(),  \
+                        d_selectedPositions_sizet.data(),  \
                         numSubjects,  \
                         queryLength,  \
                         gop,  \
@@ -1032,17 +1106,18 @@ int main(int argc, char** argv){
                     ); CUERR \
                     timer1.printGCUPS(((double(queryLength) * pseudodbSeqLength * numSubjects)));\
                     helpers::GpuTimer timer2(stream, "new " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-                    call_NW_local_affine_single_pass_s16_DPX_new<blocksize, groupsize, numRegs>( \
+                    cudasw4::call_NW_local_affine_single_pass_s16_DPX_new<blocksize, groupsize, numRegs>( \
                         blosumType, \
                         d_subjects.data(),  \
                         d_scores_vec[1].data(),  \
                         d_subjectOffsets.data(),  \
-                        d_subjectLengths.data(),  \
-                        d_selectedPositions.data(),  \
+                        d_subjectLengths_lengtht.data(),  \
+                        d_selectedPositions_reft.data(),  \
                         numSubjects,  \
-                        d_overflow_positions_vec[1].data(),  \
+                        d_overflow_positions_vec_reft[1].data(),  \
                         d_overflow_number_vec[1].data(),  \
                         0,  \
+                        d_query4, \
                         queryLength,  \
                         gop,  \
                         gex, \
@@ -1069,7 +1144,7 @@ int main(int argc, char** argv){
                 runSinglePassDPX_s16_new(blocksize, 32, numRegs); \
             }
 
-            //compareSinglePassDPX_s16New(256, 32, 16);
+            compareSinglePassDPX_s16New(256, 32, 16);
 
             // runSinglePassDPX_s16_numregs(256, 32);
             // runSinglePassDPX_s16_numregs(256, 30);
@@ -1123,12 +1198,18 @@ int main(int argc, char** argv){
             // runSinglePassDPX_s16(256,32,38);
             // runSinglePassDPX_s16(256,32,40);
 
-            runSinglePassDPX_s16(256,8,24);
+
+            runSinglePassDPX_s16(256,8,16);
+            runSinglePassDPX_s16(256,8,32);
+            runSinglePassDPX_s16(256,16,32);
+            runSinglePassDPX_s16(256,32,24);
+            runSinglePassDPX_s16(256,32,32);
 
             std::sort(gcupsVec.begin(), gcupsVec.end(), [](const auto& l, const auto& r){ return std::get<0>(l) > std::get<0>(r);});
 
             std::cout << "old\n";
-            for(int i = 0; i < std::min(3, int(gcupsVec.size())); i++){
+            //for(int i = 0; i < std::min(3, int(gcupsVec.size())); i++){
+            for(int i = 0; i < int(gcupsVec.size()); i++){
                 GCUPSstats data = gcupsVec[i];
                 std::cout << std::get<0>(data) << " GCUPS, " << std::get<1>(data) << " " << std::get<2>(data) << " " << std::get<3>(data) << "\n";
             }
@@ -1187,12 +1268,17 @@ int main(int argc, char** argv){
             // runSinglePassDPX_s16_new(256,32,38);
             // runSinglePassDPX_s16_new(256,32,40);
 
-            runSinglePassDPX_s16_new(256,8,24);
+            runSinglePassDPX_s16_new(256,8,16);
+            runSinglePassDPX_s16_new(256,8,32);
+            runSinglePassDPX_s16_new(256,16,32);
+            runSinglePassDPX_s16_new(256,32,24);
+            runSinglePassDPX_s16_new(256,32,32);
 
             std::sort(gcupsVec.begin(), gcupsVec.end(), [](const auto& l, const auto& r){ return std::get<0>(l) > std::get<0>(r);});
 
             std::cout << "new\n";
-            for(int i = 0; i < std::min(3, int(gcupsVec.size())); i++){
+            //for(int i = 0; i < std::min(3, int(gcupsVec.size())); i++){
+            for(int i = 0; i < int(gcupsVec.size()); i++){
                 GCUPSstats data = gcupsVec[i];
                 std::cout << std::get<0>(data) << " GCUPS, " << std::get<1>(data) << " " << std::get<2>(data) << " " << std::get<3>(data) << "\n";
             }
