@@ -1,3 +1,30 @@
+# Benchmark instructions
+Download and build database: make sprotdb
+
+## Peak performance benchmark
+`./runpeakbenchmark.sh kerneltype [nsys]`
+
+kerneltype 0: half2, kerneltype 1: dpx_s16, kerneltype 2: dpx_s32, kerneltype 3: float
+
+if nsys = 1, create nsys profile
+
+## sprot benchmark
+`./runsprotbenchmark.sh kerneltype [nsys]`
+
+kerneltype 0: half2, kerneltype 1: dpx
+
+if nsys = 1, create nsys profile
+
+## refseq50 benchmark
+`./runrefseq50benchmark.sh kerneltype [nsys]`
+
+kerneltype 0: half2, kerneltype 1: dpx
+
+if nsys = 1, create nsys profile
+
+
+
+
 # CUDASW4
 CUDASW++4.0: Ultra-fast GPU-based Smith-Waterman Protein Sequence Database Search
 
