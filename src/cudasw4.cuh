@@ -488,8 +488,7 @@ namespace cudasw4{
 
             const int numGpus = deviceIds.size();
             cudaSetDevice(deviceIds[0]);
-            devAllAlignmentScoresFloat.resize(maxReduceArraySize * numGpus);
-            dev_sorted_indices.resize(maxReduceArraySize * numGpus);
+            
             d_resultNumOverflows.resize(numGpus);
             scanTimer = std::make_unique<helpers::GpuTimer>("Scan");
             totalTimer = std::make_unique<helpers::GpuTimer>("Total");
@@ -542,8 +541,13 @@ namespace cudasw4{
                 numTop = value;
                 updateNumResultsPerQuery();
 
-                alignment_scores_float.resize(results_per_query);
-                sorted_indices.resize(results_per_query);
+                cub::SwitchDevice sd(deviceIds[0]);
+                const int numGpus = deviceIds.size();           
+
+                h_finalAlignmentScores.resize(results_per_query);
+                h_finalReferenceIds.resize(results_per_query);
+                d_finalAlignmentScores_allGpus.resize(results_per_query * numGpus);
+                d_finalReferenceIds_allGpus.resize(results_per_query * numGpus);                
             }
         }
 
@@ -675,8 +679,8 @@ namespace cudasw4{
                 sequenceLengthStatistics.sumOfLengths * queryLength, 
                 resultNumOverflows[0]
             );
-            result.scores.insert(result.scores.end(), alignment_scores_float.begin(), alignment_scores_float.begin() + results_per_query);
-            result.referenceIds.insert(result.referenceIds.end(), sorted_indices.begin(), sorted_indices.begin() + results_per_query);
+            result.scores.insert(result.scores.end(), h_finalAlignmentScores.begin(), h_finalAlignmentScores.begin() + results_per_query);
+            result.referenceIds.insert(result.referenceIds.end(), h_finalReferenceIds.begin(), h_finalReferenceIds.begin() + results_per_query);
 
             return result;
         }
@@ -1185,8 +1189,8 @@ namespace cudasw4{
 
             thrust::fill(
                 thrust::cuda::par_nosync.on(masterStream1),
-                devAllAlignmentScoresFloat.begin(),
-                devAllAlignmentScoresFloat.end(),
+                d_finalAlignmentScores_allGpus.begin(),
+                d_finalAlignmentScores_allGpus.end(),
                 0
             );
 
@@ -1205,29 +1209,36 @@ namespace cudasw4{
                 cudaSetDevice(deviceIds[gpu]); CUERR;
                 auto& ws = *workingSets[gpu];
 
-                //we could sort the maxReduceArray here as well and only send the best results_per_query entries
+                //sort the maxReduceArray by score. we are only interested int the top "results_per_query" results
+                thrust::sort_by_key(
+                    thrust::cuda::par_nosync(thrust_async_allocator<char>(gpuStreams[gpu])).on(gpuStreams[gpu]),
+                    ws.d_maxReduceArrayScores.data(),
+                    ws.d_maxReduceArrayScores.data() + maxReduceArraySize,
+                    ws.d_maxReduceArrayIndices.data(),
+                    thrust::greater<float>()
+                );
 
                 if(numGpus > 1){
                     //transform per gpu local sequence indices into global sequence indices
-                    transformLocalSequenceIndicesToGlobalIndices<<<SDIV(maxReduceArraySize, 128), 128, 0, gpuStreams[gpu]>>>(
+                    transformLocalSequenceIndicesToGlobalIndices<<<SDIV(results_per_query, 128), 128, 0, gpuStreams[gpu]>>>(
                         gpu,
-                        maxReduceArraySize,
+                        results_per_query,
                         ws.deviceGpuPartitionOffsets.getDeviceView(),
                         ws.d_maxReduceArrayIndices.data()
                     ); CUERR;
                 }
 
                 cudaMemcpyAsync(
-                    devAllAlignmentScoresFloat.data() + maxReduceArraySize*gpu,
+                    d_finalAlignmentScores_allGpus.data() + results_per_query*gpu,
                     ws.d_maxReduceArrayScores.data(),
-                    sizeof(float) * maxReduceArraySize,
+                    sizeof(float) * results_per_query,
                     cudaMemcpyDeviceToDevice,
                     gpuStreams[gpu]
                 ); CUERR;
                 cudaMemcpyAsync(
-                    dev_sorted_indices.data() + maxReduceArraySize*gpu,
+                    d_finalReferenceIds_allGpus.data() + results_per_query*gpu,
                     ws.d_maxReduceArrayIndices.data(),
-                    sizeof(ReferenceIdT) * maxReduceArraySize,
+                    sizeof(ReferenceIdT) * results_per_query,
                     cudaMemcpyDeviceToDevice,
                     gpuStreams[gpu]
                 ); CUERR;                
@@ -1247,29 +1258,31 @@ namespace cudasw4{
 
             cudaSetDevice(masterDeviceId);
 
-            thrust::sort_by_key(
-                thrust::cuda::par_nosync(thrust_async_allocator<char>(masterStream1)).on(masterStream1),
-                devAllAlignmentScoresFloat.begin(),
-                devAllAlignmentScoresFloat.begin() + maxReduceArraySize * numGpus,
-                dev_sorted_indices.begin(),
-                thrust::greater<float>()
-            );
-
             if(numGpus > 1){
+                //sort per-gpu top results to find overall top results
+                thrust::sort_by_key(
+                    thrust::cuda::par_nosync(thrust_async_allocator<char>(masterStream1)).on(masterStream1),
+                    d_finalAlignmentScores_allGpus.begin(),
+                    d_finalAlignmentScores_allGpus.begin() + results_per_query * numGpus,
+                    d_finalReferenceIds_allGpus.begin(),
+                    thrust::greater<float>()
+                );
+
+
                 //sum the overflows per gpu
                 sumNumOverflowsKernel<<<1,1,0,masterStream1>>>(d_resultNumOverflows.data(), d_resultNumOverflows.data(), numGpus); CUERR;                
             }
 
             cudaMemcpyAsync(
-                alignment_scores_float.data(), 
-                devAllAlignmentScoresFloat.data(), 
+                h_finalAlignmentScores.data(), 
+                d_finalAlignmentScores_allGpus.data(), 
                 sizeof(float) * results_per_query, 
                 cudaMemcpyDeviceToHost, 
                 masterStream1
             );  CUERR
             cudaMemcpyAsync(
-                sorted_indices.data(), 
-                dev_sorted_indices.data(), 
+                h_finalReferenceIds.data(), 
+                d_finalReferenceIds_allGpus.data(), 
                 sizeof(ReferenceIdT) * results_per_query, 
                 cudaMemcpyDeviceToHost, 
                 masterStream1
@@ -2237,11 +2250,11 @@ namespace cudasw4{
         mutable std::unique_ptr<SequenceLengthStatistics> dbSequenceLengthStatistics;
 
         //final scan results. device data resides on gpu deviceIds[0]
-        MyPinnedBuffer<float> alignment_scores_float;
-        MyPinnedBuffer<ReferenceIdT> sorted_indices;
+        MyPinnedBuffer<float> h_finalAlignmentScores;
+        MyPinnedBuffer<ReferenceIdT> h_finalReferenceIds;
         MyPinnedBuffer<int> resultNumOverflows;
-        MyDeviceBuffer<float> devAllAlignmentScoresFloat;
-        MyDeviceBuffer<ReferenceIdT> dev_sorted_indices;
+        MyDeviceBuffer<float> d_finalAlignmentScores_allGpus;
+        MyDeviceBuffer<ReferenceIdT> d_finalReferenceIds_allGpus;
         MyDeviceBuffer<int> d_resultNumOverflows;
         std::unique_ptr<helpers::GpuTimer> scanTimer;
 
