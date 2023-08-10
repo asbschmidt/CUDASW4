@@ -1,6 +1,8 @@
 #include "dbdata.hpp"
 #include "length_partitions.hpp"
 
+#include "hpc_helpers/all_helpers.cuh"
+
 #include <type_traits>
 #include <string>
 #include <fstream>
@@ -8,6 +10,38 @@
 #include <numeric>
 
 namespace cudasw4{
+
+    //write vector to file, overwrites existing file
+    template<class T>
+    void writeTrivialVectorToFile(const std::vector<T>& vec, const std::string& filename){
+        static_assert(std::is_trivially_copyable<T>::value, "writeTrivialVectorToFile: type not trivially copyable");
+
+        std::ofstream out(filename, std::ios::binary);
+        if(!out) throw std::runtime_error("Cannot open output file " + filename);
+        out.write((const char*)vec.data(), sizeof(T) * vec.size());
+    }
+
+    template<class T>
+    void loadTrivialVectorFromFile(std::vector<T>& vec, const std::string& filename){
+        static_assert(std::is_trivially_copyable<T>::value, "writeTrivialVectorToFile: type not trivially copyable");
+
+        auto getFileSizeInBytes = [](const std::string& filename) -> size_t{
+            struct stat stat_buf;
+            int rc = stat(filename.c_str(), &stat_buf);
+            if(rc == 0){
+                return stat_buf.st_size;
+            }else{
+                throw std::runtime_error("Could not determine file size of file " + filename);
+            }
+        };
+
+        size_t bytes = getFileSizeInBytes(filename);
+        vec.resize(SDIV(bytes, sizeof(T)));
+
+        std::ifstream inputstream(filename, std::ios::binary);
+        if(!inputstream) throw std::runtime_error("Cannot open file " + filename);
+        inputstream.read((char*)vec.data(), bytes);
+    }
 
 void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess, bool prefetchSeq, size_t globalSequenceOffset){
 
@@ -81,15 +115,73 @@ void loadDBdata(const std::string& inputPrefix, DBdata& result, bool writeAccess
     }
 }
 
-//write vector to file, overwrites existing file
-template<class T>
-void writeTrivialVectorToFile(const std::vector<T>& vec, const std::string& filename){
-    static_assert(std::is_trivially_copyable<T>::value, "writeTrivialVectorToFile: type not trivially copyable");
+void loadDBdata(const std::string& inputPrefix, DBdataWithVectors& result, size_t globalSequenceOffset){
 
-    std::ofstream out(filename, std::ios::binary);
-    if(!out) throw std::runtime_error("Cannot open output file " + filename);
-    out.write((const char*)vec.data(), sizeof(T) * vec.size());
+    loadTrivialVectorFromFile(result.vecFileHeaders, inputPrefix + DBdataIoConfig::headerfilename());
+    loadTrivialVectorFromFile(result.vecFileHeaderOffsets, inputPrefix + DBdataIoConfig::headeroffsetsfilename());
+    loadTrivialVectorFromFile(result.vecFileSequences, inputPrefix + DBdataIoConfig::sequencesfilename());
+    loadTrivialVectorFromFile(result.vecFileLengths, inputPrefix + DBdataIoConfig::sequencelengthsfilename());
+    loadTrivialVectorFromFile(result.vecFileOffsets, inputPrefix + DBdataIoConfig::sequenceoffsetsfilename());
+
+    // size_t headerBytes = getFileSizeInBytes(inputPrefix + DBdataIoConfig::headerfilename());
+    // size_t headerOffsetsBytes = getFileSizeInBytes(inputPrefix + DBdataIoConfig::headeroffsetsfilename());
+    // size_t sequenceBytes = getFileSizeInBytes(inputPrefix + DBdataIoConfig::sequencesfilename());
+    // size_t lengthBytes = getFileSizeInBytes(inputPrefix + DBdataIoConfig::sequencelengthsfilename());
+    // size_t offsetsBytes = getFileSizeInBytes(inputPrefix + DBdataIoConfig::sequenceoffsetsfilename());
+
+    // result.vecFileHeaders.resize(headerBytes);
+    // result.vecFileHeaderOffsets.resize(SDIV(headerOffsetsBytes, sizeof(size_t)));
+    // result.vecFileSequences.resize(sequenceBytes);
+    // result.vecFileLengths.resize(SDIV(lengthBytes, sizeof(SequenceLengthT)));
+    // result.vecFileOffsets.resize(SDIV(offsetsBytes, sizeof(size_t)));
+
+
+
+    // MappedFile::Options headerOptions;
+    // headerOptions.readaccess = true;
+    // headerOptions.writeaccess = writeAccess;
+    // headerOptions.prefault = false;
+
+    // result.mappedFileHeaders = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::headerfilename(), headerOptions);
+    // result.mappedFileHeaderOffsets = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::headeroffsetsfilename(), headerOptions);
+
+
+    // MappedFile::Options sequenceOptions;
+    // sequenceOptions.readaccess = true;
+    // sequenceOptions.writeaccess = writeAccess;
+    // sequenceOptions.prefault = prefetchSeq;
+
+    // result.mappedFileSequences = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::sequencesfilename(), sequenceOptions);
+    // result.mappedFileLengths = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::sequencelengthsfilename(), sequenceOptions);
+    // result.mappedFileOffsets = std::make_unique<MappedFile>(inputPrefix + DBdataIoConfig::sequenceoffsetsfilename(), sequenceOptions);
+
+    result.globalSequenceOffset = globalSequenceOffset;
+
+    auto lengthBoundaries = getLengthPartitionBoundaries();
+
+    const int numPartitions = lengthBoundaries.size();
+    result.metaData.lengthBoundaries.resize(numPartitions);
+    result.metaData.numSequencesPerLengthPartition.resize(numPartitions);
+
+    auto partitionBegin = result.lengths();
+    for(int i = 0; i < numPartitions; i++){
+        //length k is in partition i if boundaries[i-1] < k <= boundaries[i]
+        SequenceLengthT searchFor = lengthBoundaries[i];
+        if(searchFor < std::numeric_limits<SequenceLengthT>::max()){
+            searchFor += 1;
+        }
+        auto partitionEnd = std::lower_bound(
+            partitionBegin, 
+            result.lengths() + result.numSequences(), 
+            searchFor
+        );
+        result.metaData.lengthBoundaries[i] = lengthBoundaries[i];
+        result.metaData.numSequencesPerLengthPartition[i] = std::distance(partitionBegin, partitionEnd);
+        partitionBegin = partitionEnd;
+    }
 }
+
+
 
 
 
@@ -114,13 +206,33 @@ void readGlobalDbInfo(const std::string& prefix, DBGlobalInfo& /*info*/){
 
 DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq){
 
-    DB result;
-    readGlobalDbInfo(prefix, result.info);
+    try{
+        DB result;
+        readGlobalDbInfo(prefix, result.info);
 
-    const std::string chunkPrefix = prefix + std::to_string(0);
-    result.data = DBdata(chunkPrefix, writeAccess, prefetchSeq, 0);
+        const std::string chunkPrefix = prefix + std::to_string(0);
+        result.data = DBdata(chunkPrefix, writeAccess, prefetchSeq, 0);
 
-    return result;
+        return result;
+    }catch(const MappedFileException& ex){
+        throw LoadDBException(ex.what());
+    }catch(...){
+        throw LoadDBException();
+    }
+}
+
+DBWithVectors loadDBWithVectors(const std::string& prefix){
+    try{
+        DBWithVectors result;
+        readGlobalDbInfo(prefix, result.info);
+
+        const std::string chunkPrefix = prefix + std::to_string(0);
+        result.data = DBdataWithVectors(chunkPrefix, 0);
+
+        return result;
+    }catch(...){
+        throw LoadDBException();
+    }
 }
 
 

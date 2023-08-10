@@ -206,15 +206,28 @@ int main(int argc, char* argv[])
         if(options.verbose){
             std::cout << "Reading Database: \n";
         }
-        helpers::CpuTimer timer_read_db("Read DB");
-        constexpr bool writeAccess = false;
-        const bool prefetchSeq = options.prefetchDBFile;
-        auto fullDB_tmp = std::make_shared<cudasw4::DB>(cudasw4::loadDB(options.dbPrefix, writeAccess, prefetchSeq));
-        if(options.verbose){
-            timer_read_db.print();
-        }
+        try{
+            helpers::CpuTimer timer_read_db("Read DB");
+            constexpr bool writeAccess = false;
+            const bool prefetchSeq = options.prefetchDBFile;
+            auto fullDB_tmp = std::make_shared<cudasw4::DB>(cudasw4::loadDB(options.dbPrefix, writeAccess, prefetchSeq));
+            if(options.verbose){
+                timer_read_db.print();
+            }
 
-        cudaSW4.setDatabase(fullDB_tmp);
+            cudaSW4.setDatabase(fullDB_tmp);
+        }catch(cudasw4::LoadDBException& ex){
+            if(options.verbose){
+                std::cout << "Failed to map db files. Using fallback db. Error message: " << ex.what() << "\n";
+            }
+            helpers::CpuTimer timer_read_db("Read DB");
+            auto fullDB_tmp = std::make_shared<cudasw4::DBWithVectors>(cudasw4::loadDBWithVectors(options.dbPrefix));
+            if(options.verbose){
+                timer_read_db.print();
+            }
+
+            cudaSW4.setDatabase(fullDB_tmp);
+        }
     }else{
         if(options.verbose){
             std::cout << "Generating pseudo db\n";

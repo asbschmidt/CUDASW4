@@ -526,6 +526,12 @@ namespace cudasw4{
             makeReady();
         }
 
+        void setDatabase(std::shared_ptr<DBWithVectors> dbPtr){
+            RevertDeviceId rdi{};
+            fullDB = AnyDBWrapper(dbPtr);
+            makeReady();
+        }
+
         void setDatabase(std::shared_ptr<PseudoDB> dbPtr){
             RevertDeviceId rdi{};
             fullDB = AnyDBWrapper(dbPtr);

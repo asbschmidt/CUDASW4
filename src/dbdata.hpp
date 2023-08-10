@@ -27,6 +27,17 @@ struct DBdataIoConfig{
     static const std::string sequencelengthsfilename(){ return "lengths"; }
 };
 
+class LoadDBException : public std::exception{
+    std::string message;
+public:
+    LoadDBException() : LoadDBException("LoadDBException"){}
+    LoadDBException(const std::string& msg) : message(msg){}
+
+    const char* what() const noexcept override {
+        return message.c_str();
+    }
+};
+
 
 struct DBGlobalInfo{
     
@@ -117,6 +128,91 @@ private:
     std::unique_ptr<MappedFile> mappedFileOffsets;
     std::unique_ptr<MappedFile> mappedFileHeaders;
     std::unique_ptr<MappedFile> mappedFileHeaderOffsets;
+    DBdataMetaData metaData;
+};
+
+
+
+
+struct DBdataWithVectors{
+    friend void loadDBdata(const std::string& inputPrefix, DBdataWithVectors& result, size_t globalSequenceOffset);
+    friend struct DBWithVectors;
+
+    DBdataWithVectors(const std::string& inputPrefix, size_t globalSequenceOffset = 0){
+        loadDBdata(inputPrefix, *this, globalSequenceOffset);
+    }
+
+    DBdataWithVectors(const DBdataWithVectors&) = delete;
+    DBdataWithVectors(DBdataWithVectors&&) = default;
+    DBdataWithVectors& operator=(const DBdataWithVectors&) = delete;
+    DBdataWithVectors& operator=(DBdataWithVectors&&) = default;
+
+    size_t getGlobalSequenceOffset() const noexcept{
+        return globalSequenceOffset;
+    }
+
+    size_t numSequences() const noexcept{
+        return vecFileLengths.size();
+    }
+
+    size_t numChars() const noexcept{
+        return vecFileSequences.size();
+    }
+
+    const char* chars() const noexcept{
+        return vecFileSequences.data();
+    }
+
+    const SequenceLengthT* lengths() const noexcept{
+        return vecFileLengths.data();
+    }
+
+    const size_t* offsets() const noexcept{
+        return vecFileOffsets.data();
+    }
+
+    const char* headers() const noexcept{
+        return vecFileHeaders.data();
+    }
+
+    const size_t* headerOffsets() const noexcept{
+        return vecFileHeaderOffsets.data();
+    }
+
+    const DBdataMetaData& getMetaData() const noexcept{
+        return metaData;
+    }
+
+    char* chars() noexcept{
+        return vecFileSequences.data();
+    }
+
+    SequenceLengthT* lengths() noexcept{
+        return vecFileLengths.data();
+    }
+
+    size_t* offsets() noexcept{
+        return vecFileOffsets.data();
+    }
+
+    char* headers() noexcept{
+        return vecFileHeaders.data();
+    }
+
+    size_t* headerOffsets() noexcept{
+        return vecFileHeaderOffsets.data();
+    }
+
+    
+private:
+    DBdataWithVectors() = default;
+
+    size_t globalSequenceOffset;
+    std::vector<char> vecFileSequences;
+    std::vector<SequenceLengthT> vecFileLengths;
+    std::vector<size_t> vecFileOffsets;
+    std::vector<char> vecFileHeaders;
+    std::vector<size_t> vecFileHeaderOffsets;
     DBdataMetaData metaData;
 };
 
@@ -257,6 +353,34 @@ private:
     DBdata data;
 };
 
+struct DBWithVectors{
+    friend DBWithVectors loadDBWithVectors(const std::string& prefix);
+
+    
+    DBWithVectors(const DBWithVectors&) = delete;
+    DBWithVectors(DBWithVectors&&) = default;
+    DBWithVectors& operator=(const DBWithVectors&) = delete;
+    DBWithVectors& operator=(DBWithVectors&&) = default;
+
+    DBGlobalInfo getInfo() const{
+        return info;
+    }
+
+    const DBdataWithVectors& getData() const{
+        return data;
+    }
+
+    DBdataWithVectors& getModyfiableData(){
+        return data;
+    }
+
+private:
+    DBWithVectors() = default;
+
+    DBGlobalInfo info;
+    DBdataWithVectors data;
+};
+
 struct PseudoDB{
     friend PseudoDB loadPseudoDB(size_t num, size_t length, int randomseed);
 
@@ -283,6 +407,7 @@ void writeGlobalDbInfo(const std::string& outputPrefix, const DBGlobalInfo& info
 void readGlobalDbInfo(const std::string& prefix, DBGlobalInfo& info);
 
 DB loadDB(const std::string& prefix, bool writeAccess, bool prefetchSeq);
+DBWithVectors loadDBWithVectors(const std::string& prefix);
 PseudoDB loadPseudoDB(size_t num, size_t length, int randomseed = 42);
 
 
@@ -323,7 +448,8 @@ struct DBdataView{
 
     }
 
-    DBdataView(const DBdata& parent, size_t globalSequenceOffset_ = 0) 
+    template<class Data>
+    DBdataView(const Data& parent, size_t globalSequenceOffset_ = 0) 
         : firstSequence(0), 
         lastSequence_excl(parent.numSequences()), 
         globalSequenceOffset(globalSequenceOffset_),
@@ -336,18 +462,8 @@ struct DBdataView{
 
     }
 
-    DBdataView(const PseudoDBdata& parent, size_t globalSequenceOffset_ = 0) 
-        : firstSequence(0), 
-        lastSequence_excl(parent.numSequences()), 
-        globalSequenceOffset(globalSequenceOffset_),
-        parentChars(parent.chars()),
-        parentLengths(parent.lengths()),
-        parentOffsets(parent.offsets()),
-        parentHeaders(parent.headers()),
-        parentHeaderOffsets(parent.headerOffsets())
-    {
+    DBdataView(const DBdataView&, size_t) = delete;
 
-    }
 
     DBdataView(const DBdataView& parent, size_t first_, size_t last_) 
         : firstSequence(first_), 
@@ -414,6 +530,11 @@ struct AnyDBWrapper{
         dbPtr = db;
     }
 
+    AnyDBWrapper(std::shared_ptr<DBWithVectors> db){
+        setDB(*db);
+        dbWithVectorsPtr = db;
+    }
+
     AnyDBWrapper(std::shared_ptr<PseudoDB> db){
         setDB(*db);
         pseudoDBPtr = db;
@@ -434,6 +555,7 @@ private:
         data = DBdataView(db.getData());
     }
     std::shared_ptr<DB> dbPtr = nullptr;
+    std::shared_ptr<DBWithVectors> dbWithVectorsPtr = nullptr;
     std::shared_ptr<PseudoDB> pseudoDBPtr = nullptr;
     
     DBGlobalInfo info;

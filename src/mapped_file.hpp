@@ -15,6 +15,17 @@
 
 namespace cudasw4{
 
+class MappedFileException : public std::exception{
+    std::string message;
+public:
+    MappedFileException() : MappedFileException("MMapException"){}
+    MappedFileException(const std::string& msg) : message(msg){}
+
+    const char* what() const noexcept override{
+        return message.c_str();
+    }
+};
+
 struct MappedFile{
     struct Options{
         bool readaccess = true;
@@ -41,13 +52,13 @@ struct MappedFile{
         }else if(!options.readaccess && options.writeaccess){
             openflags = O_WRONLY;
         }else{
-            throw std::runtime_error("Invalid options for MappedFile");
+            throw MappedFileException("Invalid options for MappedFile");
         }
 
         fd = open(filename.c_str(), openflags);
         if(fd == -1){
             perror("open");
-            throw std::runtime_error("Could not open file " + filename);
+            throw MappedFileException("Could not open file " + filename);
         }
 
         int mmapprot = 0;
@@ -69,7 +80,7 @@ struct MappedFile{
         rawMmapPtr = mmap(nullptr, filesize, mmapprot, mmapflags, fd, 0);
         if(rawMmapPtr == MAP_FAILED){
             close(fd);
-            throw std::runtime_error("Could not map file " + filename);
+            throw MappedFileException("Could not map file " + filename);
         }
     }
 
@@ -99,7 +110,7 @@ private:
         if(rc == 0){
             return stat_buf.st_size;
         }else{
-            throw std::runtime_error("Could not determine file size of file " + filename);
+            throw MappedFileException("Could not determine file size of file " + filename);
         }
     }
 };
