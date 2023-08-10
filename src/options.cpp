@@ -38,6 +38,9 @@ void printOptions(const ProgramOptions& options){
     }
     std::cout << "memory limit per gpu: " << (options.maxGpuMem == std::numeric_limits<size_t>::max() ? 
         "unlimited" : std::to_string(options.maxGpuMem)) << "\n"; 
+
+    std::cout << "Output mode: " << options.outputModeString() << "\n";
+    std::cout << "Output file: " << options.outputfile << "\n";
     
 }
 
@@ -160,6 +163,10 @@ bool parseArgs(int argc, char** argv, ProgramOptions& options){
             options.pseudoDBSize = std::atoi(argv[++i]);
             options.pseudoDBLength = std::atoi(argv[++i]);
             gotDB = true;
+        }else if(arg == "--tsv"){
+            options.outputMode = ProgramOptions::OutputMode::TSV;
+        }else if(arg == "--of"){
+            options.outputfile = argv[++i];
         }else{
             std::cout << "Unexpected arg " << arg << "\n";
         }
@@ -228,6 +235,9 @@ void printHelp(int /*argc*/, char** argv){
     std::cout << "\n";
     
     std::cout << "   Misc\n";
+    
+    std::cout << "      --of : Result output file. Parent directory must exist. Default: console output (/dev/stdout)\n";
+    std::cout << "      --TSV : Print results as tab-separated values instead of plain text. \n";
     std::cout << "      --verbose : More console output. Shows timings. \n";
     std::cout << "      --printLengthPartitions : Print number of sequences per length partition in db.\n";
     std::cout << "      --interactive : Loads DB, then waits for sequence input by user\n";

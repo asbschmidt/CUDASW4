@@ -31,22 +31,58 @@ std::vector<std::string> split(const std::string& str, char c){
 	return result;
 }
 
-void printScanResult(const cudasw4::ScanResult& scanResult, const cudasw4::CudaSW4& cudaSW4){
+void printScanResultPlain(std::ostream& os, const cudasw4::ScanResult& scanResult, const cudasw4::CudaSW4& cudaSW4){
     const int n = scanResult.scores.size();
     for(int i = 0; i < n; i++){
-        const size_t referenceId = scanResult.referenceIds[i];
-        std::cout << "Result " << i << ".";
-        std::cout << " Score: " << scanResult.scores[i] << ".";
-        std::cout << " Length: " << cudaSW4.getReferenceLength(referenceId) << ".";
-        std::cout << " Header " << cudaSW4.getReferenceHeader(referenceId) << ".";
-        std::cout << "referenceId " << referenceId;
-        std::cout << "\n";
+        const auto referenceId = scanResult.referenceIds[i];
+        os << "Result " << i << ".";
+        os << " Score: " << scanResult.scores[i] << ".";
+        os << " Length: " << cudaSW4.getReferenceLength(referenceId) << ".";
+        os << " Header " << cudaSW4.getReferenceHeader(referenceId) << ".";
+        os << " referenceId " << referenceId;
+        os << "\n";
         //std::cout << " Sequence " << cudaSW4.getReferenceSequence(referenceId) << "\n";
 
-        // std::cout << i << "," 
-        //     << scanResult.scores[i] << ","
-        //     << cudaSW4.getReferenceLength(referenceId) << ","
-        //     << cudaSW4.getReferenceHeader(referenceId) << "\n";
+    }
+}
+
+void printTSVHeader(std::ostream& os){
+    constexpr char sep = '\t';
+
+    os << "Query number" << sep 
+        << "Query length" << sep 
+        << "Query header" << sep
+        << "Result number" << sep
+        << "Result score" << sep
+        << "Reference length" << sep
+        << "Reference header" << sep
+        << "Reference ID in DB" << "\n";
+}
+
+void printScanResultTSV(
+    std::ostream& os, 
+    const cudasw4::ScanResult& scanResult, 
+    const cudasw4::CudaSW4& cudaSW4, 
+    int64_t queryId,
+    cudasw4::SequenceLengthT queryLength,
+    std::string_view queryHeader
+){
+    constexpr char sep = '\t';
+
+    const int n = scanResult.scores.size();
+    for(int i = 0; i < n; i++){
+        const auto referenceId = scanResult.referenceIds[i];
+        
+        os << queryId << sep 
+            << queryLength << sep
+            << queryHeader << sep
+            << i << sep
+            << scanResult.scores[i] << sep
+            << cudaSW4.getReferenceLength(referenceId) << sep
+            << cudaSW4.getReferenceHeader(referenceId) << sep
+            << referenceId << "\n";
+
+        //std::cout << " Sequence " << cudaSW4.getReferenceSequence(referenceId) << "\n";
     }
 }
 
@@ -57,94 +93,10 @@ struct BatchOfQueries{
     std::vector<std::string> headers;  
 };
 
-int affine_local_DP_host_protein(
-    const char* seq1,
-    const char* seq2,
-    const int length1,
-    const int length2,
-    const int gap_open,
-    const int gap_extend) {
-
-    //cout << "Align Seq 1: ";
-    //copy(seq1, seq1+length1, std::ostream_iterator<char>(cout, ""));
-    //cout << "\n";
-    //cout << "to Seq 2: ";
-    //copy(seq2, seq2+length2, std::ostream_iterator<char>(cout, ""));
-    //cout << "\n";
-
-    const int NEGINFINITY = -10000;
-    int *penalty_H = new int[2*(length2+1)];
-    int *penalty_F = new int[2*(length2+1)];
-    int E, F, maxi = 0, result;
-    penalty_H[0] = 0;
-    penalty_F[0] = NEGINFINITY;
-    for (int index = 1; index <= length2; index++) {
-        penalty_H[index] = 0;
-        penalty_F[index] = NEGINFINITY;
-    }
-
-    //cout << "Row 0: ";
-    //copy(penalty, penalty + length2 + 1, std::ostream_iterator<int>(cout, " "));
-    //cout << "\n";
-
-    auto convert_AA = cudasw4::ConvertAA_20{};
-
-    auto BLOSUM = cudasw4::BLOSUM62_20::get2D();
-
-    for (int row = 1; row <= length1; row++) {
-        char seq1_char = seq1[row-1];
-        char seq2_char;
-        // if (seq1_char == 'N') seq1_char = 'T';  // special N-letter treatment to match CUDA code
-        const int target_row = row & 1;
-        const int source_row = !target_row;
-        penalty_H[target_row*(length2+1)] = 0; //gap_open + (row-1)*gap_extend;
-        penalty_F[target_row*(length2+1)] = gap_open + (row-1)*gap_extend;
-        E = NEGINFINITY;
-        for (int col = 1; col <= length2; col++) {
-            const int diag = penalty_H[source_row*(length2+1)+col-1];
-            const int abve = penalty_H[source_row*(length2+1)+col+0];
-            const int left = penalty_H[target_row*(length2+1)+col-1];
-            seq2_char = seq2[col-1];
-            //if (seq2_char == 'N') seq2_char = 'T';  // special N-letter treatment to match CUDA code
-            //const int residue = (seq1_char == seq2_char)? match : mismatch;
-            const int residue = BLOSUM[convert_AA(seq1_char)][convert_AA(seq2_char)];
-            E = std::max(E+gap_extend, left+gap_open);
-            F = std::max(penalty_F[source_row*(length2+1)+col+0]+gap_extend, abve+gap_open);
-            result = std::max(0, std::max(diag + residue, std::max(E, F)));
-            penalty_H[target_row*(length2+1)+col] = result;
-            if (result > maxi) maxi = result;
-            penalty_F[target_row*(length2+1)+col] = F;
-        }
-        //cout << "Row " << row << ": ";
-        //copy(penalty + target_row*(length2+1), penalty + target_row*(length2+1) + length2 + 1, std::ostream_iterator<int>(cout, " "));
-        //cout << "\n";
-    }
-    //const int last_row = length1 & 1;
-    //const int result = penalty_H[last_row*(length2+1)+length2];
-    delete [] penalty_F;
-    delete [] penalty_H;
-    return maxi;
-}
 
 
 int main(int argc, char* argv[])
 {
-    // std::cout << affine_local_DP_host_protein(
-    //     "MALPFALMMALVVLSCKSSCSLGCNLSQTHSLNNRRTLMLMAQMRRISPFSCLKDRHDFEFPQEEFDGNQFQKAQAISVLHEMMQQTFNLFSTKNSSAAWDETLLEKFYIELFQQMNDLEACVIQEVGVEETPLMNEDSILAVKKYFQRITLYLMEKKYSPCAWEVVRAEIMRSLSFSTNLQKRLRRKD---",
-    //     "MALPFALLMALVVLSCKSSCSLDCDLPQTHSLGHRRTMMLLAQMRRISLFSCLKDRHDFRFPQEEFDGNQFQKAEAISVLHEVIQQTFNLFSTKDSSVAWDERLLDKLYTELYQQLNDLEACVMQEVWVGGTPLMNEDSILAVRKYFQRITLYLTEKKYSPCAWEVVRAEIMRSFSSSRNLQERLRRKE",
-    //     192,
-    //     189,
-    //     -11,
-    //     -1
-    // ) << "\n";
-
-
-
-    if(argc < 3) {
-        std::cout << "Usage:\n  " << argv[0] << " <FASTA filename 1> [dbPrefix]\n";
-        return 0;
-    }
-
     ProgramOptions options;
     bool parseSuccess = parseArgs(argc, argv, options);
 
@@ -192,6 +144,14 @@ int main(int argc, char* argv[])
     memoryConfig.maxBatchSequences = options.maxBatchSequences;
     memoryConfig.maxTempBytes = options.maxTempBytes;
     memoryConfig.maxGpuMem = options.maxGpuMem;
+
+    std::ofstream outputfile(options.outputfile);
+    if(!bool(outputfile)){
+        throw std::runtime_error("Cannot open file " + options.outputfile);
+    }
+    if(options.outputMode == ProgramOptions::OutputMode::TSV){
+        printTSVHeader(outputfile);
+    }
 
     cudasw4::CudaSW4 cudaSW4(
         deviceIds, 
@@ -260,7 +220,7 @@ int main(int argc, char* argv[])
         // 1 load and process queries one after another
         #if 0
             kseqpp::KseqPP reader(queryFile);
-            int query_num = 0;
+            int64_t query_num = 0;
 
             cudaSW4.totalTimerStart();
 
@@ -290,34 +250,41 @@ int main(int argc, char* argv[])
                 // err.flush();
                 // err.close();
 
-                std::vector<int> cpuscores = cudaSW4.computeAllScoresCPU(sequence.data(), sequence.size());
+                // std::vector<int> cpuscores = cudaSW4.computeAllScoresCPU(sequence.data(), sequence.size());
 
-                std::vector<int> indices(cpuscores.size());
-                std::iota(indices.begin(), indices.end(), 0);
+                // std::vector<int> indices(cpuscores.size());
+                // std::iota(indices.begin(), indices.end(), 0);
 
-                std::sort(indices.begin(), indices.end(), [&](int l, int r){return scanResult.referenceIds[l] < scanResult.referenceIds[r];});
-                std::ofstream ofs("scorestmp.txt");
-                int lastMismatch = -1;
-                for(size_t i = 0; i < cpuscores.size(); i++){
-                    bool mismatch = cpuscores[i] != scanResult.scores[indices[i]]; 
-                    ofs << cpuscores[i] << " " << scanResult.scores[indices[i]] << " " << mismatch << "\n";
-                    if(mismatch){
-                        lastMismatch = i;
+                // std::sort(indices.begin(), indices.end(), [&](int l, int r){return scanResult.referenceIds[l] < scanResult.referenceIds[r];});
+                // std::ofstream ofs("scorestmp.txt");
+                // int lastMismatch = -1;
+                // for(size_t i = 0; i < cpuscores.size(); i++){
+                //     bool mismatch = cpuscores[i] != scanResult.scores[indices[i]]; 
+                //     ofs << cpuscores[i] << " " << scanResult.scores[indices[i]] << " " << mismatch << "\n";
+                //     if(mismatch){
+                //         lastMismatch = i;
+                //     }
+                //     // if(cpuscores[i] != scanResult.scores[indices[i]]){
+                //     //     std::cout << "i " << i << ", cpu score " << cpuscores[i] << ", gpu score " << scanResult.scores[indices[i]] << "\n";
+                //     //     std::cout << "gpu ref id " << scanResult.referenceIds[indices[i]] << "\n";
+                //     //     std::exit(0);
+                //     // }
+                // }
+                // std::cout << "ok\n";
+                // std::cout << "last mismatch " << lastMismatch << "\n";
+
+                if(options.numTopOutputs > 0){
+                    if(options.outputMode == ProgramOptions::OutputMode::Plain){
+                        outputfile << "Query " << query_num << ", header" <<  header
+                            << ", length " << sequence.size()
+                            << ", num overflows " << scanResult.stats.numOverflows << "\n";
+
+                        printScanResultPlain(outputfile, scanResult, cudaSW4);
+                    }else{
+                        printScanResultTSV(outputfile, scanResult, cudaSW4, query_num, sequence.size(), header);
                     }
-                    // if(cpuscores[i] != scanResult.scores[indices[i]]){
-                    //     std::cout << "i " << i << ", cpu score " << cpuscores[i] << ", gpu score " << scanResult.scores[indices[i]] << "\n";
-                    //     std::cout << "gpu ref id " << scanResult.referenceIds[indices[i]] << "\n";
-                    //     std::exit(0);
-                    // }
+                    outputfile.flush();
                 }
-                std::cout << "ok\n";
-                std::cout << "last mismatch " << lastMismatch << "\n";
-
-                // std::cout << "Query " << query_num << ", header" <<  header
-                // << ", length " << sequence.size()
-                // << ", num overflows " << scanResult.stats.numOverflows << "\n";
-
-                // printScanResult(scanResult, cudaSW4);
 
                 query_num++;
             }
@@ -353,10 +320,10 @@ int main(int argc, char* argv[])
                 }
             }
 
-            int numQueries = batchOfQueries.lengths.size();
+            int64_t numQueries = batchOfQueries.lengths.size();
             const char* maxNumQueriesString = std::getenv("ALIGNER_MAX_NUM_QUERIES");
             if(maxNumQueriesString != nullptr){
-                int maxNumQueries = std::atoi(maxNumQueriesString);
+                int64_t maxNumQueries = std::atoi(maxNumQueriesString);
                 numQueries = std::min(numQueries, maxNumQueries);
             }
         
@@ -364,7 +331,7 @@ int main(int argc, char* argv[])
 
             cudaSW4.totalTimerStart();
 
-            for(int query_num = 0; query_num < numQueries; ++query_num) {
+            for(int64_t query_num = 0; query_num < numQueries; ++query_num) {
                 std::cout << "Processing query " << query_num << " ... ";
                 std::cout.flush();
                 const size_t offset = batchOfQueries.offsets[query_num];
@@ -385,13 +352,17 @@ int main(int argc, char* argv[])
                 std::cout << "Total time: " << totalBenchmarkStats.seconds << " s, " << totalBenchmarkStats.gcups << " GCUPS\n";
             }
             if(options.numTopOutputs > 0){
-                for(int query_num = 0; query_num < numQueries; ++query_num) {
+                for(int64_t query_num = 0; query_num < numQueries; ++query_num) {
                     const ScanResult& scanResult = scanResults[query_num];
 
-                    std::cout << "Query " << query_num << ", header" <<  batchOfQueries.headers[query_num] 
-                        << ", length " << batchOfQueries.lengths[query_num]
-                        << ", num overflows " << scanResult.stats.numOverflows << "\n";
-                    printScanResult(scanResult, cudaSW4);
+                    if(options.outputMode == ProgramOptions::OutputMode::Plain){
+                        outputfile << "Query " << query_num << ", header" <<  batchOfQueries.headers[query_num] 
+                            << ", length " << batchOfQueries.lengths[query_num]
+                            << ", num overflows " << scanResult.stats.numOverflows << "\n";
+                        printScanResultPlain(outputfile, scanResult, cudaSW4);
+                    }else{
+                        printScanResultTSV(outputfile, scanResult, cudaSW4, query_num, batchOfQueries.lengths[query_num], batchOfQueries.headers[query_num]);
+                    }
                 }
             }
         #endif
@@ -399,7 +370,7 @@ int main(int argc, char* argv[])
         }
     }else{
         std::cout << "Interactive mode ready\n";
-        std::cout << "Use 's inputsequence' to query inputsequence against the database\n";
+        std::cout << "Use 's inputsequence' to query inputsequence against the database. Press ENTER twice to begin.\n";
         std::cout << "Use 'f inputfile' to query all sequences in inputfile\n";
         std::cout << "Use 'exit' to terminate\n";
         std::cout << "Waiting for command...\n";
@@ -414,7 +385,15 @@ int main(int argc, char* argv[])
                 break;
             }else if(command == "s"){
                 if(tokens.size() > 1){
-                    const auto& sequence = tokens[1];
+                    auto& sequence = tokens[1];
+
+                    //read the remaining lines to catch multi-line sequence input (for example copy&paste fasta sequence)
+                    while(std::getline(std::cin, line)){
+                        if(line.empty()) break;
+                        sequence += line;
+                    }
+
+                    std::cout << "sequence: " << sequence << "\n";
                     std::cout << "Processing query " << 0 << " ... ";
                     std::cout.flush();
                     ScanResult scanResult = cudaSW4.scan(sequence.data(), sequence.size());
@@ -424,7 +403,11 @@ int main(int argc, char* argv[])
                         std::cout << "Done.\n";
                     }
 
-                    printScanResult(scanResult, cudaSW4);
+                    if(options.outputMode == ProgramOptions::OutputMode::Plain){
+                        printScanResultPlain(outputfile, scanResult, cudaSW4);
+                    }else{
+                        printScanResultTSV(outputfile, scanResult, cudaSW4, -1, sequence.size(), "-");
+                    }
                 }else{
                     std::cout << "Missing argument for command 's'\n";
                 }
@@ -433,7 +416,7 @@ int main(int argc, char* argv[])
                     const auto& filename = tokens[1];
                     try{
                         kseqpp::KseqPP reader(filename);
-                        int query_num = 0;
+                        int64_t query_num = 0;
 
                         while(reader.next() >= 0){
                             std::cout << "Processing query " << query_num << " ... ";
@@ -448,11 +431,15 @@ int main(int argc, char* argv[])
                                 std::cout << "Done.\n";
                             }
 
-                            std::cout << "Query " << query_num << ", header" <<  header
-                            << ", length " << sequence.size()
-                            << ", num overflows " << scanResult.stats.numOverflows << "\n";
+                            if(options.outputMode == ProgramOptions::OutputMode::Plain){
+                                std::cout << "Query " << query_num << ", header" <<  header
+                                << ", length " << sequence.size()
+                                << ", num overflows " << scanResult.stats.numOverflows << "\n";
 
-                            printScanResult(scanResult, cudaSW4);
+                                printScanResultPlain(outputfile, scanResult, cudaSW4);
+                            }else{
+                                printScanResultTSV(outputfile, scanResult, cudaSW4, -1, sequence.size(), "-");
+                            }
 
                             query_num++;
                         }

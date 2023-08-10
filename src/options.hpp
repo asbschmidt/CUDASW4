@@ -7,6 +7,10 @@
 
 
 struct ProgramOptions{
+    enum class OutputMode{
+        Plain,
+        TSV
+    };
 
     bool help = false;
     bool loadFullDBToGpu = false;
@@ -25,6 +29,7 @@ struct ProgramOptions{
     cudasw4::KernelType manyPassType_small = cudasw4::KernelType::Half2;
     cudasw4::KernelType manyPassType_large = cudasw4::KernelType::Float;
     cudasw4::KernelType overflowType = cudasw4::KernelType::Float;
+    OutputMode outputMode = OutputMode::Plain;
 
     size_t maxBatchBytes = 128ull * 1024ull * 1024ull;
     size_t maxBatchSequences = 10'000'000;
@@ -32,8 +37,17 @@ struct ProgramOptions{
 
     size_t maxGpuMem = std::numeric_limits<size_t>::max();
 
+    std::string outputfile = "/dev/stdout";
     std::string dbPrefix;
     std::vector<std::string> queryFiles;
+
+    std::string outputModeString() const{
+        switch(outputMode){
+            case OutputMode::Plain: return "Plain";
+            case OutputMode::TSV: return "TSV";
+            default: return "Unnamed output mode";
+        }
+    }
 };
 
 void printOptions(const ProgramOptions& options);
