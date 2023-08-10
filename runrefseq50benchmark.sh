@@ -28,7 +28,7 @@ ALLQUERIESFILE=allqueries.fasta
 ./benchmarksetup.sh $DBFOLDER $DBSRCURL $DBSRCFILENAME $DBSRCFULLPATH $DBPREFIX
 
 
-commonargs="--query $ALLQUERIESFILE --db $DBPREFIX --top 0 --verbose --uploadFull --prefetchDBFiles --mat blosum62"
+commonargs="--query $ALLQUERIESFILE --db $DBPREFIX --top 0 --verbose --uploadFull --prefetchDBFile --mat blosum62"
 
 if [ $kerneltype -eq 0 ]; then
     echo "run half2"
