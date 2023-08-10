@@ -201,30 +201,46 @@ void printHelp(int /*argc*/, char** argv){
     std::cout << "Usage: " << argv[0] << " [options]\n";
     std::cout << "The GPUs to use are set via CUDA_VISIBLE_DEVICES environment variable.\n";
     std::cout << "Options: \n";
+
+    std::cout << "   Mandatory\n";
     std::cout << "      --query queryfile : Mandatory. Fasta or Fastq. Can be gzip'ed. Repeat this option for multiple query files\n";
     std::cout << "      --db dbPrefix : Mandatory. The DB to query against. The same dbPrefix as used for makedb\n";
+    std::cout << "\n";
+
+    std::cout << "   Scoring\n";
     std::cout << "      --top val : Output the val best scores. Default val = " << defaultoptions.numTopOutputs << "\n";
+    std::cout << "      --gop val : Gap open score. Overwrites our blosum-dependent default score.\n";
+    std::cout << "      --gex val : Gap extend score. Overwrites our blosum-dependent default score.\n";
+    #ifdef CAN_USE_FULL_BLOSUM
+    std::cout << "      --mat val: Set substitution matrix. Supported values: blosum45, blosum50, blosum62, blosum80, blosum45_20, blosum50_20, blosum62_20, blosum80_20. "
+                        "Default: " << "blosum62_20" << "\n";
+    #else 
+    std::cout << "      --mat val: Set substitution matrix. Supported values: blosum45, blosum50, blosum62, blosum80. "
+                        "Default: " << "blosum62" << "\n";
+    #endif
+    std::cout << "\n";
+
+    std::cout << "   Memory\n";
+    std::cout << "      --maxGpuMem val : Try not to use more than val bytes of gpu memory per gpu. Uses all available gpu memory by default\n";
     std::cout << "      --maxTempBytes val : Size of temp storage in GPU memory. Can use suffix K,M,G. Default val = " << defaultoptions.maxTempBytes << "\n";
     std::cout << "      --maxBatchBytes val : Process DB in batches of at most val bytes. Can use suffix K,M,G. Default val = " << defaultoptions.maxBatchBytes << "\n";
     std::cout << "      --maxBatchSequences val : Process DB in batches of at most val sequences. Default val = " << defaultoptions.maxBatchSequences << "\n";
-    std::cout << "      --maxGpuMem val : Try not to use more than val bytes of gpu memory per gpu. Uses all available gpu memory by default";
+    std::cout << "\n";
     
+    std::cout << "   Misc\n";
+    std::cout << "      --verbose : More console output. Shows timings. \n";
+    std::cout << "      --printLengthPartitions : Print number of sequences per length partition in db.\n";
+    std::cout << "      --interactive : Loads DB, then waits for sequence input by user\n";
+    std::cout << "      --help : Print this message\n";
+    std::cout << "\n";
+
+    std::cout << "   Benchmarking\n";
     std::cout << "      --prefetchDBFile : Load DB into RAM immediately at program start instead of waiting for the first access. For benchmarking purposes.\n";
     std::cout << "      --uploadFull : If enough GPU memory is available to store full db, copy full DB to GPU before processing queries. For benchmarking purposes.\n";
-    #ifdef CAN_USE_FULL_BLOSUM
-    std::cout << "      --mat val: Set substitution matrix. Supported values: blosum45, blosum50, blosum62, blosum80, blosum45_20, blosum50_20, blosum62_20, blosum80_20. "
-                        "Default: " << to_string(defaultoptions.blosumType) << "\n";
-    #else 
-    std::cout << "      --mat val: Set substitution matrix. Supported values: blosum45, blosum50, blosum62, blosum80. "
-                        "Default: " << to_string_nodim(defaultoptions.blosumType) << "\n";
-    #endif
-    std::cout << "      --gop val : Gap open score. Overwrites our blosum-dependent default score.\n";
-    std::cout << "      --gex val : Gap extend score. Overwrites our blosum-dependent default score.\n";
-    std::cout << "      --pseudodb num length : Use a generated DB which contains `num` equal sequences of length `length`.\n";
-    std::cout << "      --singlePassType val, --manyPassType_small val, --manyPassType_large val, --overflowType val : Select kernel types for different length partitions. "
-                        "Valid values: Half2, DPXs16, DPXs32, Float.\n";
-    std::cout << "      --printLengthPartitions : Print number of sequences per length partition in db.\n";
-    std::cout << "      --interactive\n";
-    std::cout << "      --verbose\n";
+    std::cout << "      --pseudodb num length : Use a generated DB which contains `num` equal sequences of length `length`. For benchmarking purposes.\n";
+    std::cout << "      --singlePassType val, --manyPassType_small val, --manyPassType_large val, --overflowType val :\n";
+    std::cout << "           Select kernel types for different length partitions. Valid values: Half2, DPXs16, DPXs32, Float. For benchmarking purposes.\n";
+    std::cout << "\n";
+
             
 }
