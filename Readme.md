@@ -3,8 +3,8 @@
 
 
 
-# CUDASW4
-CUDASW++4.0: Ultra-fast GPU-based Smith-Waterman Protein Sequence Database Search
+# CUDASW++4.0: Ultra-fast GPU-based Smith-Waterman Protein Sequence Database Search
+
 
 ## Software requirements
 * zlib
@@ -43,11 +43,23 @@ mkdir -p dbfolder
 Use **align** to query the database. **align** has two mandatory arguments. 1. The query file which contains all queries
 2. The path to the reference database. Run `./align --help` to get a complete list of options.
 
+By default, the results will be output to stdout in plain text. Results can be output to file instead (`--of filename`), and can be output as tab-separated values (`--tsv`). Example tsv output is given below.
+
+| Query number | Query length | Query header | Result number | Result score | Reference length | Reference header | Reference ID in DB |
+|------------|------------|------------|------------|------------|------------| ------------|------------|
+| 0 | 144 | gi\|122087146 | 0 | 541 | 148 | UniRef50_P02233 | 23128215 |
+| 0 | 144 | gi\|122087146 | 1 | 444 | 144 | UniRef50_P02238  | 22381647
+ |
+
+
+## Selecting GPUs
 Similar to the build process, **align** will use all GPUs that are set with `CUDA_VISIBLE_DEVICES`, or all GPUs if `CUDA_VISIBLE_DEVICES` is not set. 
 
 ```
+# use the gpus that are currently set in CUDA_VISIBLE_DEVICES
 ./align --query queries.fa(.gz) --db dbfolder/dbname
 
+# use gpus 0 and 1 for only this command
 CUDA_VISIBLE_DEVICES=0,1 ./align --query queries.fa(.gz) --db dbfolder/dbname
 ```
 
@@ -61,6 +73,7 @@ CUDA_VISIBLE_DEVICES=0,1 ./align --query queries.fa(.gz) --db dbfolder/dbname
 ```
 
 The default gap scores are listed in the following table.
+
 |            | blosum45 | blosum50 | blosum62 | blosum80 |
 |------------|----------|----------|----------|----------|
 | gap_open   | -13      | -13      | -11      | -10      |
@@ -86,25 +99,33 @@ Depending on the database size and available total GPU memory, the database is t
 ```
 
 
-# Benchmark instructions
+# Benchmark scripts
+
+This repository includes some of our benchmark scripts. Benchmark results are written to files. Benchmark scripts use the file allqueries.fasta . Reference sequences will be downloaded.
 
 ## Peak performance benchmark
-`./runpeakbenchmark.sh kerneltype [nsys]`
+Aligns file allqueries.fasta to a simulated database with equal sequences.
+
+`./runpeakbenchmark.sh kerneltype`
 
 kerneltype 0: half2, kerneltype 1: dpx_s16, kerneltype 2: dpx_s32, kerneltype 3: float
 
-if nsys = 1, create nsys profile
-
 ## sprot benchmark
-`./runsprotbenchmark.sh kerneltype [nsys]`
+Downloads https://ftp.expasy.org/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.fasta.gz (88 megabyte) to folder benchmarkdbs, then constructs the corresponding DB and queries file allqueries.fasta 
+
+`./runsprotbenchmark.sh kerneltype`
 
 kerneltype 0: half2, kerneltype 1: dpx
-
-if nsys = 1, create nsys profile
 
 ## refseq50 benchmark
-`./runrefseq50benchmark.sh kerneltype [nsys]`
+Downloads https://ftp.expasy.org/databases/uniprot/current_release/uniref/uniref50/uniref50.fasta.gz (12 gigabyte) to folder benchmarkdbs, then constructs the corresponding DB and queries file allqueries.fasta 
+
+`./runrefseq50benchmark.sh kerneltype`
 
 kerneltype 0: half2, kerneltype 1: dpx
 
-if nsys = 1, create nsys profile
+
+# Publication
+This work is presented in the following paper.
+
+TBA
