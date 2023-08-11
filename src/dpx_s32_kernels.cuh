@@ -888,7 +888,7 @@ struct DPXAligner_s32{
 
     template<class ScoreOutputIterator>
     __device__
-    void compute(
+    void computeMultiPass(
         ScoreOutputIterator const devAlignmentScores,
         const char4* query4,
         SequenceLengthT queryLength
@@ -927,6 +927,38 @@ struct DPXAligner_s32{
         }
     }
 
+    template<class ScoreOutputIterator>
+    __device__
+    void computeSinglePass(
+        ScoreOutputIterator const devAlignmentScores,
+        const char4* query4,
+        SequenceLengthT queryLength
+    ) const{
+
+
+        const SequenceLengthT length_S0 = devLengths[d_positions_of_selected_lengths[blockIdx.x]];
+        const size_t base_S0 = devOffsets[d_positions_of_selected_lengths[blockIdx.x]]-devOffsets[0];
+
+        const char* const devS0 = &devChars[base_S0];
+
+        const int passes = (length_S0 + (group_size*numRegs) - 1) / (group_size*numRegs);
+
+        int maximum = 0;
+
+        if(passes == 1){
+            computeSinglePass(maximum, devS0, length_S0, query4, queryLength);
+        }
+
+        for (int offset=group_size/2; offset>0; offset/=2){
+            maximum = max(maximum,__shfl_down_sync(0xFFFFFFFF,maximum,offset,group_size));
+        }
+
+        const int group_id = threadIdx.x % group_size;
+        if (!group_id) {
+            devAlignmentScores[d_positions_of_selected_lengths[blockIdx.x]] = maximum;
+        }
+    }
+
 };
 
 
@@ -939,7 +971,7 @@ template <int numRegs, int blosumDim, class ScoreOutputIterator, class Positions
 __launch_bounds__(32,16)
 //__launch_bounds__(32)
 __global__
-void NW_local_affine_s32_DPX_new(
+void NW_local_affine_s32_DPX_multi_pass_new(
     __grid_constant__ const char * const devChars,
     __grid_constant__ ScoreOutputIterator const devAlignmentScores,
     __grid_constant__ int2 * const devTempHcol2,
@@ -971,11 +1003,11 @@ void NW_local_affine_s32_DPX_new(
         gap_extend
     );
 
-    processor.compute(devAlignmentScores, query4, queryLength);
+    processor.computeMultiPass(devAlignmentScores, query4, queryLength);
 }
 
 template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
-void call_NW_local_affine_s32_DPX_new(
+void call_NW_local_affine_s32_DPX_multi_pass_new(
     BlosumType /*blosumType*/,
     const char * const devChars,
     ScoreOutputIterator const devAlignmentScores,
@@ -993,7 +1025,7 @@ void call_NW_local_affine_s32_DPX_new(
 ) {
 
     if(hostBlosumDim == 21){
-        auto kernel = NW_local_affine_s32_DPX_new<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_s32_DPX_multi_pass_new<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         dim3 block = 32;
@@ -1014,7 +1046,7 @@ void call_NW_local_affine_s32_DPX_new(
         ); CUERR;
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
-        auto kernel = NW_local_affine_s32_DPX_new<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_s32_DPX_multi_pass_new<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         dim3 block = 32;
@@ -1040,10 +1072,107 @@ void call_NW_local_affine_s32_DPX_new(
 }
 
 
+template <int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
+__launch_bounds__(32,16)
+//__launch_bounds__(32)
+__global__
+void NW_local_affine_s32_DPX_single_pass_new(
+    __grid_constant__ const char * const devChars,
+    __grid_constant__ ScoreOutputIterator const devAlignmentScores,
+    __grid_constant__ const size_t* const devOffsets,
+    __grid_constant__ const SequenceLengthT* const devLengths,
+    __grid_constant__ PositionsIterator const d_positions_of_selected_lengths,
+    __grid_constant__ const char4* const query4,
+    __grid_constant__ const SequenceLengthT queryLength,
+    __grid_constant__ const int gap_open,
+    __grid_constant__ const int gap_extend
+) {
+    using Processor = DPXAligner_s32<numRegs, blosumDim, PositionsIterator>;
+
+    //__shared__ typename Processor::BLOSUM62_SMEM shared_blosum;
+
+    //25 is max blosum dimension
+    __shared__ int shared_blosum[25 * 25];
+
+    Processor processor(
+        shared_blosum,
+        devChars,
+        nullptr,
+        nullptr,
+        devOffsets,
+        devLengths,
+        d_positions_of_selected_lengths,
+        gap_open,
+        gap_extend
+    );
+
+    processor.computeSinglePass(devAlignmentScores, query4, queryLength);
+}
+
+template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
+void call_NW_local_affine_s32_DPX_single_pass_new(
+    BlosumType /*blosumType*/,
+    const char * const devChars,
+    ScoreOutputIterator const devAlignmentScores,
+    const size_t* const devOffsets,
+    const SequenceLengthT* const devLengths,
+    PositionsIterator const d_positions_of_selected_lengths,
+    const int numSelected,
+    const char4* query4,
+    const SequenceLengthT queryLength,
+    const int gap_open,
+    const int gap_extend,
+    cudaStream_t stream
+) {
+
+    if(hostBlosumDim == 21){
+        auto kernel = NW_local_affine_s32_DPX_single_pass_new<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
+        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
+
+        dim3 block = 32;
+        dim3 grid = numSelected;
+
+        kernel<<<grid, block, 0, stream>>>(
+            devChars,
+            devAlignmentScores,
+            devOffsets,
+            devLengths,
+            d_positions_of_selected_lengths,
+            query4,
+            queryLength,
+            gap_open,
+            gap_extend
+        ); CUERR;
+    #ifdef CAN_USE_FULL_BLOSUM
+    }else if(hostBlosumDim == 25){
+        auto kernel = NW_local_affine_s32_DPX_single_pass_new<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
+        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
+
+        dim3 block = 32;
+        dim3 grid = numSelected;
+
+        kernel<<<grid, block, 0, stream>>>(
+            devChars,
+            devAlignmentScores,
+            devOffsets,
+            devLengths,
+            d_positions_of_selected_lengths,
+            query4,
+            queryLength,
+            gap_open,
+            gap_extend
+        ); CUERR;
+    #endif
+    }else{
+        assert(false);
+    }
+}
+
+
 template <int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator>
 __launch_bounds__(1,1)
 __global__
-void launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new(
+void launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_multi_pass_new(
     __grid_constant__ const int* const d_overflow_number,
     __grid_constant__ int2* const d_temp,
     __grid_constant__ const size_t maxTempBytes,
@@ -1077,7 +1206,7 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new(
             // cudaMemsetAsync(d_tempHcol2, 0, tempBytesPerSubjectPerBuffer * num, 0);
             // cudaMemsetAsync(d_tempEcol2, 0, tempBytesPerSubjectPerBuffer * num, 0);
 
-            NW_local_affine_s32_DPX_new<numRegs, blosumDim><<<num, 32>>>(
+            NW_local_affine_s32_DPX_multi_pass_new<numRegs, blosumDim><<<num, 32>>>(
                 devChars, 
                 devAlignmentScores,
                 d_tempHcol2, 
@@ -1096,7 +1225,7 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new(
 
 
 template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
-void call_launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new(
+void call_launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_multi_pass_new(
     const int* const d_overflow_number,
     int2* const d_temp,
     const size_t maxTempBytes,
@@ -1112,7 +1241,7 @@ void call_launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new(
     cudaStream_t stream
 ){
     if(hostBlosumDim == 21){
-        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_multi_pass_new<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         kernel<<<1, 1, 0, stream>>>(
@@ -1131,7 +1260,7 @@ void call_launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new(
         ); CUERR;
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
-        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_new<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_multi_pass_new<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         kernel<<<1, 1, 0, stream>>>(
