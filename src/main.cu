@@ -218,7 +218,7 @@ int main(int argc, char* argv[])
             std::cout << "Processing query file " << queryFile << "\n";
         // 0 load all queries into memory, then process.
         // 1 load and process queries one after another
-        #if 0
+        #if 1
             kseqpp::KseqPP reader(queryFile);
             int64_t query_num = 0;
 
@@ -236,42 +236,6 @@ int main(int argc, char* argv[])
                 }else{
                     std::cout << "Done.\n";
                 }
-
-                //std::cout << "subject 569751\n";
-                //std::cout << cudaSW4.getReferenceSequence(569751) << "\n";
-
-                //  std::ofstream err("errorsequence.fasta");
-
-                // for(int i = 28998523; i < 28998523+1; i++){
-                //     std::string s = cudaSW4.getReferenceSequence(i);
-                //     err << ">" << i << "\n";
-                //     err << s << "\n";
-                // }
-                // err.flush();
-                // err.close();
-
-                // std::vector<int> cpuscores = cudaSW4.computeAllScoresCPU(sequence.data(), sequence.size());
-
-                // std::vector<int> indices(cpuscores.size());
-                // std::iota(indices.begin(), indices.end(), 0);
-
-                // std::sort(indices.begin(), indices.end(), [&](int l, int r){return scanResult.referenceIds[l] < scanResult.referenceIds[r];});
-                // std::ofstream ofs("scorestmp.txt");
-                // int lastMismatch = -1;
-                // for(size_t i = 0; i < cpuscores.size(); i++){
-                //     bool mismatch = cpuscores[i] != scanResult.scores[indices[i]]; 
-                //     ofs << cpuscores[i] << " " << scanResult.scores[indices[i]] << " " << mismatch << "\n";
-                //     if(mismatch){
-                //         lastMismatch = i;
-                //     }
-                //     // if(cpuscores[i] != scanResult.scores[indices[i]]){
-                //     //     std::cout << "i " << i << ", cpu score " << cpuscores[i] << ", gpu score " << scanResult.scores[indices[i]] << "\n";
-                //     //     std::cout << "gpu ref id " << scanResult.referenceIds[indices[i]] << "\n";
-                //     //     std::exit(0);
-                //     // }
-                // }
-                // std::cout << "ok\n";
-                // std::cout << "last mismatch " << lastMismatch << "\n";
 
                 if(options.numTopOutputs > 0){
                     if(options.outputMode == ProgramOptions::OutputMode::Plain){
@@ -298,7 +262,7 @@ int main(int argc, char* argv[])
 
             BatchOfQueries batchOfQueries;
             {
-                //batchOfQueries = read_all_sequences_and_headers_from_file(queryFile);
+                
                 constexpr int ALIGN = 4;
                 kseqpp::KseqPP reader(queryFile);
                 batchOfQueries.offsets.push_back(0);
