@@ -32,7 +32,7 @@ The build step compiles the GPU code for all GPU archictectures of GPUs detected
 
 ## Database construction
 Use makedb to create a database from a fasta file. The file can be gzip'ed.
-At the moment, it is required that the complete uncompressed fasta file fits into RAM. This may change in the future.
+We support fasta files with up to 2 billion sequences.
 
 ```
 mkdir -p dbfolder
@@ -40,16 +40,18 @@ mkdir -p dbfolder
 ```
 
 ## Querying the database
-Use **align** to query the database. **align** has two mandatory arguments. 1. The query file which contains all queries
-2. The path to the reference database. Run `./align --help` to get a complete list of options.
+Use **align** to query the database. **align** has two mandatory arguments. 
+1. `--query` The query file which contains all queries
+2. `--db` The path to the reference database constructed with makedb. 
+
+Run `./align --help` to get a complete list of options.
 
 By default, the results will be output to stdout in plain text. Results can be output to file instead (`--of filename`), and can be output as tab-separated values (`--tsv`). Example tsv output is given below.
 
 | Query number | Query length | Query header | Result number | Result score | Reference length | Reference header | Reference ID in DB |
 |------------|------------|------------|------------|------------|------------| ------------|------------|
 | 0 | 144 | gi\|122087146 | 0 | 541 | 148 | UniRef50_P02233 | 23128215 |
-| 0 | 144 | gi\|122087146 | 1 | 444 | 144 | UniRef50_P02238  | 22381647
- |
+| 0 | 144 | gi\|122087146 | 1 | 444 | 144 | UniRef50_P02238  | 22381647 |
 
 
 ## Selecting GPUs
