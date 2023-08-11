@@ -10,6 +10,9 @@ namespace cudasw4{
 
 template <int group_size, int numRegs, int blosumDim, class PositionsIterator> 
 struct Half2Aligner{
+    static_assert(2 <= numRegs && numRegs % 2 == 0, "Half2Aligner does not support odd number of numRegs");
+    static_assert(1 <= group_size && group_size <= 32 && ((group_size & (group_size - 1)) == 0), "Half2Aligner requires power-of-two sub-warp size");
+
     static constexpr float negInftyFloat = -1000.0f;
 
     static constexpr int deviceBlosumDimCexpr = blosumDim;
@@ -1113,12 +1116,11 @@ struct Half2Aligner{
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int group_size, int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
+template <int blocksize, int group_size, int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
 #if __CUDA_ARCH__ >= 800
-__launch_bounds__(256,2)
-//__launch_bounds__(512,1)
+__launch_bounds__(blocksize,2)
 #else
-__launch_bounds__(256)
+__launch_bounds__(blocksize)
 #endif
 __global__
 void NW_local_affine_Protein_many_pass_half2_new(
@@ -1138,6 +1140,11 @@ void NW_local_affine_Protein_many_pass_half2_new(
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ) {
+    static_assert(blocksize % group_size == 0);
+
+    __builtin_assume(blockDim.x == blocksize);
+    __builtin_assume(blockDim.x % group_size == 0);
+    
     using Processor = Half2Aligner<group_size, numRegs, blosumDim, PositionsIterator>;
     extern __shared__ __half2 shared_blosum[];
     //__shared__ typename Processor::BLOSUM62_SMEM shared_blosum;
@@ -1187,7 +1194,7 @@ void call_NW_local_affine_Protein_many_pass_half2_new(
     int smem = sizeof(__half2) * hostBlosumDim * hostBlosumDim * hostBlosumDim;
 
     if(hostBlosumDim == 21){
-        auto kernel = NW_local_affine_Protein_many_pass_half2_new<group_size, numRegs, 21, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_Protein_many_pass_half2_new<blocksize, group_size, numRegs, 21, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
 
         dim3 block = blocksize;
@@ -1212,7 +1219,7 @@ void call_NW_local_affine_Protein_many_pass_half2_new(
         ); CUERR;
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
-        auto kernel = NW_local_affine_Protein_many_pass_half2_new<group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_Protein_many_pass_half2_new<blocksize, group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
 
         dim3 block = blocksize;
@@ -1246,12 +1253,12 @@ void call_NW_local_affine_Protein_many_pass_half2_new(
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
-template <int group_size, int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
+template <int blocksize, int group_size, int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
 #if __CUDA_ARCH__ >= 800
-__launch_bounds__(256,2)
+__launch_bounds__(blocksize,2)
 //__launch_bounds__(512,1)
 #else
-__launch_bounds__(256)
+__launch_bounds__(blocksize)
 #endif
 __global__
 void NW_local_affine_Protein_single_pass_half2_new(
@@ -1269,25 +1276,11 @@ void NW_local_affine_Protein_single_pass_half2_new(
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ) {
-    // if(threadIdx.x == 0 && blockIdx.x == 0){
-    //     printf("constantquery\n");
-    //     for(int i = 0; i < 2048; i++){
-    //         printf("%d %d %d %d", int(constantQuery4[i].x), int(constantQuery4[i].y), int(constantQuery4[i].z), int(constantQuery4[i].w));
-    //     }
-    //     printf("\n");
-    //     printf("constantblosum\n");
-    //     for(int i = 0; i < deviceBlosumDimCexprSquared; i++){
-    //         printf("%d %d %d %d", int(deviceBlosum[i]));
-    //     }
-    //     printf("\n");
+    static_assert(blocksize % group_size == 0);
 
-    //     printf("offset %lu\n", devOffsets[0]);
-    //     printf("length %lu\n", devLengths[0]);
-    //     printf("d_positions_of_selected_lengths %lu\n", d_positions_of_selected_lengths[0]);
-    //     printf("queryLength %d\n", queryLength);
-    //     printf("gap_open %f\n", gap_open);
-    //     printf("gap_extend %f\n", gap_extend);
-    // }
+    __builtin_assume(blockDim.x == blocksize);
+    __builtin_assume(blockDim.x % group_size == 0);
+
     using Processor = Half2Aligner<group_size, numRegs, blosumDim, PositionsIterator>;
     extern __shared__ __half2 shared_blosum[];
     //__shared__ typename Processor::BLOSUM62_SMEM shared_blosum;
@@ -1335,7 +1328,7 @@ void call_NW_local_affine_Protein_single_pass_half2_new(
     int smem = sizeof(__half2) * hostBlosumDim * hostBlosumDim * hostBlosumDim;
 
     if(hostBlosumDim == 21){
-        auto kernel = NW_local_affine_Protein_single_pass_half2_new<group_size, numRegs, 21, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_Protein_single_pass_half2_new<blocksize, group_size, numRegs, 21, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
 
         dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;
@@ -1356,7 +1349,7 @@ void call_NW_local_affine_Protein_single_pass_half2_new(
         );
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
-        auto kernel = NW_local_affine_Protein_single_pass_half2_new<group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_Protein_single_pass_half2_new<blocksize, group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
 
         dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;

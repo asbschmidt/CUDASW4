@@ -8,6 +8,8 @@ namespace cudasw4{
 
 template <int numRegs, int blosumDim, class PositionsIterator> 
 struct DPXAligner_s32{
+    static_assert(2 <= numRegs && numRegs % 2 == 0, "DPXAligner_s32 does not support odd number of numRegs");
+
     static constexpr int group_size = 32;
 
     static constexpr int negInfty = -10000;
@@ -984,6 +986,8 @@ void NW_local_affine_s32_DPX_multi_pass_new(
     __grid_constant__ const int gap_open,
     __grid_constant__ const int gap_extend
 ) {
+    __builtin_assume(blockDim.x == 32);
+
     using Processor = DPXAligner_s32<numRegs, blosumDim, PositionsIterator>;
 
     //__shared__ typename Processor::BLOSUM62_SMEM shared_blosum;
@@ -1087,6 +1091,8 @@ void NW_local_affine_s32_DPX_single_pass_new(
     __grid_constant__ const int gap_open,
     __grid_constant__ const int gap_extend
 ) {
+    __builtin_assume(blockDim.x == 32);
+    
     using Processor = DPXAligner_s32<numRegs, blosumDim, PositionsIterator>;
 
     //__shared__ typename Processor::BLOSUM62_SMEM shared_blosum;

@@ -8,6 +8,8 @@ namespace cudasw4{
 
 template <int numRegs, int blosumDim, class PositionsIterator> 
 struct FloatAligner{
+    static_assert(2 <= numRegs && numRegs % 2 == 0, "FloatAligner does not support odd number of numRegs");
+
     static constexpr int group_size = 32;
 
     static constexpr float negInftyFloat = -10000.0f;
@@ -992,6 +994,8 @@ void NW_local_affine_read4_float_query_Protein_single_pass_new(
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ) {
+    __builtin_assume(blockDim.x == 32);
+
     using Processor = FloatAligner<numRegs, blosumDim, PositionsIterator>;
 
     //__shared__ typename Processor::BLOSUM62_SMEM shared_blosum;
@@ -1091,6 +1095,8 @@ void NW_local_affine_read4_float_query_Protein_multi_pass_new(
     __grid_constant__ const float gap_open,
     __grid_constant__ const float gap_extend
 ) {
+    __builtin_assume(blockDim.x == 32);
+    
     using Processor = FloatAligner<numRegs, blosumDim, PositionsIterator>;
 
     //__shared__ typename Processor::BLOSUM62_SMEM shared_blosum;
