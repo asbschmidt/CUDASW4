@@ -1750,7 +1750,7 @@ namespace cudasw4{
                                         constexpr int alignmentsPerGroup = 2;
                                         constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
                                         
-                                        const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * alignmentsPerBlock * currentQueryLengthWithPadding;
+                                        const size_t tempBytesPerBlockPerBuffer = sizeof(__half2) * groupsPerBlock * currentQueryLengthWithPadding;
         
                                         const size_t maxNumBlocks = ws.numTempBytes / (tempBytesPerBlockPerBuffer * 2);
                                         const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(numSeq));
@@ -1798,7 +1798,7 @@ namespace cudasw4{
                                         constexpr int alignmentsPerGroup = 2;
                                         constexpr int alignmentsPerBlock = groupsPerBlock * alignmentsPerGroup;
                                         
-                                        const size_t tempBytesPerBlockPerBuffer = sizeof(short2) * alignmentsPerBlock * currentQueryLengthWithPadding;
+                                        const size_t tempBytesPerBlockPerBuffer = sizeof(short2) * groupsPerBlock * currentQueryLengthWithPadding;
         
                                         const size_t maxNumBlocks = ws.numTempBytes / (tempBytesPerBlockPerBuffer * 2);
                                         const size_t maxSubjectsPerIteration = std::min(maxNumBlocks * alignmentsPerBlock, size_t(numSeq));
@@ -1850,7 +1850,7 @@ namespace cudasw4{
         
                                 if(partId == numLengthPartitions - 1){
                                     if(kernelTypeConfig.manyPassType_large == KernelType::Float){
-                                        const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * currentQueryLengthWithPadding;
+                                        const size_t tempBytesPerSubjectPerBuffer = sizeof(float2) * currentQueryLengthWithPadding / 2;
                                         const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
         
                                         float2* d_temp = (float2*)ws.d_tempStorageHE.data();
@@ -1883,7 +1883,7 @@ namespace cudasw4{
                                             ); CUERR 
                                         }
                                     }else if(kernelTypeConfig.manyPassType_large == KernelType::DPXs32){
-                                        const size_t tempBytesPerSubjectPerBuffer = sizeof(int2) * currentQueryLengthWithPadding;
+                                        const size_t tempBytesPerSubjectPerBuffer = sizeof(int2) * currentQueryLengthWithPadding / 2;
                                         const size_t maxSubjectsPerIteration = std::min(size_t(numSeq), ws.numTempBytes / (tempBytesPerSubjectPerBuffer * 2));
         
                                         int2* d_temp = (int2*)ws.d_tempStorageHE.data();

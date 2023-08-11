@@ -1238,7 +1238,7 @@ void NW_local_affine_Protein_many_pass_half2(
 
         set_H_E_temp_out();
         if (counter%8 == 0 && counter > 8) {
-            checkHEindex(offset_out, __LINE__);
+            checkHEindex(offset_out, queryLength, __LINE__);
             devTempHcol[offset_out]=H_temp_out;
             devTempEcol[offset_out]=E_temp_out;
             offset_out += group_size;
@@ -1298,7 +1298,7 @@ void NW_local_affine_Protein_many_pass_half2(
 
     //printf("tid %d, offset_out %d, from_thread_id %d\n", threadIdx.x, offset_out, from_thread_id);
     if (thid>=from_thread_id) {
-        checkHEindex(offset_out-from_thread_id, __LINE__);
+        checkHEindex(offset_out-from_thread_id, queryLength, __LINE__);
         devTempHcol[offset_out-from_thread_id]=H_temp_out;
         devTempEcol[offset_out-from_thread_id]=E_temp_out;
     }
@@ -1326,7 +1326,7 @@ void NW_local_affine_Protein_many_pass_half2(
         offset = group_id + group_size;
         offset_out = group_id;
         offset_in = group_id;
-        checkHEindex(offset_in, __LINE__);
+        checkHEindex(offset_in, queryLength, __LINE__);
         H_temp_in = devTempHcol[offset_in];
         E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
@@ -1391,7 +1391,7 @@ void NW_local_affine_Protein_many_pass_half2(
             calc32_local_affine_float();
             set_H_E_temp_out();
             if (counter%8 == 0 && counter > 8) {
-                checkHEindex(offset_out, __LINE__);
+                checkHEindex(offset_out, queryLength, __LINE__);
                 devTempHcol[offset_out]=H_temp_out;
                 devTempEcol[offset_out]=E_temp_out;
                 offset_out += group_size;
@@ -1406,7 +1406,7 @@ void NW_local_affine_Protein_many_pass_half2(
             }
             shuffle_H_E_temp_in();
             if (counter%8 == 0) {
-                checkHEindex(offset_in, __LINE__);
+                checkHEindex(offset_in, queryLength, __LINE__);
                 H_temp_in = devTempHcol[offset_in];
                 E_temp_in = devTempEcol[offset_in];
                 offset_in += group_size;
@@ -1460,7 +1460,7 @@ void NW_local_affine_Protein_many_pass_half2(
         int from_thread_id = 32 - final_out;
 
         if (thid>=from_thread_id) {
-            checkHEindex(offset_out-from_thread_id, __LINE__);
+            checkHEindex(offset_out-from_thread_id, queryLength, __LINE__);
             devTempHcol[offset_out-from_thread_id]=H_temp_out;
             devTempEcol[offset_out-from_thread_id]=E_temp_out;
         }
@@ -1495,7 +1495,7 @@ void NW_local_affine_Protein_many_pass_half2(
 
     offset = group_id + group_size;
     offset_in = group_id;
-    checkHEindex(offset_in, __LINE__);
+    checkHEindex(offset_in, queryLength, __LINE__);
     H_temp_in = devTempHcol[offset_in];
     E_temp_in = devTempEcol[offset_in];
     offset_in += group_size;
@@ -1570,7 +1570,7 @@ void NW_local_affine_Protein_many_pass_half2(
             }
             shuffle_H_E_temp_in();
             if (counter%8 == 0) {
-                checkHEindex(offset_in, __LINE__);
+                checkHEindex(offset_in, queryLength, __LINE__);
                 H_temp_in = devTempHcol[offset_in];
                 E_temp_in = devTempEcol[offset_in];
                 offset_in += group_size;

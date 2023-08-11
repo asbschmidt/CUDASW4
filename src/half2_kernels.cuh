@@ -79,11 +79,16 @@ struct Half2Aligner{
     }
 
     __device__
-    void checkHEindex(int x, int line) const{
-        // if(x < 0){printf("line %d\n", line);}
-        // assert(x >= 0); //positive index
-        // assert(2*(blockDim.x/group_size)*blockIdx.x * queryLength <= base_3 + x);
-        // assert(base_3+x < 2*(blockDim.x/group_size)*(blockIdx.x+1) * queryLength);
+    SequenceLengthT getPaddedQueryLength(SequenceLengthT queryLength) const{
+        //pad query length to char4, add warpsize char4 border.
+        return SDIV(queryLength, 4) * 4 + 32 * sizeof(char4);
+    }
+
+    __device__
+    void checkHEindex(int x, SequenceLengthT queryLength, int line) const{
+        // const SequenceLengthT currentQueryLengthWithPadding = getPaddedQueryLength(queryLength);
+        // assert(x >= 0);
+        // assert(x < currentQueryLengthWithPadding);
     };
 
     __device__
@@ -323,10 +328,11 @@ struct Half2Aligner{
         int check_last;
         int check_last2;
         computeCheckLast(check_last, check_last2);
-        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x)/group_size))*size_t(queryLength);
-        // if(blockIdx.x == gridDim.x - 1){
-        //     printf("tid %d base_3 %lu\n", threadIdx.x, base_3);
-        // }
+        const size_t numGroupsPerBlock = blockDim.x / group_size;
+        const size_t groupIdInBlock = threadIdx.x / group_size;
+        const size_t groupIdInGrid = numGroupsPerBlock * size_t(blockIdx.x) + groupIdInBlock;
+        const size_t base_3 = groupIdInGrid * size_t(getPaddedQueryLength(queryLength)); //temp of both subjects is packed into half2
+        
         __half2* const devTempHcol = (&devTempHcol2[base_3]);
         __half2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -394,7 +400,7 @@ struct Half2Aligner{
 
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
             if (counter%8 == 0 && counter > 8) {
-                checkHEindex(offset_out, __LINE__);
+                checkHEindex(offset_out, queryLength, __LINE__);
                 devTempHcol[offset_out]=H_temp_out;
                 devTempEcol[offset_out]=E_temp_out;
                 offset_out += group_size;
@@ -454,7 +460,7 @@ struct Half2Aligner{
 
         //printf("tid %d, offset_out %d, from_thread_id %d\n", threadIdx.x, offset_out, from_thread_id);
         if (threadIdx.x>=from_thread_id) {
-            checkHEindex(offset_out-from_thread_id, __LINE__);
+            checkHEindex(offset_out-from_thread_id, queryLength, __LINE__);
             devTempHcol[offset_out-from_thread_id]=H_temp_out;
             devTempEcol[offset_out-from_thread_id]=E_temp_out;
         }
@@ -474,7 +480,11 @@ struct Half2Aligner{
         int check_last;
         int check_last2;
         computeCheckLast(check_last, check_last2);
-        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x)/group_size))*size_t(queryLength);
+        const size_t numGroupsPerBlock = blockDim.x / group_size;
+        const size_t groupIdInBlock = threadIdx.x / group_size;
+        const size_t groupIdInGrid = numGroupsPerBlock * size_t(blockIdx.x) + groupIdInBlock;
+        const size_t base_3 = groupIdInGrid * size_t(getPaddedQueryLength(queryLength)); //temp of both subjects is packed into half2
+        
         __half2* const devTempHcol = (&devTempHcol2[base_3]);
         __half2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -482,7 +492,7 @@ struct Half2Aligner{
         int offset = group_id + group_size;
         int offset_out = group_id;
         int offset_in = group_id;
-        checkHEindex(offset_in, __LINE__);
+        checkHEindex(offset_in, queryLength, __LINE__);
         __half2 H_temp_in = devTempHcol[offset_in];
         __half2 E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
@@ -557,7 +567,7 @@ struct Half2Aligner{
             calc32_local_affine_float(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
             set_H_E_temp_out(E, penalty_here31, H_temp_out, E_temp_out);
             if (counter%8 == 0 && counter > 8) {
-                checkHEindex(offset_out, __LINE__);
+                checkHEindex(offset_out, queryLength, __LINE__);
                 devTempHcol[offset_out]=H_temp_out;
                 devTempEcol[offset_out]=E_temp_out;
                 offset_out += group_size;
@@ -572,7 +582,7 @@ struct Half2Aligner{
             }
             shuffle_H_E_temp_in(H_temp_in, E_temp_in);
             if (counter%8 == 0) {
-                checkHEindex(offset_in, __LINE__);
+                checkHEindex(offset_in, queryLength, __LINE__);
                 H_temp_in = devTempHcol[offset_in];
                 E_temp_in = devTempEcol[offset_in];
                 offset_in += group_size;
@@ -626,7 +636,7 @@ struct Half2Aligner{
         const int from_thread_id = 32 - final_out;
 
         if (threadIdx.x>=from_thread_id) {
-            checkHEindex(offset_out-from_thread_id, __LINE__);
+            checkHEindex(offset_out-from_thread_id, queryLength, __LINE__);
             devTempHcol[offset_out-from_thread_id]=H_temp_out;
             devTempEcol[offset_out-from_thread_id]=E_temp_out;
         }
@@ -646,14 +656,18 @@ struct Half2Aligner{
         int check_last;
         int check_last2;
         computeCheckLast(check_last, check_last2);
-        const size_t base_3 = (2*(size_t(blockDim.x)/group_size)*size_t(blockIdx.x)+2*((threadIdx.x)/group_size))*size_t(queryLength);
+        const size_t numGroupsPerBlock = blockDim.x / group_size;
+        const size_t groupIdInBlock = threadIdx.x / group_size;
+        const size_t groupIdInGrid = numGroupsPerBlock * size_t(blockIdx.x) + groupIdInBlock;
+        const size_t base_3 = groupIdInGrid * size_t(getPaddedQueryLength(queryLength)); //temp of both subjects is packed into half2
+        
         __half2* const devTempHcol = (&devTempHcol2[base_3]);
         __half2* const devTempEcol = (&devTempEcol2[base_3]);
 
         const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
         int offset_in = group_id;
-        checkHEindex(offset_in, __LINE__);
+        checkHEindex(offset_in, queryLength, __LINE__);
         __half2 H_temp_in = devTempHcol[offset_in];
         __half2 E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
@@ -743,7 +757,7 @@ struct Half2Aligner{
                 }
                 shuffle_H_E_temp_in(H_temp_in, E_temp_in);
                 if (counter%8 == 0) {
-                    checkHEindex(offset_in, __LINE__);
+                    checkHEindex(offset_in, queryLength, __LINE__);
                     H_temp_in = devTempHcol[offset_in];
                     E_temp_in = devTempEcol[offset_in];
                     offset_in += group_size;
@@ -1116,6 +1130,8 @@ struct Half2Aligner{
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
+// devTempHcol2 and devTempEcol2 each must have length numBlocks * (blocksize / group_size) * (SDIV(queryLength, 4) * 4 + 32 * sizeof(char4));
+
 template <int blocksize, int group_size, int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
 #if __CUDA_ARCH__ >= 800
 __launch_bounds__(blocksize,2)

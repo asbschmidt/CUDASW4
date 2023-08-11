@@ -58,13 +58,17 @@ struct DPXAligner_s32{
 
     }
 
+    __device__
+    SequenceLengthT getPaddedQueryLength(SequenceLengthT queryLength) const{
+        //pad query length to char4, add warpsize char4 border.
+        return SDIV(queryLength, 4) * 4 + 32 * sizeof(char4);
+    }
 
     __device__
-    void checkHEindex(int x, int line) const{
-        // if(x < 0){printf("line %d\n", line);}
-        // assert(x >= 0); //positive index
-        // assert(2*(blockDim.x/group_size)*blockIdx.x * queryLength <= base_3 + x);
-        // assert(base_3+x < 2*(blockDim.x/group_size)*(blockIdx.x+1) * queryLength);
+    void checkHEindex(int x, SequenceLengthT queryLength, int line) const{
+        // const SequenceLengthT currentQueryLengthWithPadding = getPaddedQueryLength(queryLength);
+        // assert(x >= 0);
+        // assert(x < SDIV(currentQueryLengthWithPadding, 2));
     };
 
     __device__
@@ -283,7 +287,7 @@ struct DPXAligner_s32{
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
 
-        const size_t base_3 = size_t(blockIdx.x)*size_t(queryLength);
+        const size_t base_3 = size_t(blockIdx.x)*size_t(getPaddedQueryLength(queryLength) / 2);
         int2* const devTempHcol = (&devTempHcol2[base_3]);
         int2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -369,7 +373,7 @@ struct DPXAligner_s32{
             set_H_E_temp_out_y(penalty_here31, E, H_temp_out, E_temp_out);
 
             if ((counter+8)%16 == 0 && counter > 8) {
-                checkHEindex(offset_out, __LINE__);
+                checkHEindex(offset_out, queryLength, __LINE__);
                 devTempHcol[offset_out]=H_temp_out;
                 devTempEcol[offset_out]=E_temp_out;
                 offset_out += group_size;
@@ -431,7 +435,7 @@ struct DPXAligner_s32{
 
         //printf("tid %d, offset_out %d, from_thread_id %d\n", threadIdx.x, offset_out, from_thread_id);
         if (threadIdx.x>=from_thread_id) {
-            checkHEindex(offset_out-from_thread_id, __LINE__);
+            checkHEindex(offset_out-from_thread_id, queryLength, __LINE__);
             devTempHcol[offset_out-from_thread_id]=H_temp_out;
             devTempEcol[offset_out-from_thread_id]=E_temp_out;
         }
@@ -452,7 +456,7 @@ struct DPXAligner_s32{
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
 
-        const size_t base_3 = size_t(blockIdx.x)*size_t(queryLength);
+        const size_t base_3 = size_t(blockIdx.x)*size_t(getPaddedQueryLength(queryLength) / 2);
         int2* const devTempHcol = (&devTempHcol2[base_3]);
         int2* const devTempEcol = (&devTempEcol2[base_3]);
 
@@ -460,7 +464,7 @@ struct DPXAligner_s32{
         int offset = group_id + group_size;
         int offset_out = group_id;
         int offset_in = group_id;
-        checkHEindex(offset_in, __LINE__);
+        checkHEindex(offset_in, queryLength, __LINE__);
         int2 H_temp_in = devTempHcol[offset_in];
         int2 E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
@@ -554,7 +558,7 @@ struct DPXAligner_s32{
             set_H_E_temp_out_y(penalty_here31, E, H_temp_out, E_temp_out);
 
             if ((counter+8)%16 == 0 && counter > 8) {
-                checkHEindex(offset_out, __LINE__);
+                checkHEindex(offset_out, queryLength, __LINE__);
                 devTempHcol[offset_out]=H_temp_out;
                 devTempEcol[offset_out]=E_temp_out;
                 offset_out += group_size;
@@ -569,7 +573,7 @@ struct DPXAligner_s32{
             }
             shuffle_H_E_temp_in(H_temp_in, E_temp_in);
             if (counter%16 == 0) {
-                checkHEindex(offset_in, __LINE__);
+                checkHEindex(offset_in, queryLength, __LINE__);
                 H_temp_in = devTempHcol[offset_in];
                 E_temp_in = devTempEcol[offset_in];
                 offset_in += group_size;
@@ -620,7 +624,7 @@ struct DPXAligner_s32{
         const int from_thread_id = 32 - ((final_out+1)/2);
 
         if (threadIdx.x>=from_thread_id) {
-            checkHEindex(offset_out-from_thread_id, __LINE__);
+            checkHEindex(offset_out-from_thread_id, queryLength, __LINE__);
             devTempHcol[offset_out-from_thread_id]=H_temp_out;
             devTempEcol[offset_out-from_thread_id]=E_temp_out;
         }
@@ -641,14 +645,14 @@ struct DPXAligner_s32{
         if (threadIdx.x % group_size== 0) query_letter = new_query_letter4.x;
 
 
-        const size_t base_3 = size_t(blockIdx.x)*size_t(queryLength);
+        const size_t base_3 = size_t(blockIdx.x)*size_t(getPaddedQueryLength(queryLength) / 2);
         int2* const devTempHcol = (&devTempHcol2[base_3]);
         int2* const devTempEcol = (&devTempEcol2[base_3]);
 
         const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
         int offset_in = group_id;
-        checkHEindex(offset_in, __LINE__);
+        checkHEindex(offset_in, queryLength, __LINE__);
         int2 H_temp_in = devTempHcol[offset_in];
         int2 E_temp_in = devTempEcol[offset_in];
         offset_in += group_size;
@@ -733,7 +737,7 @@ struct DPXAligner_s32{
                 }
                 shuffle_H_E_temp_in(H_temp_in, E_temp_in);
                 if (counter%16 == 0) {
-                    checkHEindex(offset_in, __LINE__);
+                    checkHEindex(offset_in, queryLength, __LINE__);
                     H_temp_in = devTempHcol[offset_in];
                     E_temp_in = devTempEcol[offset_in];
                     offset_in += group_size;
@@ -785,7 +789,7 @@ struct DPXAligner_s32{
         const int group_id = threadIdx.x % group_size;
         int offset = group_id + group_size;
         int offset_in = group_id;
-        checkHEindex(offset_in, __LINE__);
+        checkHEindex(offset_in, queryLength, __LINE__);
         offset_in += group_size;
 
         const int thread_result = ((length_S0-1)%(32*numRegs))/numRegs;
@@ -969,6 +973,7 @@ struct DPXAligner_s32{
 // numRegs values per thread
 // uses a single warp per CUDA thread block;
 // every groupsize threads computes an alignmen score
+// devTempHcol2 and devTempEcol2 each must have length numBlocks * (blocksize / group_size) * SDIV((SDIV(queryLength, 4) * 4 + 32 * sizeof(char4)), 2);
 template <int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
 __launch_bounds__(32,16)
 //__launch_bounds__(32)
@@ -1175,6 +1180,7 @@ void call_NW_local_affine_s32_DPX_single_pass_new(
 }
 
 
+//d_temp must have length numBlocks * (SDIV(queryLength, 4) * 4 + 32 * sizeof(char4));
 template <int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator>
 __launch_bounds__(1,1)
 __global__
@@ -1195,7 +1201,7 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_multi_pas
     const int numOverflow = *d_overflow_number;
     if(numOverflow > 0){
         const SequenceLengthT currentQueryLengthWithPadding = SDIV(queryLength, 4) * 4 + sizeof(char4) * 32;
-        const size_t tempBytesPerSubjectPerBuffer = sizeof(int2) * currentQueryLengthWithPadding;
+        const size_t tempBytesPerSubjectPerBuffer = sizeof(int2) * currentQueryLengthWithPadding / 2;
         const size_t maxSubjectsPerIteration = std::min(size_t(numOverflow), maxTempBytes / (tempBytesPerSubjectPerBuffer * 2));
 
         int2* d_tempHcol2 = d_temp;
