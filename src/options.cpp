@@ -90,6 +90,7 @@ bool parseArgs(int argc, char** argv, ProgramOptions& options){
     bool gotDB = false;
     bool gotGex = false;
     bool gotGop = false;
+    bool gotDPX = false;
 
     options.queryFiles.clear();
 
@@ -163,6 +164,8 @@ bool parseArgs(int argc, char** argv, ProgramOptions& options){
             options.pseudoDBSize = std::atoi(argv[++i]);
             options.pseudoDBLength = std::atoi(argv[++i]);
             gotDB = true;
+        }else if(arg == "--dpx"){
+            gotDPX = true;
         }else if(arg == "--tsv"){
             options.outputMode = ProgramOptions::OutputMode::TSV;
         }else if(arg == "--of"){
@@ -188,6 +191,13 @@ bool parseArgs(int argc, char** argv, ProgramOptions& options){
     if(options.blosumType == cudasw4::BlosumType::BLOSUM80 || options.blosumType == cudasw4::BlosumType::BLOSUM80_20){
         if(!gotGop) options.gop = -10;
         if(!gotGex) options.gex = -1;
+    }
+
+    if(gotDPX){
+        options.singlePassType = cudasw4::KernelType::DPXs16;
+        options.manyPassType_small = cudasw4::KernelType::DPXs16;
+        options.manyPassType_large = cudasw4::KernelType::DPXs32;
+        options.overflowType = cudasw4::KernelType::DPXs32;
     }
 
     if(!gotQuery){
@@ -235,7 +245,7 @@ void printHelp(int /*argc*/, char** argv){
     std::cout << "\n";
     
     std::cout << "   Misc\n";
-    
+    std::cout << "      --dpx : Use DPX instructions. Hardware support requires Hopper (sm_90) or newer. Older GPUs fall back to software emulation.\n";
     std::cout << "      --of : Result output file. Parent directory must exist. Default: console output (/dev/stdout)\n";
     std::cout << "      --TSV : Print results as tab-separated values instead of plain text. \n";
     std::cout << "      --verbose : More console output. Shows timings. \n";
@@ -244,12 +254,14 @@ void printHelp(int /*argc*/, char** argv){
     std::cout << "      --help : Print this message\n";
     std::cout << "\n";
 
-    std::cout << "   Benchmarking\n";
-    std::cout << "      --prefetchDBFile : Load DB into RAM immediately at program start instead of waiting for the first access. For benchmarking purposes.\n";
-    std::cout << "      --uploadFull : If enough GPU memory is available to store full db, copy full DB to GPU before processing queries. For benchmarking purposes.\n";
-    std::cout << "      --pseudodb num length : Use a generated DB which contains `num` equal sequences of length `length`. For benchmarking purposes.\n";
+    std::cout << "   Performance and benchmarking\n";
+    std::cout << "      --prefetchDBFile : Load DB into RAM immediately at program start instead of waiting for the first access.\n";
+    std::cout << "      --uploadFull : If enough GPU memory is available to store full db, copy full DB to GPU before processing queries.\n";
+    std::cout << "      --pseudodb num length : Use a generated DB which contains `num` equal sequences of length `length`.\n";
     std::cout << "      --singlePassType val, --manyPassType_small val, --manyPassType_large val, --overflowType val :\n";
-    std::cout << "           Select kernel types for different length partitions. Valid values: Half2, DPXs16, DPXs32, Float. For benchmarking purposes.\n";
+    std::cout << "           Select kernel types for different length partitions. Valid values: Half2, DPXs16, DPXs32, Float.\n";
+    std::cout << "           Misc option --dpx is equivalent to --singlePassType DPXs16 --manyPassType_small DPXs16 --manyPassType_large DPXs32 --overflowType DPXs32.\n";
+    std::cout << "           Default is --singlePassType Half2 --manyPassType_small Half2 --manyPassType_large Float --overflowType Float.\n";
     std::cout << "\n";
 
             

@@ -778,7 +778,7 @@ namespace cudasw4{
         }
 
         bool isValidOverflowType(KernelType type) const{
-            return (type == KernelType::Float);
+            return (type == KernelType::Float || type == KernelType::DPXs32);
         }
 
     private:
@@ -1998,6 +1998,24 @@ namespace cudasw4{
                             //std::cerr << "overflow processing\n";
                             float2* d_temp = (float2*)ws.d_tempStorageHE.data();
                             call_launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_multi_pass_new<20>(
+                                d_overflow_number,
+                                d_temp, 
+                                ws.numTempBytes,
+                                inputChars, 
+                                maxReduceArray,
+                                inputOffsets, 
+                                inputLengths, 
+                                d_overflow_positions, 
+                                d_query,
+                                currentQueryLength, 
+                                gop, 
+                                gex,
+                                ws.workStreamForTempUsage
+                            );
+                        }else if(kernelTypeConfig.overflowType == KernelType::DPXs32){
+                            //std::cerr << "overflow processing\n";
+                            int2* d_temp = (int2*)ws.d_tempStorageHE.data();
+                            call_launch_process_overflow_alignments_kernel_NW_local_affine_s32_DPX_multi_pass_new<20>(
                                 d_overflow_number,
                                 d_temp, 
                                 ws.numTempBytes,
