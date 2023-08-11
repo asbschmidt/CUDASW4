@@ -51,7 +51,7 @@ $(GRIDSEARCH): $(BUILDDIR)/gridsearch.o $(BUILDDIR)/sequence_io.o $(BUILDDIR)/db
 	$(COMPILER) $^ -o $(GRIDSEARCH) $(LDFLAGS)
 
 
-$(BUILDDIR)/main.o : src/main.cu src/sequence_io.h src/length_partitions.hpp src/dbdata.hpp src/cudasw4.cuh src/new_kernels.cuh src/convert.cuh src/float_kernels.cuh src/half2_kernels.cuh src/dpx_s16_kernels.cuh src/blosum.hpp src/types.hpp
+$(BUILDDIR)/main.o : src/main.cu src/sequence_io.h src/length_partitions.hpp src/dbdata.hpp src/cudasw4.cuh src/kernels.cuh src/convert.cuh src/float_kernels.cuh src/half2_kernels.cuh src/dpx_s16_kernels.cuh src/blosum.hpp src/types.hpp
 	$(COMPILE)
 
 $(BUILDDIR)/sequence_io.o : src/sequence_io.cpp src/sequence_io.h

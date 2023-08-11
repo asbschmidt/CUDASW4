@@ -990,7 +990,7 @@ template <int numRegs, int blosumDim, class ScoreOutputIterator, class Positions
 __launch_bounds__(32,16)
 //__launch_bounds__(32)
 __global__
-void NW_local_affine_read4_float_query_Protein_single_pass_new(
+void NW_local_affine_single_pass_float(
     __grid_constant__ const char * const devChars,
     __grid_constant__ ScoreOutputIterator const devAlignmentScores,
     __grid_constant__ const size_t* const devOffsets,
@@ -1026,7 +1026,7 @@ void NW_local_affine_read4_float_query_Protein_single_pass_new(
 }
 
 template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
-void call_NW_local_affine_read4_float_query_Protein_single_pass_new(
+void call_NW_local_affine_single_pass_float(
     BlosumType /*blosumType*/,
     const char * const devChars,
     ScoreOutputIterator const devAlignmentScores,
@@ -1042,7 +1042,7 @@ void call_NW_local_affine_read4_float_query_Protein_single_pass_new(
 ) {
 
     if(hostBlosumDim == 21){
-        auto kernel = NW_local_affine_read4_float_query_Protein_single_pass_new<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_single_pass_float<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         dim3 block = 32;
@@ -1061,7 +1061,7 @@ void call_NW_local_affine_read4_float_query_Protein_single_pass_new(
         ); CUERR;
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
-        auto kernel = NW_local_affine_read4_float_query_Protein_single_pass_new<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_single_pass_float<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         dim3 block = 32;
@@ -1089,7 +1089,7 @@ template <int numRegs, int blosumDim, class ScoreOutputIterator, class Positions
 __launch_bounds__(32,16)
 //__launch_bounds__(32)
 __global__
-void NW_local_affine_read4_float_query_Protein_multi_pass_new(
+void NW_local_affine_multi_pass_float(
     __grid_constant__ const char * const devChars,
     __grid_constant__ ScoreOutputIterator const devAlignmentScores,
     __grid_constant__ float2 * const devTempHcol2,
@@ -1128,7 +1128,7 @@ void NW_local_affine_read4_float_query_Protein_multi_pass_new(
 
 // devTempHcol2 and devTempEcol2 each must have length numBlocks * (blocksize / group_size) * SDIV((SDIV(queryLength, 4) * 4 + 32 * sizeof(char4)), 2);
 template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
-void call_NW_local_affine_read4_float_query_Protein_multi_pass_new(
+void call_NW_local_affine_multi_pass_float(
     BlosumType /*blosumType*/,
     const char * const devChars,
     ScoreOutputIterator const devAlignmentScores,
@@ -1146,7 +1146,7 @@ void call_NW_local_affine_read4_float_query_Protein_multi_pass_new(
 ) {
 
     if(hostBlosumDim == 21){
-        auto kernel = NW_local_affine_read4_float_query_Protein_multi_pass_new<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_multi_pass_float<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         dim3 block = 32;
@@ -1167,7 +1167,7 @@ void call_NW_local_affine_read4_float_query_Protein_multi_pass_new(
         ); CUERR;
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
-        auto kernel = NW_local_affine_read4_float_query_Protein_multi_pass_new<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_multi_pass_float<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         dim3 block = 32;
@@ -1196,7 +1196,7 @@ void call_NW_local_affine_read4_float_query_Protein_multi_pass_new(
 template <int numRegs, int blosumDim, class ScoreOutputIterator, class PositionsIterator> 
 __launch_bounds__(1,1)
 __global__
-void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_multi_pass_new(
+void launch_process_overflow_alignments_kernel_NW_local_affine_multi_pass_float(
     __grid_constant__ const int* const d_overflow_number,
     __grid_constant__ float2* const d_temp,
     __grid_constant__ const size_t maxTempBytes,
@@ -1249,7 +1249,7 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
             // cudaMemsetAsync(d_tempHcol2, 0, tempBytesPerSubjectPerBuffer * num, 0);
             // cudaMemsetAsync(d_tempEcol2, 0, tempBytesPerSubjectPerBuffer * num, 0);
 
-            NW_local_affine_read4_float_query_Protein_multi_pass_new<numRegs, blosumDim><<<num, 32>>>(
+            NW_local_affine_multi_pass_float<numRegs, blosumDim><<<num, 32>>>(
                 devChars, 
                 devAlignmentScores,
                 d_tempHcol2, 
@@ -1268,7 +1268,7 @@ void launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query
 
 
 template <int numRegs, class ScoreOutputIterator, class PositionsIterator> 
-void call_launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_multi_pass_new(
+void call_launch_process_overflow_alignments_kernel_NW_local_affine_multi_pass_float(
     const int* const d_overflow_number,
     float2* const d_temp,
     const size_t maxTempBytes,
@@ -1284,7 +1284,7 @@ void call_launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_
     cudaStream_t stream
 ){
     if(hostBlosumDim == 21){
-        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_multi_pass_new<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_multi_pass_float<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         kernel<<<1, 1, 0, stream>>>(
@@ -1303,7 +1303,7 @@ void call_launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_
         ); CUERR;
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
-        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_read4_float_query_Protein_multi_pass_new<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_multi_pass_float<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         kernel<<<1, 1, 0, stream>>>(

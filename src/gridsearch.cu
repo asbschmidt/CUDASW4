@@ -8,10 +8,10 @@
 #include "convert.cuh"
 #include "blosum.hpp"
 #include "types.hpp"
-#include "new_kernels.cuh"
-
-
 #include "kernels.cuh"
+
+
+#include oldkernels.cuh"
 
 #include <thrust/sequence.h>
 #include <thrust/execution_policy.h>
@@ -235,7 +235,7 @@ int main(int argc, char** argv){
                 if(pseudodbSeqLength <= groupsize * numRegs){ \
                     helpers::GpuTimer timer1(stream, "Timer_" + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
                     for(int i = 0; i < timingLoopIters; i++){ \
-                        cudasw4::call_NW_local_affine_Protein_single_pass_half2_new<blocksize, groupsize, numRegs>( \
+                        cudasw4::call_NW_local_affine_single_pass_half2<blocksize, groupsize, numRegs>( \
                             blosumType, \
                             d_subjects.data(),  \
                             d_scores_vec[i].data(),  \
@@ -280,7 +280,7 @@ int main(int argc, char** argv){
                 ); CUERR \
                 timer1.printGCUPS(((double(queryLength) * pseudodbSeqLength * numSubjects)));\
                 helpers::GpuTimer timer2(stream, "new " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-                cudaws4::call_NW_local_affine_Protein_single_pass_half2_new<blocksize, groupsize, numRegs>( \
+                cudaws4::call_NW_local_affine_single_pass_half2<blocksize, groupsize, numRegs>( \
                     blosumType, \
                     d_subjects.data(),  \
                     d_scores_vec[1].data(),  \
@@ -541,7 +541,7 @@ int main(int argc, char** argv){
                 const char4* d_query4 = (const char4*)d_query.data(); \
                 helpers::GpuTimer timer1(stream, "Timer_" + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
                 for(int i = 0; i < timingLoopIters; i++){ \
-                    cudasw4::call_NW_local_affine_Protein_many_pass_half2_new<blocksize, groupsize, numRegs>( \
+                    cudasw4::call_NW_local_affine_multi_pass_half2<blocksize, groupsize, numRegs>( \
                         blosumType, \
                         d_subjects.data(),  \
                         d_scores_vec[i].data(),  \
@@ -594,7 +594,7 @@ int main(int argc, char** argv){
                     cudaMemsetAsync(d_tempH.data(), 0, d_tempH.size() * sizeof(__half2), stream); CUERR; \
                     cudaMemsetAsync(d_tempE.data(), 0, d_tempE.size() * sizeof(__half2), stream); CUERR; \
                     helpers::GpuTimer timer2(stream, "new " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-                    cudasw4::call_NW_local_affine_Protein_many_pass_half2_new<groupsize, numRegs>( \
+                    cudasw4::call_NW_local_affine_multi_pass_half2<groupsize, numRegs>( \
                         blosumType, \
                         d_subjects.data(),  \
                         d_scores_vec[1].data(),  \
@@ -1064,7 +1064,7 @@ int main(int argc, char** argv){
                 if(pseudodbSeqLength <= groupsize * numRegs){ \
                     helpers::GpuTimer timer1(stream, "Timer_" + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
                     for(int i = 0; i < timingLoopIters; i++){ \
-                        cudasw4::call_NW_local_affine_single_pass_s16_DPX_new<blocksize, groupsize, numRegs>( \
+                        cudasw4::call_NW_local_affine_single_pass_dpx_s16<blocksize, groupsize, numRegs>( \
                             blosumType, \
                             d_subjects.data(),  \
                             d_scores_vec[i].data(),  \
@@ -1106,7 +1106,7 @@ int main(int argc, char** argv){
                     ); CUERR \
                     timer1.printGCUPS(((double(queryLength) * pseudodbSeqLength * numSubjects)));\
                     helpers::GpuTimer timer2(stream, "new " + std::to_string(blocksize) + "_" + std::to_string(groupsize) + "_" + std::to_string(numRegs)); \
-                    cudasw4::call_NW_local_affine_single_pass_s16_DPX_new<blocksize, groupsize, numRegs>( \
+                    cudasw4::call_NW_local_affine_single_pass_dpx_s16<blocksize, groupsize, numRegs>( \
                         blosumType, \
                         d_subjects.data(),  \
                         d_scores_vec[1].data(),  \

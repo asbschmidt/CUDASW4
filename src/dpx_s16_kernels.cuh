@@ -1070,7 +1070,7 @@ __launch_bounds__(blocksize,2)
 __launch_bounds__(blocksize)
 #endif
 __global__
-void NW_local_affine_many_pass_s16_DPX_new(
+void NW_local_affine_multi_pass_dpx_s16(
     __grid_constant__ const char * const devChars,
     __grid_constant__ ScoreOutputIterator const devAlignmentScores,
     __grid_constant__ short2 * const devTempHcol2,
@@ -1120,7 +1120,7 @@ void NW_local_affine_many_pass_s16_DPX_new(
 
 
 template <int blocksize, int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
-void call_NW_local_affine_many_pass_s16_DPX_new(
+void call_NW_local_affine_multi_pass_dpx_s16(
     BlosumType /*blosumType*/,
     const char * const devChars,
     ScoreOutputIterator const devAlignmentScores,
@@ -1146,7 +1146,7 @@ void call_NW_local_affine_many_pass_s16_DPX_new(
     int smem = sizeof(short2) * hostBlosumDim * hostBlosumDim * hostBlosumDim;
 
     if(hostBlosumDim == 21){
-        auto kernel = NW_local_affine_many_pass_s16_DPX_new<blocksize, group_size, numRegs, 21, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_multi_pass_dpx_s16<blocksize, group_size, numRegs, 21, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
 
         dim3 block = blocksize;
@@ -1171,7 +1171,7 @@ void call_NW_local_affine_many_pass_s16_DPX_new(
         ); CUERR;
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
-        auto kernel = NW_local_affine_many_pass_s16_DPX_new<blocksize, group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_multi_pass_dpx_s16<blocksize, group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
 
         dim3 block = blocksize;
@@ -1213,7 +1213,7 @@ __launch_bounds__(blocksize,2)
 __launch_bounds__(blocksize)
 #endif
 __global__
-void NW_local_affine_single_pass_s16_DPX_new(
+void NW_local_affine_single_pass_dpx_s16(
     __grid_constant__ const char * const devChars,
     __grid_constant__ ScoreOutputIterator const devAlignmentScores,
     __grid_constant__ const size_t* const devOffsets,
@@ -1261,7 +1261,7 @@ void NW_local_affine_single_pass_s16_DPX_new(
 
 
 template <int blocksize, int group_size, int numRegs, class ScoreOutputIterator, class PositionsIterator> 
-void call_NW_local_affine_single_pass_s16_DPX_new(
+void call_NW_local_affine_single_pass_dpx_s16(
     BlosumType /*blosumType*/,
     const char * const devChars,
     ScoreOutputIterator const devAlignmentScores,
@@ -1286,7 +1286,7 @@ void call_NW_local_affine_single_pass_s16_DPX_new(
     int smem = sizeof(short2) * hostBlosumDim * hostBlosumDim * hostBlosumDim;
 
     if(hostBlosumDim == 21){
-        auto kernel = NW_local_affine_single_pass_s16_DPX_new<blocksize, group_size, numRegs, 21, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_single_pass_dpx_s16<blocksize, group_size, numRegs, 21, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
 
         dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;
@@ -1307,7 +1307,7 @@ void call_NW_local_affine_single_pass_s16_DPX_new(
         );
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
-        auto kernel = NW_local_affine_single_pass_s16_DPX_new<blocksize, group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
+        auto kernel = NW_local_affine_single_pass_dpx_s16<blocksize, group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
 
         dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;
