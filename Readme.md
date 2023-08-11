@@ -31,13 +31,19 @@ The build step compiles the GPU code for all GPU archictectures of GPUs detected
 * Build align for the GPU architecture of GPUs 0 and 1: `CUDA_VISIBLE_DEVICES=0,1 make align`
 
 ## Database construction
-Use makedb to create a database from a fasta file. The file can be gzip'ed.
+Use **makedb** to create a database from a fasta file. The file can be gzip'ed.
 We support fasta files with up to 2 billion sequences.
 
 ```
 mkdir -p dbfolder
-./makedb input.fa(.gz) dbfolder/dbname
+./makedb input.fa(.gz) dbfolder/dbname [options]
 ```
+
+Options:
+* --mem val : Memory limit. Can use suffix K,M,G. If makedb requires more memory, temp files in temp directory will be used. Default all available memory.
+* --tempdir val : Temp directory for temporary files. Must exist. Default is db output directory.
+
+
 
 ## Querying the database
 Use **align** to query the database. **align** has two mandatory arguments. 
