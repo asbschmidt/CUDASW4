@@ -118,7 +118,7 @@ Aligns file allqueries.fasta to a simulated database with equal sequences.
 
 kerneltype 0: half2, kerneltype 1: dpx_s16, kerneltype 2: dpx_s32, kerneltype 3: float
 
-## sprot benchmark
+## uniprot sprot benchmark
 Downloads https://ftp.expasy.org/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.fasta.gz (88 megabyte) to folder benchmarkdbs, then constructs the corresponding DB and queries file allqueries.fasta 
 
 `./runsprotbenchmark.sh kerneltype`
@@ -129,6 +129,13 @@ kerneltype 0: half2, kerneltype 1: dpx
 Downloads https://ftp.expasy.org/databases/uniprot/current_release/uniref/uniref50/uniref50.fasta.gz (12 gigabyte) to folder benchmarkdbs, then constructs the corresponding DB and queries file allqueries.fasta 
 
 `./rununiref50benchmark.sh kerneltype`
+
+kerneltype 0: half2, kerneltype 1: dpx
+
+## uniprot trembl benchmark
+Downloads https://ftp.expasy.org/databases/uniprot/current_release/knowledgebase/complete/uniprot_trembl.fasta.gz (57 gigabyte) to folder benchmarkdbs, then constructs the corresponding DB and queries file allqueries.fasta 
+
+`./runtremblbenchmark.sh kerneltype`
 
 kerneltype 0: half2, kerneltype 1: dpx
 
