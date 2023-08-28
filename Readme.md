@@ -125,10 +125,10 @@ Downloads https://ftp.expasy.org/databases/uniprot/current_release/knowledgebase
 
 kerneltype 0: half2, kerneltype 1: dpx
 
-## refseq50 benchmark
+## uniref50 benchmark
 Downloads https://ftp.expasy.org/databases/uniprot/current_release/uniref/uniref50/uniref50.fasta.gz (12 gigabyte) to folder benchmarkdbs, then constructs the corresponding DB and queries file allqueries.fasta 
 
-`./runrefseq50benchmark.sh kerneltype`
+`./rununiref50benchmark.sh kerneltype`
 
 kerneltype 0: half2, kerneltype 1: dpx
 
