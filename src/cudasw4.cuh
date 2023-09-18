@@ -1226,12 +1226,14 @@ namespace cudasw4{
 
                 if(numGpus > 1){
                     //transform per gpu local sequence indices into global sequence indices
-                    transformLocalSequenceIndicesToGlobalIndices<<<SDIV(results_per_query, 128), 128, 0, gpuStreams[gpu]>>>(
-                        gpu,
-                        results_per_query,
-                        ws.deviceGpuPartitionOffsets.getDeviceView(),
-                        ws.d_maxReduceArrayIndices.data()
-                    ); CUERR;
+                    if(results_per_query > 0){
+                        transformLocalSequenceIndicesToGlobalIndices<<<SDIV(results_per_query, 128), 128, 0, gpuStreams[gpu]>>>(
+                            gpu,
+                            results_per_query,
+                            ws.deviceGpuPartitionOffsets.getDeviceView(),
+                            ws.d_maxReduceArrayIndices.data()
+                        ); CUERR;
+                    }
                 }
 
                 cudaMemcpyAsync(
