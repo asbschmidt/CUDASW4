@@ -16,22 +16,18 @@ MAKEDB = makedb
 MODIFYDB = modifydb
 GRIDSEARCH = gridsearch
 
+$(shell mkdir -p $(BUILDDIR))
+
 # make targets
 .PHONY: clean
 
-release: builddir $(ARTIFACT) $(MAKEDB) #$(MODIFYDB) $(GRIDSEARCH)
+release: $(ARTIFACT) $(MAKEDB)
 
-.PHONY: builddir
-builddir:
-	@mkdir -p $(BUILDDIR)
 
 clean :
-	rm -rf $(BUILDDIR)
+	rm -f $(BUILDDIR)/*
 	rm -f $(ARTIFACT)
 	rm -f $(MAKEDB)
-
-
-
 
 # compiler call
 COMPILE = $(COMPILER) $(NVCC_FLAGS) $(DIALECT) $(OPTIMIZATION) $(WARNINGS) -c $< -o $@
