@@ -247,7 +247,7 @@ void printHelp(int /*argc*/, char** argv){
     std::cout << "   Misc\n";
     std::cout << "      --dpx : Use DPX instructions. Hardware support requires Hopper (sm_90) or newer. Older GPUs fall back to software emulation.\n";
     std::cout << "      --of : Result output file. Parent directory must exist. Default: console output (/dev/stdout)\n";
-    std::cout << "      --TSV : Print results as tab-separated values instead of plain text. \n";
+    std::cout << "      --tsv : Print results as tab-separated values instead of plain text. \n";
     std::cout << "      --verbose : More console output. Shows timings. \n";
     std::cout << "      --printLengthPartitions : Print number of sequences per length partition in db.\n";
     std::cout << "      --interactive : Loads DB, then waits for sequence input by user\n";
