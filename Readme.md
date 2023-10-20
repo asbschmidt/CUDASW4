@@ -7,10 +7,10 @@
 
 
 ## Software requirements
+* Linux operating system with compatible CUDA Toolkit 12 or newer
+* C++17 compiler
 * zlib
 * make
-* C++17 compiler
-* CUDA Toolkit 12 or newer
 
 ## Hardware requirements
 *   A modern CUDA-capable GPU of generation Ampère or newer. We have tested CUDASW4 on Ampère (sm_80), Ada Lovelace (sm_89), and Hopper (sm_90). Older generations lack hardware-support for specific instructions and may run at reduced speeds or may not run at all.
@@ -100,6 +100,7 @@ Depending on the database size and available total GPU memory, the database is t
 
 ## Other options
 ```
+    --dpx : Use DPX instructions. Hardware support requires Hopper (sm_90) or newer. Older GPUs fall back to software emulation.
     --verbose : More console output. Shows timings.
     --printLengthPartitions : Print number of sequences per length partition in db.
     --interactive : Loads DB, then waits for sequence input by user
