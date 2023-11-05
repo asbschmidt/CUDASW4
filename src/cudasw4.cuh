@@ -245,8 +245,6 @@ namespace cudasw4{
         template<class T>
         using MyDeviceBuffer = helpers::SimpleAllocationDevice<T, 0>;
 
-        static constexpr int maxReduceArraySize = 512 * 1024;
-
         struct GpuWorkingSet{
 
             //using MaxReduceArray = TopNMaximaArray<maxReduceArraySize>;
@@ -257,9 +255,13 @@ namespace cudasw4{
                 size_t maxBatchBytes,
                 size_t maxBatchSequences,
                 size_t maxTempBytes,
-                const std::vector<DBdataView>& dbPartitions
-            ){
+                const std::vector<DBdataView>& dbPartitions,
+                int maxReduceArraySize_ = 512 * 1024
+            ) : maxReduceArraySize(maxReduceArraySize_)
+            {
                 cudaGetDevice(&deviceId);
+
+                std::cout << "maxReduceArraySize_ = " << maxReduceArraySize_ << "\n";
         
                 size_t numSubjects = 0;
                 size_t numSubjectBytes = 0;
@@ -412,7 +414,16 @@ namespace cudasw4{
         
             void setPartitionOffsets(const HostGpuPartitionOffsets& offsets){
                 deviceGpuPartitionOffsets = DeviceGpuPartitionOffsets(offsets);
-            }        
+            }
+            
+            // void setMaxReduceArraySize(int newsize){
+            //     d_maxReduceArrayLocks.resize(newsize);
+            //     d_maxReduceArrayScores.resize(newsize);
+            //     d_maxReduceArrayIndices.resize(newsize);
+        
+            //     cudaMemset(d_maxReduceArrayLocks.data(), 0, sizeof(int) * newsize);
+            //     maxReduceArraySize = newsize
+            // }
         
             bool singleBatchDBisOnGpu = false;
             int deviceId;
@@ -420,6 +431,7 @@ namespace cudasw4{
             int numWorkStreamsWithoutTemp = 1;
             int workstreamIndex;
             int copyBufferIndex = 0;
+            int maxReduceArraySize = 512 * 1024;
             size_t numTempBytes;
         
             MyDeviceBuffer<int> d_maxReduceArrayLocks;
@@ -476,6 +488,9 @@ namespace cudasw4{
             bool verbose_
         ) : deviceIds(std::move(deviceIds_)), verbose(verbose_)
         {
+            #ifdef CUDASW_DEBUG_CHECK_CORRECTNESS
+                blosumType = BlosumType::BLOSUM62_20;
+            #endif
             if(deviceIds.size() == 0){ 
                 throw std::runtime_error("No device selected");
             
@@ -685,13 +700,47 @@ namespace cudasw4{
                 sequenceLengthStatistics.sumOfLengths * queryLength, 
                 resultNumOverflows[0]
             );
+
+            #ifdef CUDASW_DEBUG_CHECK_CORRECTNESS
+
+            std::vector<int> cpuScores = computeAllScoresCPU_blosum62(query, queryLength);
+            //bool checkOk = true;
+            int numErrors = 0;
+            for(size_t i = 0; i < cpuScores.size(); i++){
+                const auto refId = h_finalReferenceIds[i];
+                const int gpu = h_finalAlignmentScores[i];
+                const int cpu = cpuScores[refId];
+                if(cpu != gpu){
+                    if(numErrors == 0){
+                        std::cout << "error. i " << i << ", sequence id " << refId 
+                            << ", cpu score " << cpu << ", gpu score " << gpu << ".";
+                        std::cout << "Query:\n";
+                        std::copy(query, query + queryLength, std::ostream_iterator<char>(std::cout, ""));
+                        std::cout << "\n";
+                        std::cout << "db sequence:\n";
+                        std::cout << getReferenceSequence(refId) << "\n";
+                    }
+                    numErrors++;
+                }
+            }
+            if(numErrors == 0){
+                std::cout << "Check ok, cpu and gpu produced same results\n";
+            }else{
+                std::cout << "Check not ok!!! " << numErrors << " sequences produced different results\n";
+            }
+
+            //#endif
+            #else
+
             result.scores.insert(result.scores.end(), h_finalAlignmentScores.begin(), h_finalAlignmentScores.begin() + results_per_query);
             result.referenceIds.insert(result.referenceIds.end(), h_finalReferenceIds.begin(), h_finalReferenceIds.begin() + results_per_query);
+            
+            #endif
 
             return result;
         }
 
-        std::vector<int> computeAllScoresCPU(const char* query, SequenceLengthT queryLength){
+        std::vector<int> computeAllScoresCPU_blosum62(const char* query, SequenceLengthT queryLength){
             const auto& view = fullDB.getData();
             size_t numSequences = view.numSequences();
             std::vector<int> result(numSequences);
@@ -802,6 +851,17 @@ namespace cudasw4{
         }
 
         void makeReady(){
+            #ifdef CUDASW_DEBUG_CHECK_CORRECTNESS
+            const auto& dbData = fullDB.getData();
+            size_t numDBSequences = dbData.numSequences();
+            if(numDBSequences > size_t(std::numeric_limits<int>::max()))
+                throw std::runtime_error("cannot check correctness for this db size");
+
+            maxReduceArraySize = numDBSequences;
+            results_per_query = maxReduceArraySize;
+            setNumTop(maxReduceArraySize);
+            #endif
+
             dbSequenceLengthStatistics = nullptr;
 
             computeTotalNumSequencePerLengthPartition();
@@ -949,7 +1009,8 @@ namespace cudasw4{
                     memoryConfig.maxBatchBytes,
                     memoryConfig.maxBatchSequences,
                     memoryConfig.maxTempBytes,
-                    subPartitionsForGpus[gpu]
+                    subPartitionsForGpus[gpu],
+                    maxReduceArraySize
                 );
 
                 if(verbose){
@@ -2298,6 +2359,7 @@ namespace cudasw4{
         int gex = -1;
         int numTop = 10;
         BlosumType blosumType = BlosumType::BLOSUM62_20;
+        int maxReduceArraySize = 512 * 1024;
 
         KernelTypeConfig kernelTypeConfig;
         MemoryConfig memoryConfig;
