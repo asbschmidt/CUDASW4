@@ -2105,7 +2105,7 @@ namespace cudasw4{
         
                         //let other workstreams depend on temp usage stream
                         for(auto& stream : ws.workStreamsWithoutTemp){
-                            cudaStreamWaitEvent(ws.workStreamForTempUsage, ws.deviceBufferEvents[variables.currentBuffer], 0); CUERR;    
+                            cudaStreamWaitEvent(stream, ws.deviceBufferEvents[variables.currentBuffer], 0); CUERR;    
                         }
         
                         ws.copyBufferIndex = (ws.copyBufferIndex+1) % ws.numCopyBuffers;
