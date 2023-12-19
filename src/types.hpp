@@ -27,10 +27,10 @@ enum class BlosumType{
 };
 
 struct BLOSUM45_20{
-    static constexpr char low = -5;
+    static constexpr std::int8_t low = -5;
     static constexpr int dim = 20 + 1;
 
-    static constexpr std::array<char, dim*dim> get1D() {
+    static constexpr std::array<std::int8_t, dim*dim> get1D() {
         return  {
             //A, R, N, D, C, Q, E, G, H, I, L, K, M, F, P, S, T, W, Y, V, other
             5, -2, -1, -2, -1, -1, -1, 0, -2, -1, -1, -1, -1, -2, -1, 1, 0, -2, -2, 0, low,
@@ -57,9 +57,9 @@ struct BLOSUM45_20{
         };
     }
 
-    static constexpr std::array<std::array<char, dim>, dim> get2D() {
+    static constexpr std::array<std::array<std::int8_t, dim>, dim> get2D() {
         auto flat = get1D();
-        std::array<std::array<char, dim>, dim> result{};
+        std::array<std::array<std::int8_t, dim>, dim> result{};
         for(int y = 0; y < dim; y++){
             for(int x = 0; x < dim; x++){
                 result[y][x] = flat[y * dim + x];
@@ -70,10 +70,10 @@ struct BLOSUM45_20{
 };
 
 struct BLOSUM50_20{
-    static constexpr char low = -5;
+    static constexpr std::int8_t low = -5;
     static constexpr int dim = 20+1;
 
-    static constexpr std::array<char, dim*dim> get1D() {
+    static constexpr std::array<std::int8_t, dim*dim> get1D() {
         return  {
             // A   R   N   D   C   Q   E   G   H   I   L   K   M   F   P   S   T   W   Y   V, other
             5, -2, -1, -2, -1, -1, -1,  0, -2, -1, -2, -1, -1, -3, -1,  1,  0, -3, -2,  0, low,
@@ -100,9 +100,9 @@ struct BLOSUM50_20{
         };
     }
 
-    static constexpr std::array<std::array<char, dim>, dim> get2D() {
+    static constexpr std::array<std::array<std::int8_t, dim>, dim> get2D() {
         auto flat = get1D();
-        std::array<std::array<char, dim>, dim> result{};
+        std::array<std::array<std::int8_t, dim>, dim> result{};
         for(int y = 0; y < dim; y++){
             for(int x = 0; x < dim; x++){
                 result[y][x] = flat[y * dim + x];
@@ -113,10 +113,10 @@ struct BLOSUM50_20{
 };
 
 struct BLOSUM62_20{
-    static constexpr char low = -4;
+    static constexpr std::int8_t low = -4;
     static constexpr int dim = 20+1;
 
-    static constexpr std::array<char, dim*dim> get1D() {
+    static constexpr std::array<std::int8_t, dim*dim> get1D() {
         return  {
          // A   R   N   D   C   Q   E   G   H   I   L   K   M   F   P   S   T   W   Y   V, other
             4, -1, -2, -2,  0, -1, -1,  0, -2, -1, -1, -1, -1, -2, -1,  1,  0, -3, -2,  0, low, // A
@@ -143,9 +143,9 @@ struct BLOSUM62_20{
         };
     }
 
-    static constexpr std::array<std::array<char, dim>, dim> get2D() {
+    static constexpr std::array<std::array<std::int8_t, dim>, dim> get2D() {
         auto flat = get1D();
-        std::array<std::array<char, dim>, dim> result{};
+        std::array<std::array<std::int8_t, dim>, dim> result{};
         for(int y = 0; y < dim; y++){
             for(int x = 0; x < dim; x++){
                 result[y][x] = flat[y * dim + x];
@@ -158,10 +158,10 @@ struct BLOSUM62_20{
 
 
 struct BLOSUM80_20{
-    static constexpr char low = -6;
+    static constexpr std::int8_t low = -6;
     static constexpr int dim = 20 + 1;
 
-    static constexpr std::array<char, dim*dim> get1D() {
+    static constexpr std::array<std::int8_t, dim*dim> get1D() {
         return  {
             //A, R, N, D, C, Q, E, G, H, I, L, K, M, F, P, S, T, W, Y, V, other
             5, -2, -2, -2, -1, -1, -1, 0, -2, -2, -2, -1, -1, -3, -1, 1, 0, -3, -2, 0, low,
@@ -188,9 +188,9 @@ struct BLOSUM80_20{
         };
     }
 
-    static constexpr std::array<std::array<char, dim>, dim> get2D() {
+    static constexpr std::array<std::array<std::int8_t, dim>, dim> get2D() {
         auto flat = get1D();
-        std::array<std::array<char, dim>, dim> result{};
+        std::array<std::array<std::int8_t, dim>, dim> result{};
         for(int y = 0; y < dim; y++){
             for(int x = 0; x < dim; x++){
                 result[y][x] = flat[y * dim + x];
@@ -203,10 +203,10 @@ struct BLOSUM80_20{
 
 
 struct BLOSUM45{
-    static constexpr char low = -5;
+    static constexpr std::int8_t low = -5;
     static constexpr int dim = 25;
 
-    static constexpr std::array<char, dim*dim> get1D() {
+    static constexpr std::array<std::int8_t, dim*dim> get1D() {
         return  {
             //A, R, N,  D,  C,  Q,  E, G,  H,  I,  L,  K,  M,  F,  P, S, T,  W,  Y, V,  B,  J,  Z,  X,  *
             5, -2, -1, -2, -1, -1, -1, 0, -2, -1, -1, -1, -1, -2, -1, 1, 0, -2, -2, 0, -1, -1, -1, -1, -5,
@@ -237,9 +237,9 @@ struct BLOSUM45{
         };
     }
 
-    static constexpr std::array<std::array<char, dim>, dim> get2D() {
+    static constexpr std::array<std::array<std::int8_t, dim>, dim> get2D() {
         auto flat = get1D();
-        std::array<std::array<char, dim>, dim> result{};
+        std::array<std::array<std::int8_t, dim>, dim> result{};
         for(int y = 0; y < dim; y++){
             for(int x = 0; x < dim; x++){
                 result[y][x] = flat[y * dim + x];
@@ -250,10 +250,10 @@ struct BLOSUM45{
 };
 
 struct BLOSUM50{
-    static constexpr char low = -5;
+    static constexpr std::int8_t low = -5;
     static constexpr int dim = 25;
 
-    static constexpr std::array<char, dim*dim> get1D() {
+    static constexpr std::array<std::int8_t, dim*dim> get1D() {
         return  {
             //A, R, N, D, C, Q, E, G, H, I, L, K, M, F, P, S, T, W, Y, V, B, J, Z, X, *
             5, -2, -1, -2, -1, -1, -1, 0, -2, -1, -2, -1, -1, -3, -1, 1, 0, -3, -2, 0, -2, -2, -1, -1, -5,
@@ -285,9 +285,9 @@ struct BLOSUM50{
         };
     }
 
-    static constexpr std::array<std::array<char, dim>, dim> get2D() {
+    static constexpr std::array<std::array<std::int8_t, dim>, dim> get2D() {
         auto flat = get1D();
-        std::array<std::array<char, dim>, dim> result{};
+        std::array<std::array<std::int8_t, dim>, dim> result{};
         for(int y = 0; y < dim; y++){
             for(int x = 0; x < dim; x++){
                 result[y][x] = flat[y * dim + x];
@@ -299,10 +299,10 @@ struct BLOSUM50{
 
 
 struct BLOSUM62{
-    static constexpr char low = -4;
+    static constexpr std::int8_t low = -4;
     static constexpr int dim = 25;
 
-    static constexpr std::array<char, dim*dim> get1D() {
+    static constexpr std::array<std::int8_t, dim*dim> get1D() {
         return  {
             // A, R, N, D, C, Q, E, G, H, I, L, K, M, F, P, S, T, W, Y, V, B, J, Z, X, *
             4, -1, -2, -2, 0, -1, -1, 0, -2, -1, -1, -1, -1, -2, -1, 1, 0, -3, -2, 0, -2, -1, -1, -1, -4,
@@ -333,9 +333,9 @@ struct BLOSUM62{
         };
     }
 
-    static constexpr std::array<std::array<char, dim>, dim> get2D() {
+    static constexpr std::array<std::array<std::int8_t, dim>, dim> get2D() {
         auto flat = get1D();
-        std::array<std::array<char, dim>, dim> result{};
+        std::array<std::array<std::int8_t, dim>, dim> result{};
         for(int y = 0; y < dim; y++){
             for(int x = 0; x < dim; x++){
                 result[y][x] = flat[y * dim + x];
@@ -348,10 +348,10 @@ struct BLOSUM62{
 
 
 struct BLOSUM80{
-    static constexpr char low = -6;
+    static constexpr std::int8_t low = -6;
     static constexpr int dim = 25;
 
-    static constexpr std::array<char, dim*dim> get1D() {
+    static constexpr std::array<std::int8_t, dim*dim> get1D() {
         return  {
             // A, R, N, D, C, Q, E, G, H, I, L, K, M, F, P, S, T, W, Y, V, B, J, Z, X, *
             5, -2, -2, -2, -1, -1, -1, 0, -2, -2, -2, -1, -1, -3, -1, 1, 0, -3, -2, 0, -2, -2, -1, -1, -6,
@@ -383,9 +383,9 @@ struct BLOSUM80{
         };
     }
 
-    static constexpr std::array<std::array<char, dim>, dim> get2D() {
+    static constexpr std::array<std::array<std::int8_t, dim>, dim> get2D() {
         auto flat = get1D();
-        std::array<std::array<char, dim>, dim> result{};
+        std::array<std::array<std::int8_t, dim>, dim> result{};
         for(int y = 0; y < dim; y++){
             for(int x = 0; x < dim; x++){
                 result[y][x] = flat[y * dim + x];

@@ -6,12 +6,12 @@
 namespace cudasw4{
 
     #ifdef __CUDACC__
-    __constant__ char deviceBlosum[25*25];
+    __constant__ std::int8_t deviceBlosum[25*25];
     __constant__ int deviceBlosumDim;
     __constant__ int deviceBlosumDimSquared;
     #endif
     
-    char hostBlosum[25*25];
+    std::int8_t hostBlosum[25*25];
     int hostBlosumDim;
     int hostBlosumDimSquared;
     
@@ -111,7 +111,7 @@ namespace cudasw4{
     
         for(int gpu = 0; gpu < numGpus; gpu++){
             cudaSetDevice(deviceIds[gpu]); CUERR;
-            cudaMemcpyToSymbol(deviceBlosum, &(hostBlosum[0]), sizeof(char) * hostBlosumDim * hostBlosumDim); CUERR;
+            cudaMemcpyToSymbol(deviceBlosum, &(hostBlosum[0]), sizeof(std::int8_t) * hostBlosumDim * hostBlosumDim); CUERR;
             cudaMemcpyToSymbol(deviceBlosumDim, &hostBlosumDim, sizeof(int)); CUERR;
             cudaMemcpyToSymbol(deviceBlosumDimSquared, &hostBlosumDimSquared, sizeof(int)); CUERR;
         }

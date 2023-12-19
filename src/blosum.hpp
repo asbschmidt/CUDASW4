@@ -6,18 +6,19 @@
 #include <array>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 namespace cudasw4{
 
 #ifdef __CUDACC__
 
-extern __constant__ char deviceBlosum[25*25];
+extern __constant__ std::int8_t deviceBlosum[25*25];
 extern __constant__ int deviceBlosumDim;
 extern __constant__ int deviceBlosumDimSquared;
 
 #endif
 
-extern char hostBlosum[25*25];
+extern std::int8_t hostBlosum[25*25];
 extern int hostBlosumDim;
 extern int hostBlosumDimSquared;
 
