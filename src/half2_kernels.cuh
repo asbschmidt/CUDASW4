@@ -1211,7 +1211,7 @@ void call_NW_local_affine_multi_pass_half2(
 
     if(hostBlosumDim == 21){
         auto kernel = NW_local_affine_multi_pass_half2<blocksize, group_size, numRegs, 21, ScoreOutputIterator, PositionsIterator>;
-        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+        assert(smem <= 48 * 1024);
 
         dim3 block = blocksize;
         dim3 grid = SDIV(numSelected, alignmentsPerBlock);
@@ -1236,7 +1236,15 @@ void call_NW_local_affine_multi_pass_half2(
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
         auto kernel = NW_local_affine_multi_pass_half2<blocksize, group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
-        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+        auto setSmemKernelAttribute = [&](){
+            static bool isSet = false;
+            if(!isSet){
+                cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+                isSet = true;
+            }
+        };
+
+        setSmemKernelAttribute();
 
         dim3 block = blocksize;
         dim3 grid = SDIV(numSelected, alignmentsPerBlock);
@@ -1345,7 +1353,7 @@ void call_NW_local_affine_single_pass_half2(
 
     if(hostBlosumDim == 21){
         auto kernel = NW_local_affine_single_pass_half2<blocksize, group_size, numRegs, 21, ScoreOutputIterator, PositionsIterator>;
-        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+        assert(smem <= 48 * 1024);
 
         dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;
         kernel<<<grid, blocksize, smem, stream>>>(
@@ -1366,7 +1374,15 @@ void call_NW_local_affine_single_pass_half2(
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
         auto kernel = NW_local_affine_single_pass_half2<blocksize, group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
-        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+        auto setSmemKernelAttribute = [&](){
+            static bool isSet = false;
+            if(!isSet){
+                cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+                isSet = true;
+            }
+        };
+
+        setSmemKernelAttribute();
 
         dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;
         kernel<<<grid, blocksize, smem, stream>>>(

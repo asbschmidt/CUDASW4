@@ -1040,7 +1040,6 @@ void call_NW_local_affine_single_pass_float(
 
     if(hostBlosumDim == 21){
         auto kernel = NW_local_affine_single_pass_float<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
-        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         dim3 block = 32;
         dim3 grid = numSelected;
@@ -1059,7 +1058,6 @@ void call_NW_local_affine_single_pass_float(
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
         auto kernel = NW_local_affine_single_pass_float<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
-        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         dim3 block = 32;
         dim3 grid = numSelected;
@@ -1144,7 +1142,6 @@ void call_NW_local_affine_multi_pass_float(
 
     if(hostBlosumDim == 21){
         auto kernel = NW_local_affine_multi_pass_float<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
-        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         dim3 block = 32;
         dim3 grid = numSelected;
@@ -1165,7 +1162,6 @@ void call_NW_local_affine_multi_pass_float(
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
         auto kernel = NW_local_affine_multi_pass_float<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
-        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         dim3 block = 32;
         dim3 grid = numSelected;
@@ -1282,7 +1278,6 @@ void call_launch_process_overflow_alignments_kernel_NW_local_affine_multi_pass_f
 ){
     if(hostBlosumDim == 21){
         auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_multi_pass_float<numRegs, 21, ScoreOutputIterator, PositionsIterator>;
-        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         kernel<<<1, 1, 0, stream>>>(
             d_overflow_number,
@@ -1301,7 +1296,6 @@ void call_launch_process_overflow_alignments_kernel_NW_local_affine_multi_pass_f
     #ifdef CAN_USE_FULL_BLOSUM
     }else if(hostBlosumDim == 25){
         auto kernel = launch_process_overflow_alignments_kernel_NW_local_affine_multi_pass_float<numRegs, 25, ScoreOutputIterator, PositionsIterator>;
-        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
 
         kernel<<<1, 1, 0, stream>>>(
             d_overflow_number,
