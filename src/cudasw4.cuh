@@ -380,7 +380,7 @@ namespace cudasw4{
                     }
                     assert(numBatchesInCachedDB < dbBatches.size());
 
-                    std::cout << "numBatchesInCachedDB " << numBatchesInCachedDB << ", charsOfBatches " << charsOfBatches << ", subjectsOfBatches " << subjectsOfBatches << "\n";
+                    //std::cout << "numBatchesInCachedDB " << numBatchesInCachedDB << ", charsOfBatches " << charsOfBatches << ", subjectsOfBatches " << subjectsOfBatches << "\n";
 
                     assert(usedGpuMem + totalRequiredMemForBatches <= gpumemlimit);
                     d_cacheddb = std::make_shared<GpuDatabaseAllocation>(charsOfBatches, subjectsOfBatches);
@@ -1627,26 +1627,26 @@ namespace cudasw4{
                                 //synchronize to avoid overwriting pinned buffer of target before it has been fully transferred
                                 cudaEventSynchronize(ws.pinnedBufferEvents[variables.currentBuffer]); CUERR;
 
-                                // executeCopyPlanH2DDirect(
-                                //     *variables.currentPlanPtr, 
-                                //     variables.d_inputChars,
-                                //     variables.d_inputLengths,
-                                //     variables.d_inputOffsets,
-                                //     dbPartitionsPerGpu[gpu], 
-                                //     variables.H2DcopyStream
-                                // );
-        
-                                executePinnedCopyPlanSerialAndTransferToGpu(
+                                executeCopyPlanH2DDirect(
                                     *variables.currentPlanPtr, 
-                                    variables.h_inputChars,
-                                    variables.h_inputLengths,
-                                    variables.h_inputOffsets,
                                     variables.d_inputChars,
                                     variables.d_inputLengths,
                                     variables.d_inputOffsets,
                                     dbPartitionsPerGpu[gpu], 
                                     variables.H2DcopyStream
                                 );
+        
+                                // executePinnedCopyPlanSerialAndTransferToGpu(
+                                //     *variables.currentPlanPtr, 
+                                //     variables.h_inputChars,
+                                //     variables.h_inputLengths,
+                                //     variables.h_inputOffsets,
+                                //     variables.d_inputChars,
+                                //     variables.d_inputLengths,
+                                //     variables.d_inputOffsets,
+                                //     dbPartitionsPerGpu[gpu], 
+                                //     variables.H2DcopyStream
+                                // );
                             }
                             
                             cudaEventRecord(ws.pinnedBufferEvents[variables.currentBuffer], variables.H2DcopyStream); CUERR;
