@@ -126,6 +126,8 @@ struct TopNMaximaArray{
             }
 
             atomicExch(lock, 0);
+
+            return *this;
         }
     };
 
