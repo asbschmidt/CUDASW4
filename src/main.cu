@@ -209,7 +209,7 @@ int main(int argc, char* argv[])
     }
 
     if(options.loadFullDBToGpu){
-        cudaSW4.prefetchFullDBToGpus();
+        cudaSW4.prefetchDBToGpus();
     }
 
     if(!options.interactive){

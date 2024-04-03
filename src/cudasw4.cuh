@@ -17,6 +17,8 @@
 #include "dbbatching.cuh"
 #include "convert.cuh"
 
+#include "gpudatabaseallocation.cuh"
+
 #include <thrust/binary_search.h>
 #include <thrust/sort.h>
 #include <thrust/equal.h>
@@ -256,13 +258,12 @@ namespace cudasw4{
                 size_t maxBatchSequences,
                 size_t maxTempBytes,
                 const std::vector<DBdataView>& dbPartitions,
+                const std::vector<DeviceBatchCopyToPinnedPlan>& dbBatches,
                 int maxReduceArraySize_ = 512 * 1024
             ) : maxReduceArraySize(maxReduceArraySize_)
             {
                 cudaGetDevice(&deviceId);
 
-                std::cout << "maxReduceArraySize_ = " << maxReduceArraySize_ << "\n";
-        
                 size_t numSubjects = 0;
                 size_t numSubjectBytes = 0;
                 for(const auto& p : dbPartitions){
@@ -271,42 +272,32 @@ namespace cudasw4{
                 }
         
                 d_query.resize(1024*1024); CUERR
-        
+
+                numTempBytes = std::min(maxTempBytes, gpumemlimit);
+                d_tempStorageHE.resize(numTempBytes);
+                d_maxReduceArrayLocks.resize(maxReduceArraySize);
+                d_maxReduceArrayScores.resize(maxReduceArraySize);
+                d_maxReduceArrayIndices.resize(maxReduceArraySize);            
+                cudaMemset(d_maxReduceArrayLocks.data(), 0, sizeof(int) * maxReduceArraySize);
+
                 size_t usedGpuMem = 0;
+                usedGpuMem += numTempBytes;
                 usedGpuMem += sizeof(int) * maxReduceArraySize; // d_maxReduceArrayLocks
                 usedGpuMem += sizeof(float) * maxReduceArraySize; // d_maxReduceArrayScores
                 usedGpuMem += sizeof(ReferenceIdT) * maxReduceArraySize; // d_maxReduceArrayIndices
-        
-                d_maxReduceArrayLocks.resize(maxReduceArraySize);
-                d_maxReduceArrayScores.resize(maxReduceArraySize);
-                d_maxReduceArrayIndices.resize(maxReduceArraySize);
-        
-                cudaMemset(d_maxReduceArrayLocks.data(), 0, sizeof(int) * maxReduceArraySize);
+
+                if(usedGpuMem > gpumemlimit){
+                    throw std::runtime_error("Out of memory working set");
+                }
+                
         
                 //devAlignmentScoresFloat.resize(numSubjects);
-                Fillchar.resize(16*512);
-                cudaMemset(Fillchar.data(), 20, 16*512);
         
                 forkStreamEvent = CudaEvent{cudaEventDisableTiming}; CUERR;
                 numWorkStreamsWithoutTemp = 10;
                 workstreamIndex = 0;
                 workStreamsWithoutTemp.resize(numWorkStreamsWithoutTemp);
-        
-                size_t memoryRequiredForFullDB = 0;
-                memoryRequiredForFullDB += numSubjectBytes; // d_fulldb_chardata
-                memoryRequiredForFullDB += sizeof(SequenceLengthT) * numSubjects; //d_fulldb_lengthdata
-                memoryRequiredForFullDB += sizeof(size_t) * (numSubjects+1); //d_fulldb_offsetdata
-                memoryRequiredForFullDB += sizeof(ReferenceIdT) * numSubjects * 2; //d_overflow_positions_vec
-        
-                size_t memoryRequiredForBatchedProcessing = 0;
-                memoryRequiredForBatchedProcessing += maxBatchBytes * 2; // d_chardata_vec
-                memoryRequiredForBatchedProcessing += sizeof(SequenceLengthT) * maxBatchSequences * 2; //d_lengthdata_vec
-                memoryRequiredForBatchedProcessing += sizeof(size_t) * (maxBatchSequences+1) * 2; //d_offsetdata_vec
-                memoryRequiredForBatchedProcessing += sizeof(ReferenceIdT) * maxBatchSequences * 2; //d_overflow_positions_vec
-        
-                const bool hasEnoughMemoryForFullDB = usedGpuMem + memoryRequiredForFullDB + maxTempBytes <= gpumemlimit;
-                const bool hasEnoughMemoryForBatchedDB = usedGpuMem + memoryRequiredForBatchedProcessing + maxTempBytes <= gpumemlimit;
-        
+
                 numCopyBuffers = 2;
         
                 h_chardata_vec.resize(numCopyBuffers);
@@ -322,14 +313,21 @@ namespace cudasw4{
                 d_overflow_number.resize(numCopyBuffers);
                 h_overflow_number.resize(numCopyBuffers);
                 d_overflow_positions_vec.resize(numCopyBuffers);
+
+                size_t memoryRequiredForFullDB = 0;
+                memoryRequiredForFullDB += numSubjectBytes; // d_fulldb_chardata
+                memoryRequiredForFullDB += sizeof(SequenceLengthT) * numSubjects; //d_fulldb_lengthdata
+                memoryRequiredForFullDB += sizeof(size_t) * (numSubjects+1); //d_fulldb_offsetdata
+                memoryRequiredForFullDB += sizeof(ReferenceIdT) * numSubjects * 2; //d_overflow_positions_vec
         
-                auto allocateForFullDBProcessing = [&](){
-                    d_fulldb_chardata.resize(numSubjectBytes);
-                    d_fulldb_lengthdata.resize(numSubjects);
-                    d_fulldb_offsetdata.resize(numSubjects+1);
-                    
-                    //d_selectedPositions.resize(numSubjects);
-                    
+               
+
+                if(memoryRequiredForFullDB <= gpumemlimit){
+                    numBatchesInCachedDB = dbBatches.size();
+                    charsOfBatches = numSubjectBytes;
+                    subjectsOfBatches = numSubjects;
+                    d_cacheddb = std::make_shared<GpuDatabaseAllocation>(numSubjectBytes, numSubjects);
+
                     for(int i = 0; i < numCopyBuffers; i++){
                         h_chardata_vec[i].resize(maxBatchBytes);
                         h_lengthdata_vec[i].resize(maxBatchSequences);
@@ -338,13 +336,17 @@ namespace cudasw4{
                         deviceBufferEvents[i] = CudaEvent{cudaEventDisableTiming}; CUERR;
                         d_overflow_positions_vec[i].resize(numSubjects);
                     }
-                    canStoreFullDB = true;
-                    usedGpuMem += memoryRequiredForFullDB;
-                };
-        
-                auto allocateForBatchedProcessing = [&](){
-                    //d_selectedPositions.resize(maxBatchSequences);
-        
+                }else{
+                    //allocate a double buffer for batch transfering
+                    size_t memoryRequiredForBatchedProcessing = 0;
+                    memoryRequiredForBatchedProcessing += maxBatchBytes * 2; // d_chardata_vec
+                    memoryRequiredForBatchedProcessing += sizeof(SequenceLengthT) * maxBatchSequences * 2; //d_lengthdata_vec
+                    memoryRequiredForBatchedProcessing += sizeof(size_t) * (maxBatchSequences+1) * 2; //d_offsetdata_vec
+                    usedGpuMem += memoryRequiredForBatchedProcessing;
+                    if(usedGpuMem > gpumemlimit){
+                        throw std::runtime_error("Out of memory working set");
+                    }
+                    
                     for(int i = 0; i < numCopyBuffers; i++){
                         h_chardata_vec[i].resize(maxBatchBytes);
                         h_lengthdata_vec[i].resize(maxBatchSequences);
@@ -356,41 +358,33 @@ namespace cudasw4{
                         deviceBufferEvents[i] = CudaEvent{cudaEventDisableTiming}; CUERR;
                         d_overflow_positions_vec[i].resize(maxBatchSequences);
                     }
-                    canStoreFullDB = false;
-                    usedGpuMem += memoryRequiredForBatchedProcessing;
-                };
-                
-        
-                if(hasEnoughMemoryForFullDB){
-                    try{
-                        allocateForFullDBProcessing();
-                    }catch(...){
-                        if(hasEnoughMemoryForBatchedDB){
-                            allocateForBatchedProcessing();
+
+                    //count how many batches fit into remaining gpu memory
+
+                    numBatchesInCachedDB = 0;
+                    charsOfBatches = 0;
+                    subjectsOfBatches = 0;
+                    size_t totalRequiredMemForBatches = sizeof(size_t);
+                    for(; numBatchesInCachedDB < dbBatches.size(); numBatchesInCachedDB++){
+                        const auto& batch = dbBatches[numBatchesInCachedDB];
+                        const size_t requiredMemForBatch = batch.usedSeq * sizeof(SequenceLengthT) + batch.usedSeq * sizeof(size_t) + batch.usedBytes;
+                        if(usedGpuMem + totalRequiredMemForBatches + requiredMemForBatch <= gpumemlimit){
+                            //ok, fits
+                            totalRequiredMemForBatches += requiredMemForBatch;
+                            charsOfBatches += batch.usedBytes;
+                            subjectsOfBatches += batch.usedSeq;
                         }else{
-                            throw std::runtime_error("Not enough GPU memory available on device id " + std::to_string(deviceId));
-                        }   
+                            //does not fit
+                            break;
+                        }
                     }
-                }else{
-                    if(hasEnoughMemoryForBatchedDB){
-                        allocateForBatchedProcessing();
-                    }else{
-                        throw std::runtime_error("Not enough GPU memory available on device id " + std::to_string(deviceId));
-                    }
-                }        
-                // thrust::sequence(
-                //     thrust::device,
-                //     d_selectedPositions.begin(),
-                //     d_selectedPositions.end(),
-                //     size_t(0)
-                // );
-                //allocations for db processing did not actually
-        
-                assert(usedGpuMem <= gpumemlimit);
-        
-                numTempBytes = std::min(maxTempBytes, gpumemlimit - usedGpuMem);
-        
-                d_tempStorageHE.resize(numTempBytes);
+                    assert(numBatchesInCachedDB < dbBatches.size());
+
+                    //std::cout << "numBatchesInCachedDB " << numBatchesInCachedDB << ", charsOfBatches " << charsOfBatches << ", subjectsOfBatches " << subjectsOfBatches << "\n";
+
+                    assert(usedGpuMem + totalRequiredMemForBatches <= gpumemlimit);
+                    d_cacheddb = std::make_shared<GpuDatabaseAllocation>(charsOfBatches, subjectsOfBatches);
+                }
             }
         
             MaxReduceArray getMaxReduceArray(size_t offset){
@@ -424,8 +418,20 @@ namespace cudasw4{
             //     cudaMemset(d_maxReduceArrayLocks.data(), 0, sizeof(int) * newsize);
             //     maxReduceArraySize = newsize
             // }
+
+            size_t getNumCharsInCachedDB() const{
+                return charsOfBatches;
+            }
+
+            size_t getNumSequencesInCachedDB() const{
+                return subjectsOfBatches;
+            }
+
+            size_t getNumBatchesInCachedDB() const{
+                return numBatchesInCachedDB;
+            }
         
-            bool singleBatchDBisOnGpu = false;
+
             int deviceId;
             int numCopyBuffers;
             int numWorkStreamsWithoutTemp = 1;
@@ -433,6 +439,9 @@ namespace cudasw4{
             int copyBufferIndex = 0;
             int maxReduceArraySize = 512 * 1024;
             size_t numTempBytes;
+            size_t numBatchesInCachedDB = 0;
+            size_t charsOfBatches = 0;
+            size_t subjectsOfBatches = 0;
         
             MyDeviceBuffer<int> d_maxReduceArrayLocks;
             MyDeviceBuffer<float> d_maxReduceArrayScores;
@@ -441,7 +450,7 @@ namespace cudasw4{
             MyDeviceBuffer<char> d_query;
             MyDeviceBuffer<char> d_tempStorageHE;
             //MyDeviceBuffer<float> devAlignmentScoresFloat;
-            MyDeviceBuffer<char> Fillchar;
+
             // MyDeviceBuffer<size_t> d_selectedPositions;
             MyDeviceBuffer<int> d_total_overflow_number;
             MyDeviceBuffer<int> d_overflow_number;
@@ -450,11 +459,9 @@ namespace cudasw4{
             CudaStream workStreamForTempUsage;
             CudaEvent forkStreamEvent;
         
-            bool canStoreFullDB = false;
-            bool fullDBisUploaded = false;
-            MyDeviceBuffer<char> d_fulldb_chardata;
-            MyDeviceBuffer<SequenceLengthT> d_fulldb_lengthdata;
-            MyDeviceBuffer<size_t> d_fulldb_offsetdata;
+            size_t maxNumBatchesInCachedDB = 0;
+            std::shared_ptr<GpuDatabaseAllocationBase> d_cacheddb;
+
             
             std::vector<MyPinnedBuffer<char>> h_chardata_vec;
             std::vector<MyPinnedBuffer<SequenceLengthT>> h_lengthdata_vec;
@@ -476,6 +483,13 @@ namespace cudasw4{
             SequenceLengthT max_length = 0;
             SequenceLengthT min_length = std::numeric_limits<SequenceLengthT>::max();
             size_t sumOfLengths = 0;
+        };
+    private:
+        struct BatchDstInfo{
+            bool isUploaded{};
+            char* charsPtr{};
+            SequenceLengthT* lengthsPtr{};
+            size_t* offsetsPtr{};
         };
 
     public:
@@ -499,7 +513,7 @@ namespace cudasw4{
 
             initializeGpus();
 
-            resultNumOverflows.resize(1);
+            h_resultNumOverflows.resize(1);
 
             const int numGpus = deviceIds.size();
             cudaSetDevice(deviceIds[0]);
@@ -624,7 +638,17 @@ namespace cudasw4{
             return sequence;
         }
 
-        void prefetchFullDBToGpus(){
+        void markCachedDBBatchesAsUploaded(int gpu){
+            auto& ws = *workingSets[gpu];
+            if(ws.getNumBatchesInCachedDB() > 0){
+                batchPlansDstInfoVec_cachedDB[gpu][0].isUploaded = true;
+                for(size_t i = 0; i < ws.getNumBatchesInCachedDB(); i++){
+                    batchPlansDstInfoVec[gpu][i].isUploaded = true;
+                }
+            }
+        }
+
+        void prefetchDBToGpus(){
             RevertDeviceId rdi{};
 
             const int numGpus = deviceIds.size();
@@ -634,24 +658,24 @@ namespace cudasw4{
             for(int gpu = 0; gpu < numGpus; gpu++){
                 cudaSetDevice(deviceIds[gpu]);
                 auto& ws = *workingSets[gpu];
-                if(ws.canStoreFullDB){
-                    const auto& plan = batchPlans_fulldb[gpu][0];
 
+                if(ws.getNumBatchesInCachedDB() > 0){
+                    const auto& plan = batchPlans_cachedDB[gpu][0];
                     const int currentBuffer = 0;
-
                     cudaStream_t H2DcopyStream = ws.copyStreams[currentBuffer];
 
                     executeCopyPlanH2DDirect(
                         plan,
-                        ws.d_fulldb_chardata.data(),
-                        ws.d_fulldb_lengthdata.data(),
-                        ws.d_fulldb_offsetdata.data(),
+                        ws.d_cacheddb->getCharData(),
+                        ws.d_cacheddb->getLengthData(),
+                        ws.d_cacheddb->getOffsetData(),
                         subPartitionsForGpus[gpu],
                         H2DcopyStream
                     );
                     
-                    ws.fullDBisUploaded = true;
                     copyIds.push_back(gpu);
+
+                    markCachedDBBatchesAsUploaded(gpu);
                 }
             }
             for(int gpu = 0; gpu < numGpus; gpu++){
@@ -690,7 +714,7 @@ namespace cudasw4{
             scanTimer->stop();
 
             totalProcessedQueryLengths += queryLength;
-            totalNumOverflows += resultNumOverflows[0];
+            totalNumOverflows += h_resultNumOverflows[0];
 
             const auto& sequenceLengthStatistics = getSequenceLengthStatistics();
 
@@ -698,7 +722,7 @@ namespace cudasw4{
             result.stats = makeBenchmarkStats(
                 scanTimer->elapsed() / 1000, 
                 sequenceLengthStatistics.sumOfLengths * queryLength, 
-                resultNumOverflows[0]
+                h_resultNumOverflows[0]
             );
 
             #ifdef CUDASW_DEBUG_CHECK_CORRECTNESS
@@ -838,7 +862,6 @@ namespace cudasw4{
                 cudaSetDevice(deviceIds[i]); CUERR
                 helpers::init_cuda_context(); CUERR
                 cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);CUERR
-                cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeFourByte); CUERR
         
                 cudaMemPool_t mempool;
                 cudaDeviceGetDefaultMemPool(&mempool, deviceIds[i]); CUERR
@@ -867,9 +890,10 @@ namespace cudasw4{
             computeTotalNumSequencePerLengthPartition();
             partitionDBAmongstGpus();
 
-            allocateGpuWorkingSets();
-
             createDBBatchesForGpus();
+            allocateGpuWorkingSets();
+            assignBatchesToGpuMem();
+            
             
             dbIsReady = true;
             updateNumResultsPerQuery();
@@ -979,7 +1003,6 @@ namespace cudasw4{
 
         void allocateGpuWorkingSets(){
             const int numGpus = deviceIds.size();
-
             workingSets.clear();
             workingSets.resize(numGpus);
 
@@ -1010,17 +1033,15 @@ namespace cudasw4{
                     memoryConfig.maxBatchSequences,
                     memoryConfig.maxTempBytes,
                     subPartitionsForGpus[gpu],
+                    batchPlans[gpu],
                     maxReduceArraySize
                 );
 
                 if(verbose){
                     std::cout << "Using " << workingSets[gpu]->numTempBytes << " temp bytes. ";
-
-                    if(workingSets[gpu]->canStoreFullDB){
-                        std::cout << "It can store its DB in memory\n";
-                    }else{
-                        std::cout << "It will process its DB in batches\n";
-                    }
+                }
+                if(verbose){
+                    std::cout << workingSets[gpu]->getNumBatchesInCachedDB() << " out of " << batchPlans[gpu].size() << " DB batches will be cached in gpu memory\n";
                 }
 
                 //set gpu partition table
@@ -1041,39 +1062,81 @@ namespace cudasw4{
         }
 
         void createDBBatchesForGpus(){
-
             const int numGpus = deviceIds.size();
 
             batchPlans.clear();
-            batchPlans_fulldb.clear();
-
-
             batchPlans.resize(numGpus);
-            batchPlans_fulldb.resize(numGpus);
+            batchPlans_cachedDB.clear();
+            batchPlans_cachedDB.resize(numGpus);
     
             for(int gpu = 0; gpu < numGpus; gpu++){
-                const auto& ws = *workingSets[gpu];
-                
                 batchPlans[gpu] = computeDbCopyPlan(
                     subPartitionsForGpus[gpu],
                     lengthPartitionIdsForGpus[gpu],
-                    sizeof(char) * ws.h_chardata_vec[0].size(),
-                    ws.h_lengthdata_vec[0].size()
+                    memoryConfig.maxBatchBytes,
+                    memoryConfig.maxBatchSequences
                 );
                 if(verbose){
                     std::cout << "Batch plan gpu " << gpu << ": " << batchPlans[gpu].size() << " batches\n";
                 }
+            }
+        }
+
+        void assignBatchesToGpuMem(){
+            const int numGpus = deviceIds.size();
+            batchPlansDstInfoVec.clear();
+            batchPlansDstInfoVec.resize(numGpus);
+            batchPlansDstInfoVec_cachedDB.clear();
+            batchPlansDstInfoVec_cachedDB.resize(numGpus);
     
-                if(ws.canStoreFullDB){
-                    batchPlans_fulldb[gpu] = computeDbCopyPlan(
+            for(int gpu = 0; gpu < numGpus; gpu++){
+                cudaSetDevice(deviceIds[gpu]);
+                auto& ws = *workingSets[gpu];
+                if(ws.getNumBatchesInCachedDB() > 0){
+                    //can cache full db in gpu mem
+
+                    auto plansForCachedDB = computeDbCopyPlan(
                         subPartitionsForGpus[gpu],
                         lengthPartitionIdsForGpus[gpu],
-                        sizeof(char) * ws.d_fulldb_chardata.size(),
-                        ws.d_fulldb_lengthdata.size()
+                        sizeof(char) * ws.getNumCharsInCachedDB(),
+                        ws.getNumSequencesInCachedDB()
                     );
-                    assert(batchPlans_fulldb[gpu].size() == 1);
-                }else{
-                    batchPlans_fulldb[gpu] = batchPlans[gpu]; //won't be used in this case, simply set it to batched plan
+                    assert(plansForCachedDB.size() >= 1);
+                    plansForCachedDB.erase(plansForCachedDB.begin() + 1, plansForCachedDB.end());
+                    batchPlans_cachedDB[gpu] = plansForCachedDB;
+                    // if(verbose){
+                    //     std::cout << "Cached db single batch plan " << plansForCachedDB[0] << "\n";
+                    // }
+
+                    BatchDstInfo dstInfo;
+                    dstInfo.isUploaded = false;
+                    dstInfo.charsPtr = ws.d_cacheddb->getCharData();
+                    dstInfo.lengthsPtr = ws.d_cacheddb->getLengthData();
+                    dstInfo.offsetsPtr = ws.d_cacheddb->getOffsetData();
+                    batchPlansDstInfoVec_cachedDB[gpu].push_back(dstInfo);
+                }
+
+                {
+                    BatchDstInfo dstInfo;
+                    dstInfo.isUploaded = false;
+                    dstInfo.charsPtr = ws.d_cacheddb->getCharData();
+                    dstInfo.lengthsPtr = ws.d_cacheddb->getLengthData();
+                    dstInfo.offsetsPtr = ws.d_cacheddb->getOffsetData();
+
+                    for(size_t i = 0; i < ws.getNumBatchesInCachedDB(); i++){
+                        batchPlansDstInfoVec[gpu].push_back(dstInfo);
+                        const auto& plan = batchPlans[gpu][i];
+                        dstInfo.charsPtr += plan.usedBytes;
+                        dstInfo.lengthsPtr += plan.usedSeq;
+                        dstInfo.offsetsPtr += plan.usedSeq;
+                    }
+
+                    for(size_t i = ws.getNumBatchesInCachedDB(), buf = 0; i < batchPlans[gpu].size(); i++, buf = (buf+1)%ws.numCopyBuffers){
+                        dstInfo.charsPtr = ws.d_chardata_vec[buf].data();
+                        dstInfo.lengthsPtr = ws.d_lengthdata_vec[buf].data();
+                        dstInfo.offsetsPtr = ws.d_offsetdata_vec[buf].data();
+                        batchPlansDstInfoVec[gpu].push_back(dstInfo);
+                    }
                 }
             }
         }
@@ -1357,7 +1420,7 @@ namespace cudasw4{
                 masterStream1
             );  CUERR
             cudaMemcpyAsync(
-                resultNumOverflows.data(), 
+                h_resultNumOverflows.data(), 
                 d_resultNumOverflows.data(), 
                 sizeof(int), 
                 cudaMemcpyDeviceToHost, 
@@ -1369,23 +1432,22 @@ namespace cudasw4{
 
         void processQueryOnGpus(){
 
-            const std::vector<std::vector<DBdataView>>& dbPartitionsPerGpu = subPartitionsForGpus;
-            const std::vector<std::vector<DeviceBatchCopyToPinnedPlan>>& batchPlansPerGpu_batched = batchPlans;
-            const std::vector<std::vector<DeviceBatchCopyToPinnedPlan>>& batchPlansPerGpu_full = batchPlans_fulldb;
-            const std::vector<size_t>& numberOfSequencesPerGpu = numSequencesPerGpu;
+            // std::cout << "ProcessQueryOnGpus: dstinfos isUploaded\n";
+            // for(size_t i = 0; i < batchPlans[0].size(); i++){
+            //     std::cout << batchPlansDstInfoVec[0][i].isUploaded << " ";
+            // }
+            // std::cout << "\n";
 
+            const std::vector<std::vector<DBdataView>>& dbPartitionsPerGpu = subPartitionsForGpus;
             
             constexpr auto boundaries = getLengthPartitionBoundaries();
             constexpr int numLengthPartitions = boundaries.size();
             const int numGpus = deviceIds.size();
             const bool useExtraThreadForBatchTransfer = numGpus > 1;
         
-            size_t totalNumberOfSequencesToProcess = std::reduce(numberOfSequencesPerGpu.begin(), numberOfSequencesPerGpu.end());
+            size_t totalNumberOfSequencesToProcess = std::reduce(numSequencesPerGpu.begin(), numSequencesPerGpu.end());
             
             size_t totalNumberOfProcessedSequences = 0;
-            // std::vector<size_t> processedSequencesPerGpu(numGpus, 0);
-        
-            // std::vector<size_t> processedBatchesPerGpu(numGpus, 0);
         
             for(int gpu = 0; gpu < numGpus; gpu++){
                 cudaSetDevice(deviceIds[gpu]); CUERR;
@@ -1417,9 +1479,9 @@ namespace cudasw4{
                 size_t* d_inputOffsets = nullptr;
                 int* d_overflow_number = nullptr;
                 ReferenceIdT* d_overflow_positions = nullptr;
-                size_t pointerSequencesOffset = 0;
-                size_t pointerBytesOffset = 0;
                 const std::vector<DeviceBatchCopyToPinnedPlan>* batchPlansPtr;
+                const std::vector<DeviceBatchCopyToPinnedPlan>* batchPlansCachedDBPtr;
+                const DeviceBatchCopyToPinnedPlan* currentPlanPtr;
                 size_t processedSequences = 0;
                 size_t processedBatches = 0;
             };
@@ -1432,16 +1494,8 @@ namespace cudasw4{
                 auto& variables = variables_vec[gpu];
                 variables.processedSequences = 0;
                 variables.processedBatches = 0;
-                if(ws.canStoreFullDB){
-                    if(ws.fullDBisUploaded){
-                        assert(batchPlansPerGpu_full[gpu].size() == 1);
-                        variables.batchPlansPtr = &batchPlansPerGpu_full[gpu];
-                    }else{
-                        variables.batchPlansPtr = &batchPlansPerGpu_batched[gpu];
-                    }
-                }else{
-                    variables.batchPlansPtr = &batchPlansPerGpu_batched[gpu];
-                }
+                variables.batchPlansPtr = &batchPlans[gpu];
+                variables.batchPlansCachedDBPtr = &batchPlans_cachedDB[gpu];
             }
             
             while(totalNumberOfProcessedSequences < totalNumberOfSequencesToProcess){
@@ -1451,22 +1505,11 @@ namespace cudasw4{
                     auto& ws = *workingSets[gpu];
                     auto& variables = variables_vec[gpu];
                     if(variables.processedBatches < variables.batchPlansPtr->size()){
-                        if(ws.canStoreFullDB){
-                            if(ws.fullDBisUploaded){
-                                //single buffer, no transfer, 1 batch
-                                variables.currentBuffer = 0;
-                                variables.previousBuffer = 0;
-                                variables.H2DcopyStream = ws.copyStreams[0];
-                                variables.h_inputChars = nullptr;
-                                variables.h_inputLengths = nullptr;
-                                variables.h_inputOffsets = nullptr;
-                                variables.d_inputChars = ws.d_fulldb_chardata.data();
-                                variables.d_inputLengths = ws.d_fulldb_lengthdata.data();
-                                variables.d_inputOffsets = ws.d_fulldb_offsetdata.data();
-                                variables.d_overflow_number = ws.d_overflow_number.data() + 0;
-                                variables.d_overflow_positions = ws.d_overflow_positions_vec[0].data();
-                            }else{
-                                //first query, double buffer batched transfer into full db buffer
+
+                        if(variables.processedBatches < ws.getNumBatchesInCachedDB()){
+                            //will process a batch that could be cached in gpu memory
+                            if(batchPlansDstInfoVec[gpu][variables.processedBatches].isUploaded == false){
+                                //it is not cached, need upload
                                 variables.currentBuffer = ws.copyBufferIndex;
                                 if(variables.currentBuffer == 0){
                                     variables.previousBuffer = ws.numCopyBuffers - 1;
@@ -1477,14 +1520,30 @@ namespace cudasw4{
                                 variables.h_inputChars = ws.h_chardata_vec[variables.currentBuffer].data();
                                 variables.h_inputLengths = ws.h_lengthdata_vec[variables.currentBuffer].data();
                                 variables.h_inputOffsets = ws.h_offsetdata_vec[variables.currentBuffer].data();
-                                variables.d_inputChars = ws.d_fulldb_chardata.data() + variables.pointerBytesOffset;
-                                variables.d_inputLengths = ws.d_fulldb_lengthdata.data() + variables.pointerSequencesOffset;
-                                variables.d_inputOffsets = ws.d_fulldb_offsetdata.data() + variables.pointerSequencesOffset;
+                                variables.d_inputChars = batchPlansDstInfoVec[gpu][variables.processedBatches].charsPtr;
+                                variables.d_inputLengths = batchPlansDstInfoVec[gpu][variables.processedBatches].lengthsPtr;
+                                variables.d_inputOffsets = batchPlansDstInfoVec[gpu][variables.processedBatches].offsetsPtr;
                                 variables.d_overflow_number = ws.d_overflow_number.data() + variables.currentBuffer;
                                 variables.d_overflow_positions = ws.d_overflow_positions_vec[variables.currentBuffer].data();
+                            }else{
+                                //already uploaded. process all batches for cached db together
+                                assert(variables.processedBatches == 0);
+                                variables.currentBuffer = 0;
+                                variables.previousBuffer = 0;
+                                variables.H2DcopyStream = ws.copyStreams[0];
+                                variables.h_inputChars = nullptr;
+                                variables.h_inputLengths = nullptr;
+                                variables.h_inputOffsets = nullptr;
+                                variables.d_inputChars = ws.d_cacheddb->getCharData();
+                                variables.d_inputLengths = ws.d_cacheddb->getLengthData();
+                                variables.d_inputOffsets = ws.d_cacheddb->getOffsetData();
+                                variables.d_overflow_number = ws.d_overflow_number.data() + variables.currentBuffer;
+                                variables.d_overflow_positions = ws.d_overflow_positions_vec[variables.currentBuffer].data();
+                                
                             }
                         }else{
-                            //full db not possible, any query, double buffer batched transfer
+                            //will process batch that cannot be cached
+                            //upload to double buffer
                             variables.currentBuffer = ws.copyBufferIndex;
                             if(variables.currentBuffer == 0){
                                 variables.previousBuffer = ws.numCopyBuffers - 1;
@@ -1495,23 +1554,36 @@ namespace cudasw4{
                             variables.h_inputChars = ws.h_chardata_vec[variables.currentBuffer].data();
                             variables.h_inputLengths = ws.h_lengthdata_vec[variables.currentBuffer].data();
                             variables.h_inputOffsets = ws.h_offsetdata_vec[variables.currentBuffer].data();
-                            variables.d_inputChars = ws.d_chardata_vec[variables.currentBuffer].data();
-                            variables.d_inputLengths = ws.d_lengthdata_vec[variables.currentBuffer].data();
-                            variables.d_inputOffsets = ws.d_offsetdata_vec[variables.currentBuffer].data();
+                            variables.d_inputChars = batchPlansDstInfoVec[gpu][variables.processedBatches].charsPtr;
+                            variables.d_inputLengths = batchPlansDstInfoVec[gpu][variables.processedBatches].lengthsPtr;
+                            variables.d_inputOffsets = batchPlansDstInfoVec[gpu][variables.processedBatches].offsetsPtr;
                             variables.d_overflow_number = ws.d_overflow_number.data() + variables.currentBuffer;
                             variables.d_overflow_positions = ws.d_overflow_positions_vec[variables.currentBuffer].data();
                         }
                     }
                 }
-                //upload batch
+                //upload batch and process it
                 for(int gpu = 0; gpu < numGpus; gpu++){
                     cudaSetDevice(deviceIds[gpu]); CUERR;
                     auto& ws = *workingSets[gpu];
                     auto& variables = variables_vec[gpu];
                     if(variables.processedBatches < variables.batchPlansPtr->size()){
-                        const auto& plan = (*variables.batchPlansPtr)[variables.processedBatches];
+                        const bool needsUpload = !batchPlansDstInfoVec[gpu][variables.processedBatches].isUploaded;
+
+                        variables.currentPlanPtr = [&](){
+                            if(variables.processedBatches < ws.getNumBatchesInCachedDB()){
+                                if(!needsUpload){
+                                    return &(*variables.batchPlansCachedDBPtr)[0];
+                                }else{
+                                    return &(*variables.batchPlansPtr)[variables.processedBatches];
+                                }
+                            }else{
+                                return &(*variables.batchPlansPtr)[variables.processedBatches];
+                            }
+                        }();
+                            
         
-                        if((ws.canStoreFullDB && !ws.fullDBisUploaded) || !ws.canStoreFullDB){
+                        if(needsUpload){
                             //transfer data
                             //can only overwrite device buffer if it is no longer in use on workstream
                             cudaStreamWaitEvent(variables.H2DcopyStream, ws.deviceBufferEvents[variables.currentBuffer], 0); CUERR;
@@ -1519,7 +1591,7 @@ namespace cudasw4{
                             if(useExtraThreadForBatchTransfer){
                                 cudaStreamWaitEvent(ws.hostFuncStream, ws.pinnedBufferEvents[variables.currentBuffer]); CUERR;
                                 executePinnedCopyPlanWithHostCallback(
-                                    plan, 
+                                    *variables.currentPlanPtr, 
                                     variables.h_inputChars,
                                     variables.h_inputLengths,
                                     variables.h_inputOffsets,
@@ -1532,40 +1604,48 @@ namespace cudasw4{
                                 cudaMemcpyAsync(
                                     variables.d_inputChars,
                                     variables.h_inputChars,
-                                    plan.usedBytes,
+                                    variables.currentPlanPtr->usedBytes,
                                     H2D,
                                     variables.H2DcopyStream
                                 ); CUERR;
                                 cudaMemcpyAsync(
                                     variables.d_inputLengths,
                                     variables.h_inputLengths,
-                                    sizeof(SequenceLengthT) * plan.usedSeq,
+                                    sizeof(SequenceLengthT) * variables.currentPlanPtr->usedSeq,
                                     H2D,
                                     variables.H2DcopyStream
                                 ); CUERR;
                                 cudaMemcpyAsync(
                                     variables.d_inputOffsets,
                                     variables.h_inputOffsets,
-                                    sizeof(size_t) * (plan.usedSeq+1),
+                                    sizeof(size_t) * (variables.currentPlanPtr->usedSeq+1),
                                     H2D,
                                     variables.H2DcopyStream
                                 ); CUERR;
                             }else{
                                 //synchronize to avoid overwriting pinned buffer of target before it has been fully transferred
                                 cudaEventSynchronize(ws.pinnedBufferEvents[variables.currentBuffer]); CUERR;
-                                //executePinnedCopyPlanSerial(plan, ws, currentBuffer, dbPartitionsPerGpu[gpu]);
-        
-                                executePinnedCopyPlanSerialAndTransferToGpu(
-                                    plan, 
-                                    variables.h_inputChars,
-                                    variables.h_inputLengths,
-                                    variables.h_inputOffsets,
+
+                                executeCopyPlanH2DDirect(
+                                    *variables.currentPlanPtr, 
                                     variables.d_inputChars,
                                     variables.d_inputLengths,
                                     variables.d_inputOffsets,
                                     dbPartitionsPerGpu[gpu], 
                                     variables.H2DcopyStream
                                 );
+        
+                                // executePinnedCopyPlanSerialAndTransferToGpu(
+                                //     *variables.currentPlanPtr, 
+                                //     variables.h_inputChars,
+                                //     variables.h_inputLengths,
+                                //     variables.h_inputOffsets,
+                                //     variables.d_inputChars,
+                                //     variables.d_inputLengths,
+                                //     variables.d_inputOffsets,
+                                //     dbPartitionsPerGpu[gpu], 
+                                //     variables.H2DcopyStream
+                                // );
                             }
                             
                             cudaEventRecord(ws.pinnedBufferEvents[variables.currentBuffer], variables.H2DcopyStream); CUERR;
@@ -1585,47 +1665,13 @@ namespace cudasw4{
                         for(auto& stream : ws.workStreamsWithoutTemp){
                             cudaStreamWaitEvent(stream, ws.deviceBufferEvents[variables.previousBuffer], 0); CUERR;
                         }
-                //     }
-                // }
-        
-                //launch alignment kernels
-        
-                // for(int gpu = 0; gpu < numGpus; gpu++){
-                //     if(processedBatchesPerGpu[gpu] < batchPlanPerGpu[gpu].size()){
-                //         cudaSetDevice(deviceIds[gpu]); CUERR;
-                //         auto& ws = *workingSets[gpu];
-                //         const auto& plan = batchPlanPerGpu[gpu][processedBatchesPerGpu[gpu]];
-                //         int currentBuffer = 0;
-                //         //int previousBuffer = 0;
-                //         //cudaStream_t H2DcopyStream = ws.copyStreams[currentBuffer];
-                //         if(!ws.singleBatchDBisOnGpu){
-                //             currentBuffer = ws.copyBufferIndex;
-                //             //H2DcopyStream = ws.copyStreams[currentBuffer];
-                //         }
-        
-                        // const char* const inputChars = ws.d_chardata_vec[currentBuffer].data();
-                        // const size_t* const inputOffsets = ws.d_offsetdata_vec[currentBuffer].data();
-                        // const size_t* const inputLengths = ws.d_lengthdata_vec[currentBuffer].data();
-                        // int* const d_overflow_number = ws.d_overflow_number.data() + currentBuffer;
-                        // size_t* const d_overflow_positions = ws.d_overflow_positions_vec[currentBuffer].data();
         
                         const char* const inputChars = variables.d_inputChars;
                         const SequenceLengthT* const inputLengths = variables.d_inputLengths;
                         const size_t* const inputOffsets = variables.d_inputOffsets;
                         int* const d_overflow_number = variables.d_overflow_number;
                         ReferenceIdT* const d_overflow_positions = variables.d_overflow_positions;
-
-                        // thrust::for_each(
-                        //     thrust::cuda::par_nosync.on(variables.H2DcopyStream),
-                        //     thrust::make_counting_iterator<size_t>(0),
-                        //     thrust::make_counting_iterator<size_t>(plan.usedSeq),
-                        //     [inputOffsets] __device__ (size_t i){
-                        //         size_t current = inputOffsets[i];
-                        //         size_t next = inputOffsets[i+1];
-                        //         assert(current <= next);
-                        //     }
-                        // );
-                        // cudaStreamSynchronize(variables.H2DcopyStream); CUERR;
+                        const auto& plan = *variables.currentPlanPtr;
         
                         auto runAlignmentKernels = [&](auto& d_scores, ReferenceIdT* d_overflow_positions, int* d_overflow_number){
                             const char4* const d_query = reinterpret_cast<char4*>(ws.d_query.data());
@@ -2116,13 +2162,16 @@ namespace cudasw4{
                 for(int gpu = 0; gpu < numGpus; gpu++){
                     auto& variables = variables_vec[gpu];
                     if(variables.processedBatches < variables.batchPlansPtr->size()){
-                        const auto& plan = (*variables.batchPlansPtr)[variables.processedBatches];
-                        variables.pointerSequencesOffset += plan.usedSeq;
-                        variables.pointerBytesOffset += plan.usedBytes;
-                        variables.processedSequences += plan.usedSeq;
-                        variables.processedBatches++;
+
+                        variables.processedSequences += variables.currentPlanPtr->usedSeq;
+                        if(batchPlansDstInfoVec[gpu][variables.processedBatches].isUploaded){
+                            variables.processedBatches += workingSets[gpu]->getNumBatchesInCachedDB();
+                        }else{
+                            variables.processedBatches++;
+                        }
+                        //std::cout << "variables.processedBatches: " << variables.processedBatches << "\n";
         
-                        totalNumberOfProcessedSequences += plan.usedSeq;
+                        totalNumberOfProcessedSequences += variables.currentPlanPtr->usedSeq;
                     } 
                 }
         
@@ -2132,25 +2181,29 @@ namespace cudasw4{
             for(int gpu = 0; gpu < numGpus; gpu++){
                 cudaSetDevice(deviceIds[gpu]); CUERR;
                 auto& ws = *workingSets[gpu];
-                if(ws.canStoreFullDB && !ws.fullDBisUploaded){
-                    ws.fullDBisUploaded = true;
-        
-                    // current offsets in d_fulldb_offsetdata store the offsets for each batch, i.e. for each batch the offsets will start again at 0
-                    // compute prefix sum of d_fulldb_lengthdata to obtain the single-batch offsets
-        
-                    cudaMemsetAsync(ws.d_fulldb_offsetdata.data(), 0, sizeof(size_t), ws.workStreamForTempUsage); CUERR;
-        
-                    auto d_paddedLengths = thrust::make_transform_iterator(
-                        ws.d_fulldb_lengthdata.data(),
-                        RoundToNextMultiple<size_t, 4>{}
-                    );
-        
-                    thrust::inclusive_scan(
-                        thrust::cuda::par_nosync(thrust_async_allocator<char>(ws.workStreamForTempUsage)).on(ws.workStreamForTempUsage),
-                        d_paddedLengths,
-                        d_paddedLengths + ws.d_fulldb_lengthdata.size(),
-                        ws.d_fulldb_offsetdata.data() + 1
-                    );
+
+                if(!batchPlansDstInfoVec[gpu][0].isUploaded){
+                    //all batches for cached db are now resident in gpu memory. update the flags
+                    if(ws.getNumBatchesInCachedDB() > 0){
+                        markCachedDBBatchesAsUploaded(gpu);
+
+                        // current offsets in cached db store the offsets for each batch, i.e. for each batch the offsets will start again at 0
+                        // compute prefix sum to obtain the single-batch offsets
+            
+                        cudaMemsetAsync(ws.d_cacheddb->getOffsetData(), 0, sizeof(size_t), ws.workStreamForTempUsage); CUERR;
+            
+                        auto d_paddedLengths = thrust::make_transform_iterator(
+                            ws.d_cacheddb->getLengthData(),
+                            RoundToNextMultiple<size_t, 4>{}
+                        );
+            
+                        thrust::inclusive_scan(
+                            thrust::cuda::par_nosync(thrust_async_allocator<char>(ws.workStreamForTempUsage)).on(ws.workStreamForTempUsage),
+                            d_paddedLengths,
+                            d_paddedLengths + ws.getNumSequencesInCachedDB(),
+                            ws.d_cacheddb->getOffsetData() + 1
+                        );
+                    }
                 }
             }
         
@@ -2323,10 +2376,14 @@ namespace cudasw4{
         std::vector<size_t> numSequencesPerGpuPrefixSum;
         std::vector<CudaStream> gpuStreams;
         std::vector<CudaEvent> gpuEvents;
-        std::vector<std::unique_ptr<GpuWorkingSet>> workingSets;  
+        std::vector<std::unique_ptr<GpuWorkingSet>> workingSets;
 
         std::vector<std::vector<DeviceBatchCopyToPinnedPlan>> batchPlans;
-        std::vector<std::vector<DeviceBatchCopyToPinnedPlan>> batchPlans_fulldb;
+        std::vector<std::vector<BatchDstInfo>> batchPlansDstInfoVec;
+
+        std::vector<std::vector<DeviceBatchCopyToPinnedPlan>> batchPlans_cachedDB;
+        std::vector<std::vector<BatchDstInfo>> batchPlansDstInfoVec_cachedDB;
+
         int results_per_query;
         SequenceLengthT currentQueryLength;
         SequenceLengthT currentQueryLengthWithPadding;
@@ -2339,7 +2396,7 @@ namespace cudasw4{
         //final scan results. device data resides on gpu deviceIds[0]
         MyPinnedBuffer<float> h_finalAlignmentScores;
         MyPinnedBuffer<ReferenceIdT> h_finalReferenceIds;
-        MyPinnedBuffer<int> resultNumOverflows;
+        MyPinnedBuffer<int> h_resultNumOverflows;
         MyDeviceBuffer<float> d_finalAlignmentScores_allGpus;
         MyDeviceBuffer<ReferenceIdT> d_finalReferenceIds_allGpus;
         MyDeviceBuffer<int> d_resultNumOverflows;
