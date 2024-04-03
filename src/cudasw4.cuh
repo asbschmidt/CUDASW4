@@ -862,7 +862,6 @@ namespace cudasw4{
                 cudaSetDevice(deviceIds[i]); CUERR
                 helpers::init_cuda_context(); CUERR
                 cudaDeviceSetCacheConfig(cudaFuncCachePreferShared);CUERR
-                cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeFourByte); CUERR
         
                 cudaMemPool_t mempool;
                 cudaDeviceGetDefaultMemPool(&mempool, deviceIds[i]); CUERR
