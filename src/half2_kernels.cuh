@@ -1,6 +1,7 @@
 #ifndef HALF2_KERNELS_CUH
 #define HALF2_KERNELS_CUH
 
+#include <map>
 
 #include <cuda_fp16.h>
 #include "blosum.hpp"
@@ -1237,13 +1238,16 @@ void call_NW_local_affine_multi_pass_half2(
     }else if(hostBlosumDim == 25){
         auto kernel = NW_local_affine_multi_pass_half2<blocksize, group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         auto setSmemKernelAttribute = [&](){
-            static bool isSet = false;
-            if(!isSet){
-                cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
-                isSet = true;
+            static std::map<int, bool> isSet;
+            if(smem > 48*1024){
+                int deviceId;
+                cudaGetDevice(&deviceId); CUERR;
+                if(!isSet[deviceId]){
+                    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+                    isSet[deviceId] = true;
+                }
             }
         };
-
         setSmemKernelAttribute();
 
         dim3 block = blocksize;
@@ -1375,13 +1379,16 @@ void call_NW_local_affine_single_pass_half2(
     }else if(hostBlosumDim == 25){
         auto kernel = NW_local_affine_single_pass_half2<blocksize, group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         auto setSmemKernelAttribute = [&](){
-            static bool isSet = false;
-            if(!isSet){
-                cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
-                isSet = true;
+            static std::map<int, bool> isSet;
+            if(smem > 48*1024){
+                int deviceId;
+                cudaGetDevice(&deviceId); CUERR;
+                if(!isSet[deviceId]){
+                    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+                    isSet[deviceId] = true;
+                }
             }
         };
-
         setSmemKernelAttribute();
 
         dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;

@@ -1,6 +1,7 @@
 #ifndef DPX_S16_KERNELS_CUH
 #define DPX_S16_KERNELS_CUH
 
+#include <map>
 
 #include "blosum.hpp"
 
@@ -1173,13 +1174,16 @@ void call_NW_local_affine_multi_pass_dpx_s16(
     }else if(hostBlosumDim == 25){
         auto kernel = NW_local_affine_multi_pass_dpx_s16<blocksize, group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         auto setSmemKernelAttribute = [&](){
-            static bool isSet = false;
-            if(!isSet){
-                cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
-                isSet = true;
+            static std::map<int, bool> isSet;
+            if(smem > 48*1024){
+                int deviceId;
+                cudaGetDevice(&deviceId); CUERR;
+                if(!isSet[deviceId]){
+                    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+                    isSet[deviceId] = true;
+                }
             }
         };
-
         setSmemKernelAttribute();
 
         dim3 block = blocksize;
@@ -1317,13 +1321,16 @@ void call_NW_local_affine_single_pass_dpx_s16(
     }else if(hostBlosumDim == 25){
         auto kernel = NW_local_affine_single_pass_dpx_s16<blocksize, group_size, numRegs, 25, ScoreOutputIterator, PositionsIterator>;
         auto setSmemKernelAttribute = [&](){
-            static bool isSet = false;
-            if(!isSet){
-                cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
-                isSet = true;
+            static std::map<int, bool> isSet;
+            if(smem > 48*1024){
+                int deviceId;
+                cudaGetDevice(&deviceId); CUERR;
+                if(!isSet[deviceId]){
+                    cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+                    isSet[deviceId] = true;
+                }
             }
         };
-
         setSmemKernelAttribute();
 
         dim3 grid = (numSelected + alignmentsPerBlock - 1) / alignmentsPerBlock;
