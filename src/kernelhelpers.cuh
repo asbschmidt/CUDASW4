@@ -66,7 +66,8 @@ namespace cudasw4{
         a.s2 = a_in;
         b.s2 = b_in;
         c.s2 = c_in;
-        d.u = __vimax3_s16x2_relu(a.u, b.u, c.u);
+        //d.u = __vimax3_s16x2_relu(a.u, b.u, c.u);
+        d.u = __vimax3_s16x2_relu(c.u, b.u, a.u);
         return(d.s2);
     }
 
