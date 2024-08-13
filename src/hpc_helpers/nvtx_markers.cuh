@@ -7,7 +7,7 @@
 
 #ifdef __NVCC__
 
-#include <nvToolsExt.h>
+#include <nvtx3/nvToolsExt.h>
 
 #include <iostream>
 #include <cstring>
