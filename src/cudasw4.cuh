@@ -257,8 +257,8 @@ namespace cudasw4{
                 size_t maxTempBytes,
                 const std::vector<DBdataView>& dbPartitions,
                 const std::vector<DeviceBatchCopyToPinnedPlan>& dbBatches,
-                int maxBatchResultListSize_ = 512 * 1024
-            ) : maxBatchResultListSize(maxBatchResultListSize_)
+                int /*maxBatchResultListSize_ = 512 * 1024*/
+            ) /*: maxBatchResultListSize(maxBatchResultListSize_)*/
             {
                 cudaGetDevice(&deviceId);
 
@@ -273,13 +273,15 @@ namespace cudasw4{
 
                 numTempBytes = std::min(maxTempBytes, gpumemlimit);
                 d_tempStorageHE.resize(numTempBytes);
-                d_batchResultListScores.resize(numSubjects);
-                d_batchResultListRefIds.resize(numSubjects);    
+
+                maxBatchResultListSize = numSubjects;
+                d_batchResultListScores.resize(maxBatchResultListSize);
+                d_batchResultListRefIds.resize(maxBatchResultListSize);    
 
                 size_t usedGpuMem = 0;
                 usedGpuMem += numTempBytes;
-                usedGpuMem += sizeof(float) * numSubjects; // d_batchResultListScores
-                usedGpuMem += sizeof(ReferenceIdT) * numSubjects; // d_batchResultListRefIds
+                usedGpuMem += sizeof(float) * maxBatchResultListSize; // d_batchResultListScores
+                usedGpuMem += sizeof(ReferenceIdT) * maxBatchResultListSize; // d_batchResultListRefIds
 
                 if(usedGpuMem > gpumemlimit){
                     throw std::runtime_error("Out of memory working set");
@@ -1357,9 +1359,6 @@ namespace cudasw4{
                 auto& ws = *workingSets[gpu];
                 cudaStream_t stream = gpuStreams[gpu];
 
-                const auto& dbData = fullDB.getData();
-                const size_t numDBSequences = dbData.numSequences();
-
                 //sort the results. since we are only interested in the top "results_per_query" results, but do not need a fully sorted range
                 //perform sorting in batches to reduce memory requirements
 
@@ -1374,8 +1373,8 @@ namespace cudasw4{
                 cudaMallocAsync(&d_myTopResults_refIds_tmp, sizeof(ReferenceIdT) * (results_per_query + sortBatchSize), stream); CUERR;
                 cudaMemsetAsync(d_myTopResults_scores, 0, sizeof(float) * results_per_query, stream); CUERR;
 
-                for(size_t sortOffset = 0; sortOffset < numDBSequences; sortOffset += sortBatchSize){
-                    size_t numInBatch = std::min(numDBSequences - sortOffset, sortBatchSize);
+                for(size_t sortOffset = 0; sortOffset < size_t(ws.maxBatchResultListSize); sortOffset += sortBatchSize){
+                    size_t numInBatch = std::min(ws.maxBatchResultListSize - sortOffset, sortBatchSize);
                     thrust::sort_by_key(
                         thrust::cuda::par_nosync(thrust_async_allocator<char>(stream)).on(stream),
                         ws.d_batchResultListScores.data() + sortOffset,
