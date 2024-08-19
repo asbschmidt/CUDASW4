@@ -423,6 +423,14 @@ namespace cudasw4{
             size_t getNumBatchesInCachedDB() const{
                 return numBatchesInCachedDB;
             }
+
+            void allocateTempStorageHE(){
+                d_tempStorageHE.resize(numTempBytes);
+            }
+
+            void deallocateTempStorageHE(){
+                d_tempStorageHE.destroy();
+            }
         
 
             int deviceId;
@@ -864,20 +872,18 @@ namespace cudasw4{
         }
 
         void makeReady(){
-            #ifdef CUDASW_DEBUG_CHECK_CORRECTNESS
             const auto& dbData = fullDB.getData();
-            size_t numDBSequences = dbData.numSequences();
+            const size_t numDBSequences = dbData.numSequences();
+            maxBatchResultListSize = numDBSequences;
+
+            #ifdef CUDASW_DEBUG_CHECK_CORRECTNESS
             if(numDBSequences > size_t(std::numeric_limits<int>::max()))
                 throw std::runtime_error("cannot check correctness for this db size");
 
-            maxBatchResultListSize = numDBSequences;
             results_per_query = maxBatchResultListSize;
             setNumTop(maxBatchResultListSize);
             #endif
 
-            const auto& dbData = fullDB.getData();
-            const size_t numDBSequences = dbData.numSequences();
-            maxBatchResultListSize = numDBSequences;
 
             dbSequenceLengthStatistics = nullptr;
 
@@ -1327,7 +1333,24 @@ namespace cudasw4{
                 cudaStreamWaitEvent(gpuStreams[gpu], masterevent1, 0); CUERR;
             }
 
+            #ifdef CUDASW_DEBUG_CHECK_CORRECTNESS
+            for(int gpu = 0; gpu < numGpus; gpu++){
+                cudaSetDevice(deviceIds[gpu]); CUERR;
+                auto& ws = *workingSets[gpu];
+                ws.allocateTempStorageHE();
+            }
+            #endif
+            
             processQueryOnGpus();
+            
+            #ifdef CUDASW_DEBUG_CHECK_CORRECTNESS
+            for(int gpu = 0; gpu < numGpus; gpu++){
+                cudaSetDevice(deviceIds[gpu]); CUERR;
+                auto& ws = *workingSets[gpu];
+                ws.deallocateTempStorageHE();
+            }
+            #endif
+            
 
             for(int gpu = 0; gpu < numGpus; gpu++){
                 cudaSetDevice(deviceIds[gpu]); CUERR;
