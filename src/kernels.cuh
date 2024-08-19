@@ -21,7 +21,8 @@ namespace cudasw4{
 //extern template instantiations
 
 //ScoreOutputIterator
-using ScoreIterInst = TopNMaximaArray; 
+// using ScoreIterInst = TopNMaximaArray; 
+using ScoreIterInst = BatchResultList;
 //using ScoreIterInst = float*; 
 //PositionsIterator
 using PosIterInst = decltype(thrust::make_counting_iterator<ReferenceIdT>(0));

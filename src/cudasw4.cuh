@@ -22,6 +22,7 @@
 #include <thrust/binary_search.h>
 #include <thrust/sort.h>
 #include <thrust/equal.h>
+#include <thrust/merge.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
 #include <thrust/iterator/constant_iterator.h>
@@ -248,9 +249,6 @@ namespace cudasw4{
         using MyDeviceBuffer = helpers::SimpleAllocationDevice<T, 0>;
 
         struct GpuWorkingSet{
-
-            //using MaxReduceArray = TopNMaximaArray<maxReduceArraySize>;
-            using MaxReduceArray = TopNMaximaArray;
         
             GpuWorkingSet(
                 size_t gpumemlimit,
@@ -259,8 +257,8 @@ namespace cudasw4{
                 size_t maxTempBytes,
                 const std::vector<DBdataView>& dbPartitions,
                 const std::vector<DeviceBatchCopyToPinnedPlan>& dbBatches,
-                int maxReduceArraySize_ = 512 * 1024
-            ) : maxReduceArraySize(maxReduceArraySize_)
+                int maxBatchResultListSize_ = 512 * 1024
+            ) : maxBatchResultListSize(maxBatchResultListSize_)
             {
                 cudaGetDevice(&deviceId);
 
@@ -275,21 +273,17 @@ namespace cudasw4{
 
                 numTempBytes = std::min(maxTempBytes, gpumemlimit);
                 d_tempStorageHE.resize(numTempBytes);
-                d_maxReduceArrayLocks.resize(maxReduceArraySize);
-                d_maxReduceArrayScores.resize(maxReduceArraySize);
-                d_maxReduceArrayIndices.resize(maxReduceArraySize);            
-                cudaMemset(d_maxReduceArrayLocks.data(), 0, sizeof(int) * maxReduceArraySize);
+                d_batchResultListScores.resize(numSubjects);
+                d_batchResultListRefIds.resize(numSubjects);    
 
                 size_t usedGpuMem = 0;
                 usedGpuMem += numTempBytes;
-                usedGpuMem += sizeof(int) * maxReduceArraySize; // d_maxReduceArrayLocks
-                usedGpuMem += sizeof(float) * maxReduceArraySize; // d_maxReduceArrayScores
-                usedGpuMem += sizeof(ReferenceIdT) * maxReduceArraySize; // d_maxReduceArrayIndices
+                usedGpuMem += sizeof(float) * numSubjects; // d_batchResultListScores
+                usedGpuMem += sizeof(ReferenceIdT) * numSubjects; // d_batchResultListRefIds
 
                 if(usedGpuMem > gpumemlimit){
                     throw std::runtime_error("Out of memory working set");
-                }
-                
+                }              
         
                 //devAlignmentScoresFloat.resize(numSubjects);
         
@@ -322,7 +316,7 @@ namespace cudasw4{
         
                
 
-                if(memoryRequiredForFullDB <= gpumemlimit){
+                if(usedGpuMem + memoryRequiredForFullDB <= gpumemlimit){
                     numBatchesInCachedDB = dbBatches.size();
                     charsOfBatches = numSubjectBytes;
                     subjectsOfBatches = numSubjects;
@@ -387,38 +381,28 @@ namespace cudasw4{
                 }
             }
         
-            MaxReduceArray getMaxReduceArray(size_t offset){
-                return MaxReduceArray(
-                    d_maxReduceArrayScores.data(), 
-                    d_maxReduceArrayIndices.data(), 
-                    d_maxReduceArrayLocks.data(), 
+            BatchResultList getBatchResultList(size_t offset){
+                return BatchResultList(
+                    d_batchResultListScores.data(), 
+                    d_batchResultListRefIds.data(), 
                     offset,
-                    maxReduceArraySize
+                    maxBatchResultListSize
                 );
             }
         
-            void resetMaxReduceArray(cudaStream_t stream){
+            void resetBatchResultList(cudaStream_t stream){
                 thrust::fill(thrust::cuda::par_nosync.on(stream),
-                    d_maxReduceArrayScores.data(),
-                    d_maxReduceArrayScores.data() + maxReduceArraySize,
+                    d_batchResultListScores.data(),
+                    d_batchResultListScores.data() + maxBatchResultListSize,
                     -1.f
                 );
-                cudaMemsetAsync(d_maxReduceArrayIndices.data(), 0, sizeof(ReferenceIdT) * maxReduceArraySize, stream);
+                cudaMemsetAsync(d_batchResultListRefIds.data(), 0, sizeof(ReferenceIdT) * maxBatchResultListSize, stream);
             }
         
             void setPartitionOffsets(const HostGpuPartitionOffsets& offsets){
                 deviceGpuPartitionOffsets = DeviceGpuPartitionOffsets(offsets);
             }
             
-            // void setMaxReduceArraySize(int newsize){
-            //     d_maxReduceArrayLocks.resize(newsize);
-            //     d_maxReduceArrayScores.resize(newsize);
-            //     d_maxReduceArrayIndices.resize(newsize);
-        
-            //     cudaMemset(d_maxReduceArrayLocks.data(), 0, sizeof(int) * newsize);
-            //     maxReduceArraySize = newsize
-            // }
-
             size_t getNumCharsInCachedDB() const{
                 return charsOfBatches;
             }
@@ -437,21 +421,18 @@ namespace cudasw4{
             int numWorkStreamsWithoutTemp = 1;
             int workstreamIndex;
             int copyBufferIndex = 0;
-            int maxReduceArraySize = 512 * 1024;
+            int maxBatchResultListSize = 512 * 1024;
             size_t numTempBytes;
             size_t numBatchesInCachedDB = 0;
             size_t charsOfBatches = 0;
             size_t subjectsOfBatches = 0;
         
-            MyDeviceBuffer<int> d_maxReduceArrayLocks;
-            MyDeviceBuffer<float> d_maxReduceArrayScores;
-            MyDeviceBuffer<ReferenceIdT> d_maxReduceArrayIndices;
+            MyDeviceBuffer<float> d_batchResultListScores;
+            MyDeviceBuffer<ReferenceIdT> d_batchResultListRefIds;
         
             MyDeviceBuffer<char> d_query;
             MyDeviceBuffer<char> d_tempStorageHE;
-            //MyDeviceBuffer<float> devAlignmentScoresFloat;
 
-            // MyDeviceBuffer<size_t> d_selectedPositions;
             MyDeviceBuffer<int> d_total_overflow_number;
             MyDeviceBuffer<int> d_overflow_number;
             MyPinnedBuffer<int> h_overflow_number;
@@ -880,10 +861,14 @@ namespace cudasw4{
             if(numDBSequences > size_t(std::numeric_limits<int>::max()))
                 throw std::runtime_error("cannot check correctness for this db size");
 
-            maxReduceArraySize = numDBSequences;
-            results_per_query = maxReduceArraySize;
-            setNumTop(maxReduceArraySize);
+            maxBatchResultListSize = numDBSequences;
+            results_per_query = maxBatchResultListSize;
+            setNumTop(maxBatchResultListSize);
             #endif
+
+            const auto& dbData = fullDB.getData();
+            const size_t numDBSequences = dbData.numSequences();
+            maxBatchResultListSize = numDBSequences;
 
             dbSequenceLengthStatistics = nullptr;
 
@@ -1034,7 +1019,7 @@ namespace cudasw4{
                     memoryConfig.maxTempBytes,
                     subPartitionsForGpus[gpu],
                     batchPlans[gpu],
-                    maxReduceArraySize
+                    maxBatchResultListSize
                 );
 
                 if(verbose){
@@ -1338,51 +1323,92 @@ namespace cudasw4{
             for(int gpu = 0; gpu < numGpus; gpu++){
                 cudaSetDevice(deviceIds[gpu]); CUERR;
                 auto& ws = *workingSets[gpu];
+                cudaStream_t stream = gpuStreams[gpu];
 
-                //sort the maxReduceArray by score. we are only interested int the top "results_per_query" results
-                thrust::sort_by_key(
-                    thrust::cuda::par_nosync(thrust_async_allocator<char>(gpuStreams[gpu])).on(gpuStreams[gpu]),
-                    ws.d_maxReduceArrayScores.data(),
-                    ws.d_maxReduceArrayScores.data() + maxReduceArraySize,
-                    ws.d_maxReduceArrayIndices.data(),
-                    thrust::greater<float>()
-                );
+                const auto& dbData = fullDB.getData();
+                const size_t numDBSequences = dbData.numSequences();
+
+                //sort the results. since we are only interested in the top "results_per_query" results, but do not need a fully sorted range
+                //perform sorting in batches to reduce memory requirements
+
+                const size_t sortBatchSize = 1000000;
+                float* d_myTopResults_scores;
+                ReferenceIdT* d_myTopResults_refIds;
+                float* d_myTopResults_scores_tmp;
+                ReferenceIdT* d_myTopResults_refIds_tmp;
+                cudaMallocAsync(&d_myTopResults_scores, sizeof(float) * results_per_query, stream); CUERR;
+                cudaMallocAsync(&d_myTopResults_refIds, sizeof(ReferenceIdT) * results_per_query, stream); CUERR;
+                cudaMallocAsync(&d_myTopResults_scores_tmp, sizeof(float) * (results_per_query + sortBatchSize), stream); CUERR;
+                cudaMallocAsync(&d_myTopResults_refIds_tmp, sizeof(ReferenceIdT) * (results_per_query + sortBatchSize), stream); CUERR;
+                cudaMemsetAsync(d_myTopResults_scores, 0, sizeof(float) * results_per_query, stream); CUERR;
+
+                for(size_t sortOffset = 0; sortOffset < numDBSequences; sortOffset += sortBatchSize){
+                    size_t numInBatch = std::min(numDBSequences - sortOffset, sortBatchSize);
+                    thrust::sort_by_key(
+                        thrust::cuda::par_nosync(thrust_async_allocator<char>(stream)).on(stream),
+                        ws.d_batchResultListScores.data() + sortOffset,
+                        ws.d_batchResultListScores.data() + sortOffset + numInBatch,
+                        ws.d_batchResultListRefIds.data() + sortOffset,
+                        thrust::greater<float>()
+                    );
+
+                    thrust::merge_by_key(
+                        thrust::cuda::par_nosync(thrust_async_allocator<char>(stream)).on(stream),
+                        ws.d_batchResultListScores.data() + sortOffset,
+                        ws.d_batchResultListScores.data() + sortOffset + std::min(numInBatch, size_t(results_per_query)),
+                        d_myTopResults_scores, 
+                        d_myTopResults_scores + results_per_query,
+                        ws.d_batchResultListRefIds.data() + sortOffset, 
+                        d_myTopResults_refIds,
+                        d_myTopResults_scores_tmp, 
+                        d_myTopResults_refIds_tmp,
+                        thrust::greater<float>()
+                    );
+
+                    cudaMemcpyAsync(d_myTopResults_scores, d_myTopResults_scores_tmp, sizeof(float) * results_per_query, cudaMemcpyDeviceToDevice, stream); CUERR;
+                    cudaMemcpyAsync(d_myTopResults_refIds, d_myTopResults_refIds_tmp, sizeof(ReferenceIdT) * results_per_query, cudaMemcpyDeviceToDevice, stream); CUERR;
+                }
 
                 if(numGpus > 1){
                     //transform per gpu local sequence indices into global sequence indices
                     if(results_per_query > 0){
-                        transformLocalSequenceIndicesToGlobalIndices<<<SDIV(results_per_query, 128), 128, 0, gpuStreams[gpu]>>>(
+                        transformLocalSequenceIndicesToGlobalIndices<<<SDIV(results_per_query, 128), 128, 0, stream>>>(
                             gpu,
                             results_per_query,
                             ws.deviceGpuPartitionOffsets.getDeviceView(),
-                            ws.d_maxReduceArrayIndices.data()
+                            d_myTopResults_refIds
                         ); CUERR;
                     }
                 }
 
                 cudaMemcpyAsync(
                     d_finalAlignmentScores_allGpus.data() + results_per_query*gpu,
-                    ws.d_maxReduceArrayScores.data(),
+                    d_myTopResults_scores,
                     sizeof(float) * results_per_query,
                     cudaMemcpyDeviceToDevice,
-                    gpuStreams[gpu]
+                    stream
                 ); CUERR;
                 cudaMemcpyAsync(
                     d_finalReferenceIds_allGpus.data() + results_per_query*gpu,
-                    ws.d_maxReduceArrayIndices.data(),
+                    d_myTopResults_refIds,
                     sizeof(ReferenceIdT) * results_per_query,
                     cudaMemcpyDeviceToDevice,
-                    gpuStreams[gpu]
+                    stream
                 ); CUERR;                
                 cudaMemcpyAsync(
                     d_resultNumOverflows.data() + gpu,
                     ws.d_total_overflow_number.data(),
                     sizeof(int),
                     cudaMemcpyDeviceToDevice,
-                    gpuStreams[gpu]
-                ); CUERR;                
+                    stream
+                ); CUERR;
 
-                cudaEventRecord(ws.forkStreamEvent, gpuStreams[gpu]); CUERR;
+                cudaFreeAsync(d_myTopResults_scores, stream); CUERR;
+                cudaFreeAsync(d_myTopResults_refIds, stream); CUERR;
+                cudaFreeAsync(d_myTopResults_scores_tmp, stream); CUERR;
+                cudaFreeAsync(d_myTopResults_refIds_tmp, stream); CUERR;
+
+                cudaEventRecord(ws.forkStreamEvent, stream); CUERR;
 
                 cudaSetDevice(masterDeviceId);
                 cudaStreamWaitEvent(masterStream1, ws.forkStreamEvent, 0); CUERR;
@@ -1455,7 +1481,7 @@ namespace cudasw4{
         
                 cudaMemsetAsync(ws.d_total_overflow_number.data(), 0, sizeof(int), gpuStreams[gpu]);
                 
-                ws.resetMaxReduceArray(gpuStreams[gpu]);
+                ws.resetBatchResultList(gpuStreams[gpu]);
         
                 //create dependency on mainStream
                 cudaEventRecord(ws.forkStreamEvent, gpuStreams[gpu]); CUERR;
@@ -1562,7 +1588,8 @@ namespace cudasw4{
                         }
                     }
                 }
-                //upload batch and process it
+
+                //upload batch
                 for(int gpu = 0; gpu < numGpus; gpu++){
                     cudaSetDevice(deviceIds[gpu]); CUERR;
                     auto& ws = *workingSets[gpu];
@@ -1650,9 +1677,17 @@ namespace cudasw4{
                             
                             cudaEventRecord(ws.pinnedBufferEvents[variables.currentBuffer], variables.H2DcopyStream); CUERR;
                         }
+                    }
+                }
+
+                //process batch
+                for(int gpu = 0; gpu < numGpus; gpu++){
+                    cudaSetDevice(deviceIds[gpu]); CUERR;
+                    auto& ws = *workingSets[gpu];
+                    auto& variables = variables_vec[gpu];
+                    if(variables.processedBatches < variables.batchPlansPtr->size()){
         
                         cudaMemsetAsync(variables.d_overflow_number, 0, sizeof(int), variables.H2DcopyStream);
-                        // cudaMemsetAsync(d_overflow_positions, 0, sizeof(size_t) * 10000, H2DcopyStream);
                         
                         //all data is ready for alignments. create dependencies for work streams
                         cudaEventRecord(ws.forkStreamEvent, variables.H2DcopyStream); CUERR;
@@ -2035,48 +2070,11 @@ namespace cudasw4{
                                 //exclPs += numSeq;
                             }
                         };
-        
-                        auto maxReduceArray = ws.getMaxReduceArray(variables.processedSequences);
-                        // auto maxReduceArray = ws.d_maxReduceArrayScores.data();
 
-                        // thrust::fill(
-                        //     thrust::device,
-                        //     ws.d_maxReduceArrayScores.data(), 
-                        //     ws.d_maxReduceArrayScores.data() + ws.d_maxReduceArrayScores.size(), 
-                        //     0
-                        // );
-                        // thrust::sequence(
-                        //     thrust::device,
-                        //     ws.d_maxReduceArrayIndices.data(), 
-                        //     ws.d_maxReduceArrayIndices.data() + ws.d_maxReduceArrayIndices.size(), 
-                        //     0
-                        // );
+                        auto batchResultList = ws.getBatchResultList(variables.processedSequences);
 
-                        // //runAlignmentKernels(ws.devAlignmentScoresFloat.data() + variables.processedSequences, d_overflow_positions, d_overflow_number);
-                        runAlignmentKernels(maxReduceArray, d_overflow_positions, d_overflow_number);
+                        runAlignmentKernels(batchResultList, d_overflow_positions, d_overflow_number);
 
-                        // for(int aaa = 0; aaa < 100; aaa++){
-                        //     MyDeviceBuffer<float> tmpscoresaaa(ws.d_maxReduceArrayIndices.size());
-                        //     thrust::fill(
-                        //         thrust::device,
-                        //         tmpscoresaaa.data(), 
-                        //         tmpscoresaaa.data() + tmpscoresaaa.size(), 
-                        //         0
-                        //     );
-                        //     float* ptr = tmpscoresaaa.data();
-                        //     runAlignmentKernels(ptr, d_overflow_positions, d_overflow_number);
-                        //     bool equal = thrust::equal(
-                        //         thrust::device,
-                        //         ws.d_maxReduceArrayScores.data(),
-                        //         ws.d_maxReduceArrayScores.data() + tmpscoresaaa.size(),
-                        //         tmpscoresaaa.data()
-                        //     );
-                        //     if(!equal){
-                        //         std::cout << "aaa " << aaa << " no equal\n";
-                        //     }
-                        // }
-        
-        
                         //alignments are done in workstreams. now, join all workstreams into workStreamForTempUsage to process overflow alignments
                         for(auto& stream : ws.workStreamsWithoutTemp){
                             cudaEventRecord(ws.forkStreamEvent, stream); CUERR;
@@ -2100,8 +2098,7 @@ namespace cudasw4{
         
                         const char4* const d_query = reinterpret_cast<char4*>(ws.d_query.data());
         
-                        auto maxReduceArray = ws.getMaxReduceArray(variables.processedSequences);
-                        //auto maxReduceArray = ws.d_maxReduceArrayScores.data();
+                        auto batchResultList = ws.getBatchResultList(variables.processedSequences);
         
                         if(kernelTypeConfig.overflowType == KernelType::Float){
                             //std::cerr << "overflow processing\n";
@@ -2111,7 +2108,7 @@ namespace cudasw4{
                                 d_temp, 
                                 ws.numTempBytes,
                                 inputChars, 
-                                maxReduceArray,
+                                batchResultList,
                                 inputOffsets, 
                                 inputLengths, 
                                 d_overflow_positions, 
@@ -2129,7 +2126,7 @@ namespace cudasw4{
                                 d_temp, 
                                 ws.numTempBytes,
                                 inputChars, 
-                                maxReduceArray,
+                                batchResultList,
                                 inputOffsets, 
                                 inputLengths, 
                                 d_overflow_positions, 
@@ -2146,7 +2143,7 @@ namespace cudasw4{
                         //update total num overflows for query
                         addKernel<<<1,1,0, ws.workStreamForTempUsage>>>(ws.d_total_overflow_number.data(), ws.d_total_overflow_number.data(), d_overflow_number); CUERR;
         
-                        //after processing overflow alignments, the batch is done and its data can be resused
+                        //after processing overflow alignments, the batch is done and its data can be reused
                         cudaEventRecord(ws.deviceBufferEvents[variables.currentBuffer], ws.workStreamForTempUsage); CUERR;
         
                         //let other workstreams depend on temp usage stream
@@ -2244,7 +2241,7 @@ namespace cudasw4{
 
         void updateNumResultsPerQuery(){
 
-            results_per_query = std::min(size_t(numTop), size_t(maxReduceArraySize));
+            results_per_query = std::min(size_t(numTop), size_t(maxBatchResultListSize));
             if(dbIsReady){
                 results_per_query = std::min(size_t(results_per_query), fullDB.getData().numSequences());
             }
@@ -2416,7 +2413,7 @@ namespace cudasw4{
         int gex = -1;
         int numTop = 10;
         BlosumType blosumType = BlosumType::BLOSUM62_20;
-        int maxReduceArraySize = 512 * 1024;
+        int maxBatchResultListSize = 512 * 1024;
 
         KernelTypeConfig kernelTypeConfig;
         MemoryConfig memoryConfig;

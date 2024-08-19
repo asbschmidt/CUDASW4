@@ -154,6 +154,43 @@ struct TopNMaximaArray{
     size_t size;
 };
 
+
+
+struct BatchResultList{
+    struct Ref{
+        size_t index;
+        size_t indexOffset;
+        float* d_scores;
+        ReferenceIdT* d_indices;
+
+        __device__
+        Ref& operator=(float newscore){
+            d_scores[index] = newscore;
+            d_indices[index] = indexOffset + index;
+            return *this;
+        }
+    };
+
+    BatchResultList(float* d_scores_, ReferenceIdT* d_indices_, size_t offset, size_t size_)
+        : indexOffset(offset), d_scores(d_scores_), d_indices(d_indices_), size(size_){}
+
+    template<class Index>
+    __device__
+    Ref operator[](Index index) const{
+        Ref r;
+        r.index = index;
+        r.indexOffset = indexOffset;
+        r.d_scores = d_scores;
+        r.d_indices = d_indices;
+        return r;
+    }
+
+    size_t indexOffset = 0;
+    float* d_scores;
+    ReferenceIdT* d_indices;
+    size_t size;
+};
+
 }
 
 #endif
