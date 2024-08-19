@@ -306,13 +306,17 @@ namespace cudasw4{
                 d_total_overflow_number.resize(1);
                 d_overflow_number.resize(numCopyBuffers);
                 h_overflow_number.resize(numCopyBuffers);
-                d_overflow_positions_vec.resize(numCopyBuffers);
+
+                //only transfer buffers are double buffers
+                //do not need a double buffer for d_overflow_positions since batches are processed one at a time.
+                //d_overflow_number remains double buffer for simpler initialization of counter
+                d_overflow_positions_vec.resize(1);
 
                 size_t memoryRequiredForFullDB = 0;
                 memoryRequiredForFullDB += numSubjectBytes; // d_fulldb_chardata
                 memoryRequiredForFullDB += sizeof(SequenceLengthT) * numSubjects; //d_fulldb_lengthdata
                 memoryRequiredForFullDB += sizeof(size_t) * (numSubjects+1); //d_fulldb_offsetdata
-                memoryRequiredForFullDB += sizeof(ReferenceIdT) * numSubjects * 2; //d_overflow_positions_vec
+                memoryRequiredForFullDB += sizeof(ReferenceIdT) * numSubjects * 1; //d_overflow_positions_vec
         
                
 
@@ -328,8 +332,9 @@ namespace cudasw4{
                         h_offsetdata_vec[i].resize(maxBatchSequences+1);               
                         pinnedBufferEvents[i] = CudaEvent{cudaEventDisableTiming}; CUERR;
                         deviceBufferEvents[i] = CudaEvent{cudaEventDisableTiming}; CUERR;
-                        d_overflow_positions_vec[i].resize(numSubjects);
+                        // d_overflow_positions_vec[i].resize(numSubjects);
                     }
+                    d_overflow_positions_vec[0].resize(numSubjects);
                 }else{
                     //allocate a double buffer for batch transfering
                     size_t memoryRequiredForBatchedProcessing = 0;
@@ -350,18 +355,21 @@ namespace cudasw4{
                         d_offsetdata_vec[i].resize(maxBatchSequences+1);
                         pinnedBufferEvents[i] = CudaEvent{cudaEventDisableTiming}; CUERR;
                         deviceBufferEvents[i] = CudaEvent{cudaEventDisableTiming}; CUERR;
-                        d_overflow_positions_vec[i].resize(maxBatchSequences);
+                        // d_overflow_positions_vec[i].resize(maxBatchSequences);
                     }
-
+                    
                     //count how many batches fit into remaining gpu memory
-
+                    
                     numBatchesInCachedDB = 0;
                     charsOfBatches = 0;
                     subjectsOfBatches = 0;
                     size_t totalRequiredMemForBatches = sizeof(size_t);
                     for(; numBatchesInCachedDB < dbBatches.size(); numBatchesInCachedDB++){
                         const auto& batch = dbBatches[numBatchesInCachedDB];
-                        const size_t requiredMemForBatch = batch.usedSeq * sizeof(SequenceLengthT) + batch.usedSeq * sizeof(size_t) + batch.usedBytes;
+                        const size_t requiredMemForBatch = batch.usedSeq * sizeof(SequenceLengthT) //lengths
+                            + batch.usedSeq * sizeof(size_t) //offsets
+                            + batch.usedBytes //chars
+                            + batch.usedSeq * sizeof(ReferenceIdT); //overflow positions
                         if(usedGpuMem + totalRequiredMemForBatches + requiredMemForBatch <= gpumemlimit){
                             //ok, fits
                             totalRequiredMemForBatches += requiredMemForBatch;
@@ -373,6 +381,7 @@ namespace cudasw4{
                         }
                     }
                     assert(numBatchesInCachedDB < dbBatches.size());
+                    d_overflow_positions_vec[0].resize(std::max(maxBatchSequences, subjectsOfBatches));
 
                     //std::cout << "numBatchesInCachedDB " << numBatchesInCachedDB << ", charsOfBatches " << charsOfBatches << ", subjectsOfBatches " << subjectsOfBatches << "\n";
 
@@ -1549,8 +1558,8 @@ namespace cudasw4{
                                 variables.d_inputChars = batchPlansDstInfoVec[gpu][variables.processedBatches].charsPtr;
                                 variables.d_inputLengths = batchPlansDstInfoVec[gpu][variables.processedBatches].lengthsPtr;
                                 variables.d_inputOffsets = batchPlansDstInfoVec[gpu][variables.processedBatches].offsetsPtr;
-                                variables.d_overflow_number = ws.d_overflow_number.data() + variables.currentBuffer;
-                                variables.d_overflow_positions = ws.d_overflow_positions_vec[variables.currentBuffer].data();
+                                variables.d_overflow_number = ws.d_overflow_number.data() + variables.currentBuffer;                                
+                                variables.d_overflow_positions = ws.d_overflow_positions_vec[0].data();
                             }else{
                                 //already uploaded. process all batches for cached db together
                                 assert(variables.processedBatches == 0);
@@ -1564,7 +1573,7 @@ namespace cudasw4{
                                 variables.d_inputLengths = ws.d_cacheddb->getLengthData();
                                 variables.d_inputOffsets = ws.d_cacheddb->getOffsetData();
                                 variables.d_overflow_number = ws.d_overflow_number.data() + variables.currentBuffer;
-                                variables.d_overflow_positions = ws.d_overflow_positions_vec[variables.currentBuffer].data();
+                                variables.d_overflow_positions = ws.d_overflow_positions_vec[0].data();
                                 
                             }
                         }else{
@@ -1584,7 +1593,7 @@ namespace cudasw4{
                             variables.d_inputLengths = batchPlansDstInfoVec[gpu][variables.processedBatches].lengthsPtr;
                             variables.d_inputOffsets = batchPlansDstInfoVec[gpu][variables.processedBatches].offsetsPtr;
                             variables.d_overflow_number = ws.d_overflow_number.data() + variables.currentBuffer;
-                            variables.d_overflow_positions = ws.d_overflow_positions_vec[variables.currentBuffer].data();
+                            variables.d_overflow_positions = ws.d_overflow_positions_vec[0].data();
                         }
                     }
                 }
