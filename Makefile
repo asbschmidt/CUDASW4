@@ -63,16 +63,16 @@ $(BUILDDIR)/options.o : src/options.cpp src/options.hpp src/types.hpp
 $(BUILDDIR)/blosum.o : src/blosum.cu src/blosum.hpp
 	$(COMPILE)
 
-$(BUILDDIR)/half2_kernel_instantiations.o: src/half2_kernel_instantiations.cu src/half2_kernels.cuh
+$(BUILDDIR)/half2_kernel_instantiations.o: src/half2_kernel_instantiations.cu src/half2_kernels.cuh src/kernels.cuh
 	$(COMPILE)
 
-$(BUILDDIR)/float_kernel_instantiations.o: src/float_kernel_instantiations.cu src/float_kernels.cuh
+$(BUILDDIR)/float_kernel_instantiations.o: src/float_kernel_instantiations.cu src/float_kernels.cuh src/kernels.cuh
 	$(COMPILE)
 
-$(BUILDDIR)/dpx_s16_kernel_instantiations.o: src/dpx_s16_kernel_instantiations.cu src/dpx_s16_kernels.cuh
+$(BUILDDIR)/dpx_s16_kernel_instantiations.o: src/dpx_s16_kernel_instantiations.cu src/dpx_s16_kernels.cuh src/kernels.cuh
 	$(COMPILE)
 
-$(BUILDDIR)/dpx_s32_kernel_instantiations.o: src/dpx_s32_kernel_instantiations.cu src/dpx_s32_kernels.cuh
+$(BUILDDIR)/dpx_s32_kernel_instantiations.o: src/dpx_s32_kernel_instantiations.cu src/dpx_s32_kernels.cuh src/kernels.cuh
 	$(COMPILE)
 
 $(BUILDDIR)/makedb.o : src/makedb.cpp src/dbdata.hpp src/sequence_io.h
