@@ -128,6 +128,7 @@ int main(int argc, char* argv[])
     }
 
     helpers::PeerAccess peerAccess(deviceIds, false);
+    peerAccess.enableAllPeerAccesses();
  
     using KernelTypeConfig = cudasw4::KernelTypeConfig;
     using MemoryConfig = cudasw4::MemoryConfig;
