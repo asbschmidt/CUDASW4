@@ -144,8 +144,4 @@ kerneltype 0: half2, kerneltype 1: dpx
 # Publication
 This work is presented in the following paper.
 
-"CUDASW++4.0: Ultra-fast GPU-based Smith-Waterman Protein Sequence Database Search"
-
-Bertil Schmidt, Felix Kallenborn, Alejandro Chacon, Christian Hundt
-
-bioRxiv 2023.10.09.561526; doi: https://doi.org/10.1101/2023.10.09.561526
+Schmidt, B., Kallenborn, F., Chacon, A. et al. CUDASW++4.0: ultra-fast GPU-based Smith–Waterman protein sequence database search. BMC Bioinformatics 25, 342 (2024). https://doi.org/10.1186/s12859-024-05965-6
