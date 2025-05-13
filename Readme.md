@@ -7,7 +7,7 @@
 
 
 ## Software requirements
-* Linux operating system with compatible CUDA Toolkit 12 or newer
+* Linux operating system with compatible CUDA Toolkit 12.2 or newer
 * C++17 compiler
 * zlib
 * make
