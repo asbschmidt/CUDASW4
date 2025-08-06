@@ -202,6 +202,9 @@ int main(int argc, char* argv[])
         cudaSW4.setDatabase(fullDB_tmp);
     }
 
+    cudaSW4.setGapOpenScore(options.gop);
+    cudaSW4.setGapExtendScore(options.gex);
+
     if(options.verbose){
         cudaSW4.printDBInfo();
         if(options.printLengthPartitions){
