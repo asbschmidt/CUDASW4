@@ -256,9 +256,8 @@ namespace cudasw4{
                 size_t maxBatchSequences,
                 size_t maxTempBytes,
                 const std::vector<DBdataView>& dbPartitions,
-                const std::vector<DeviceBatchCopyToPinnedPlan>& dbBatches,
-                int /*maxBatchResultListSize_ = 512 * 1024*/
-            ) /*: maxBatchResultListSize(maxBatchResultListSize_)*/
+                const std::vector<DeviceBatchCopyToPinnedPlan>& dbBatches
+            )
             {
                 cudaGetDevice(&deviceId);
 
@@ -393,11 +392,14 @@ namespace cudasw4{
             }
         
             BatchResultList getBatchResultList(size_t offset){
+                if(offset >= maxBatchResultListSize){
+                    throw std::runtime_error("getBatchResultList invalid offset");
+                }
                 return BatchResultList(
-                    d_batchResultListScores.data(), 
-                    d_batchResultListRefIds.data(), 
+                    d_batchResultListScores.data() + offset, 
+                    d_batchResultListRefIds.data() + offset, 
                     offset,
-                    maxBatchResultListSize
+                    maxBatchResultListSize - offset
                 );
             }
         
@@ -440,7 +442,7 @@ namespace cudasw4{
             int numWorkStreamsWithoutTemp = 1;
             int workstreamIndex;
             int copyBufferIndex = 0;
-            int maxBatchResultListSize = 512 * 1024;
+            size_t maxBatchResultListSize = 0;
             size_t numTempBytes;
             size_t numBatchesInCachedDB = 0;
             size_t charsOfBatches = 0;
@@ -876,14 +878,13 @@ namespace cudasw4{
         void makeReady(){
             const auto& dbData = fullDB.getData();
             const size_t numDBSequences = dbData.numSequences();
-            maxBatchResultListSize = numDBSequences;
 
             #ifdef CUDASW_DEBUG_CHECK_CORRECTNESS
             if(numDBSequences > size_t(std::numeric_limits<int>::max()))
                 throw std::runtime_error("cannot check correctness for this db size");
 
-            results_per_query = maxBatchResultListSize;
-            setNumTop(maxBatchResultListSize);
+            results_per_query = numDBSequences;
+            setNumTop(numDBSequences);
             #endif
 
 
@@ -1035,8 +1036,7 @@ namespace cudasw4{
                     memoryConfig.maxBatchSequences,
                     memoryConfig.maxTempBytes,
                     subPartitionsForGpus[gpu],
-                    batchPlans[gpu],
-                    maxBatchResultListSize
+                    batchPlans[gpu]
                 );
 
                 if(verbose){
@@ -2272,7 +2272,7 @@ namespace cudasw4{
 
         void updateNumResultsPerQuery(){
 
-            results_per_query = std::min(size_t(numTop), size_t(maxBatchResultListSize));
+            results_per_query = numTop;
             if(dbIsReady){
                 results_per_query = std::min(size_t(results_per_query), fullDB.getData().numSequences());
             }
@@ -2444,7 +2444,6 @@ namespace cudasw4{
         int gex = -1;
         int numTop = 10;
         BlosumType blosumType = BlosumType::BLOSUM62_20;
-        int maxBatchResultListSize = 512 * 1024;
 
         KernelTypeConfig kernelTypeConfig;
         MemoryConfig memoryConfig;
