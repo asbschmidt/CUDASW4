@@ -444,7 +444,7 @@ struct FloatAligner{
         const int from_thread_id = 32 - ((final_out+1)/2);
 
         //printf("tid %d, offset_out %d, from_thread_id %d\n", threadIdx.x, offset_out, from_thread_id);
-        if (threadIdx.x>=from_thread_id) {
+        if (group_id>=from_thread_id) {
             checkHEindex(offset_out-from_thread_id, queryLength, __LINE__);
             devTempHcol[offset_out-from_thread_id]=H_temp_out;
             devTempEcol[offset_out-from_thread_id]=E_temp_out;
@@ -633,7 +633,7 @@ struct FloatAligner{
         const int final_out = queryLength % 64;
         const int from_thread_id = 32 - ((final_out+1)/2);
 
-        if (threadIdx.x>=from_thread_id) {
+        if (group_id>=from_thread_id) {
             checkHEindex(offset_out-from_thread_id, queryLength, __LINE__);
             devTempHcol[offset_out-from_thread_id]=H_temp_out;
             devTempEcol[offset_out-from_thread_id]=E_temp_out;

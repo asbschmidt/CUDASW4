@@ -460,7 +460,7 @@ struct Half2Aligner{
         const int from_thread_id = 32 - final_out;
 
         //printf("tid %d, offset_out %d, from_thread_id %d\n", threadIdx.x, offset_out, from_thread_id);
-        if (threadIdx.x>=from_thread_id) {
+        if (group_id>=from_thread_id) {
             checkHEindex(offset_out-from_thread_id, queryLength, __LINE__);
             devTempHcol[offset_out-from_thread_id]=H_temp_out;
             devTempEcol[offset_out-from_thread_id]=E_temp_out;
@@ -636,7 +636,7 @@ struct Half2Aligner{
         const int final_out = queryLength % 32;
         const int from_thread_id = 32 - final_out;
 
-        if (threadIdx.x>=from_thread_id) {
+        if (group_id>=from_thread_id) {
             checkHEindex(offset_out-from_thread_id, queryLength, __LINE__);
             devTempHcol[offset_out-from_thread_id]=H_temp_out;
             devTempEcol[offset_out-from_thread_id]=E_temp_out;
