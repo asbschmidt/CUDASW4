@@ -502,7 +502,7 @@ namespace cudasw4{
             const KernelTypeConfig& kernelTypeConfig,
             const MemoryConfig& memoryConfig,
             bool verbose_
-        ) : deviceIds(std::move(deviceIds_)), verbose(verbose_)
+        ) : verbose(verbose_), deviceIds(std::move(deviceIds_))
         {
             #ifdef CUDASW_DEBUG_CHECK_CORRECTNESS
                 blosumType = BlosumType::BLOSUM62_20;
