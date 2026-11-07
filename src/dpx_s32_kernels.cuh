@@ -601,24 +601,24 @@ struct DPXAligner_s32{
             shuffle_query(new_query_letter4.x, query_letter);
             shuffle_affine_penalty(H_temp_in.x, E_temp_in.x, E, penalty_here31, penalty_diag, penalty_left);
             calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
-            set_H_E_temp_out_y(E, penalty_here31, H_temp_out, E_temp_out);
+            set_H_E_temp_out_y(penalty_here31, E, H_temp_out, E_temp_out);
         }
         if (queryLength%4 == 3) {
             //shuffle_max();
             calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
-            set_H_E_temp_out_x(E, penalty_here31, H_temp_out, E_temp_out);
+            set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
             shuffle_query(new_query_letter4.x, query_letter);
             shuffle_affine_penalty(H_temp_in.x, E_temp_in.x, E, penalty_here31, penalty_diag, penalty_left);
             //shuffle_max();
             calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
-            set_H_E_temp_out_y(E, penalty_here31, H_temp_out, E_temp_out);
+            set_H_E_temp_out_y(penalty_here31, E, H_temp_out, E_temp_out);
             shuffle_H_E_temp_out(H_temp_out, E_temp_out);
             shuffle_query(new_query_letter4.y, query_letter);
             shuffle_affine_penalty(H_temp_in.y, E_temp_in.y, E, penalty_here31, penalty_diag, penalty_left);
 
             calc32_local_affine_int(query_letter, E, penalty_here31, penalty_diag, maximum, subject, penalty_here_array, F_here_array);
-            set_H_E_temp_out_x(E, penalty_here31, H_temp_out, E_temp_out);
-            set_H_E_temp_out_y(E, penalty_here31, H_temp_out, E_temp_out);
+            set_H_E_temp_out_x(penalty_here31, E, H_temp_out, E_temp_out);
+            set_H_E_temp_out_y(penalty_here31, E, H_temp_out, E_temp_out);
         }
         const int final_out = queryLength % 64;
         const int from_thread_id = 32 - ((final_out+1)/2);
